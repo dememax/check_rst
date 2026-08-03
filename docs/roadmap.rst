@@ -350,17 +350,18 @@ A consolidated edit-validation cycle
 *(agreed 2026-07-29; not yet implemented)*
 
 Expose one command (working name ``--edit-cycle``) that performs the existing
-``--skip-fixable`` → ``--fix`` → final-validation contract while reusing work
-that applies to the same immutable input state.  The list-to-section edit on
-this page measured 15.9 s, 15.6 s, and 15.1 s for those three invocations —
-about 47 seconds in three near-identical Sphinx builds before the separate
-17.3-second outline verification.  The combined command must retain explicit
-stage-labelled results, the final honest exit status, Git-scope enforcement,
-and the rule that fixes are always followed by validation; this is execution
-reuse, not a weaker workflow.  Fingerprint the files, configuration, and
-relevant dependency state within one invocation: if ``--fix`` changes nothing,
-reuse the verified state, while a real mutation invalidates it and triggers one
-post-fix rebuild.  No cache may silently cross an input-state boundary.
+``--skip-fixable`` → ``--fix-only`` → final-validation contract while reusing work
+that applies to the same immutable input state.  Before ``--fix-only`` existed,
+the list-to-section edit on this page measured 15.9 s, 15.6 s, and 15.1 s for
+``--skip-fixable``, ordinary ``--fix``, and final validation — about 47 seconds
+in three near-identical Sphinx builds before the separate 17.3-second outline
+verification.  ``--fix-only`` has since removed the middle build.  A combined
+command could still reuse the first verified state when the mutation plan is
+empty; a real mutation necessarily invalidates it and requires one post-fix
+build.  The command must retain explicit stage-labelled results, the final
+honest exit status, Git-scope enforcement, and the rule that fixes are always
+followed by validation; this is execution reuse, not a weaker workflow.  No
+cache may silently cross an input-state boundary.
 
 
 ********************

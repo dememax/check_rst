@@ -25,10 +25,23 @@ Installation
 ==============
 
 The package declares a ``check_rst`` console entry point and requires Python
-3.14.  Install it once with a standards-based Python package installer.  A
-host-specific launcher may pin an absolute interpreter or installed checkout
-when protection from an activated virtual environment is required; that
-launcher belongs to the host configuration, not to a consuming repository.
+3.14.  Install it once with a standards-based Python package installer.  Its
+docutils compatibility range deliberately covers both PyPI's Sphinx 9.1.0
+stack (docutils 0.22.4) and distribution builds such as Gentoo's Sphinx
+9.1.0-r1 stack (docutils 0.23); the suite is validated in both environments.
+A host-specific launcher may pin an absolute interpreter or installed
+checkout when protection from an activated virtual environment is required;
+that launcher belongs to the host configuration, not to a consuming
+repository.
+
+The interpreter boundary must still include every Sphinx extension loaded by
+consumer ``conf.py`` files.  On Gentoo, the preferred host-wide installation
+is therefore a virtual environment created with ``--system-site-packages``
+and containing only ``check_rst`` installed with ``--no-deps``.  It reuses the
+distribution's coherent Sphinx, docutils, and extension set while the launcher
+still prevents an unrelated activated project environment from changing the
+entry point.  A fully isolated pip environment is equally valid only when all
+extensions required by its consuming projects are installed inside it.
 
 Verified mode loads the selected project's ``conf.py`` and extensions, which
 execute Python code.  Use ``--sphinx-src`` or a repository configuration only

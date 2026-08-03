@@ -36,7 +36,7 @@ that enforces them.
 
    If you read nothing else: writing, declare a new section with a
    9-character placeholder underline and no overline, then run
-   ``check_rst --skip-fixable`` (review WARNINGs) → ``check_rst --fix``
+   ``check_rst --skip-fixable`` (review WARNINGs) → ``check_rst --fix-only``
    (bare form when the whole dirty RST set is yours) → ``check_rst``
    (confirm clean).  In a shared dirty worktree, add the same
    ``--git-scope path/to/owned.rst`` allowlist to all three commands.

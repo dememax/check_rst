@@ -27,8 +27,11 @@ check_rst --help
 ```
 
 `pip install` builds a wheel internally and installs both the Python package
-and its console entry point, along with its pinned dependencies (`docutils`,
-`Sphinx`, `snowballstemmer`). To build the wheel explicitly instead:
+and its console entry point, along with its bounded dependencies (`docutils`,
+`Sphinx`, `snowballstemmer`).  The supported docutils range is 0.22.4 through
+0.23: PyPI's Sphinx 9.1.0 resolves to docutils 0.22.4, while distributions such
+as Gentoo may provide a tested Sphinx build with docutils 0.23.  Both runtime
+combinations run the same test suite.  To build the wheel explicitly instead:
 
 ```bash
 cd /path/to/check_rst
@@ -39,6 +42,22 @@ python3.14 -m pip install dist/check_rst-0.1.0-py3-none-any.whl
 The generated wheel is a pure-Python, platform-independent package. Its exact
 filename includes the package version from `check_rst.__version__`.
 
+On Gentoo, a host-wide checker should reuse the distribution's coherent
+Sphinx/docutils stack and its installed Sphinx extensions. Keep the launcher
+isolated while exposing those packages with a system-site virtual environment,
+then install only `check_rst` into it:
+
+```bash
+python3.14 -m venv --system-site-packages ~/opt/check_rst
+~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps /path/to/check_rst
+```
+
+This matters for verified mode: a consuming project's `conf.py` may load
+extensions such as `sphinxcontrib.plantuml`, and those extensions must be
+importable by the same interpreter that runs `check_rst`. Use ordinary
+dependency-resolving `pip install` in a self-contained environment when its
+projects also install their Sphinx extensions there.
+
 For development, install the checkout in editable mode:
 
 ```bash
@@ -48,6 +67,12 @@ python3.14 -m pip install --editable .
 
 Ordinary Python source edits then take effect without reinstalling. Reinstall
 after changing packaging metadata or console entry points in `pyproject.toml`.
+For a normal installation, use `python3.14 -m pip install --upgrade .`. For
+the Gentoo system-site model above, retain its dependency boundary:
+
+```bash
+~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps --upgrade .
+```
 
 The `pyproject.toml` console entry point installs `check_rst` in the
 selected Python environment's scripts directory, which must be on `PATH`.

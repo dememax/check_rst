@@ -2281,6 +2281,20 @@ def check_homoglyphs(path: pathlib.Path, doc: Document | None = None) -> list[Fi
 _INLINE_CONTAINER_TYPES = (docutils.nodes.strong, docutils.nodes.emphasis, docutils.nodes.literal)
 
 
+def _findall_node_types(
+    root: docutils.nodes.Node,
+    node_types: tuple[type[docutils.nodes.Node], ...],
+) -> Iterator[docutils.nodes.Node]:
+    """Yield descendants matching *node_types* across supported docutils.
+
+    Docutils 0.23 accepts a tuple of classes directly as ``Node.findall``'s
+    condition, while 0.22 accepts only one class or a callable.  The callable
+    form has identical behavior on both versions and keeps the PyPI-compatible
+    Sphinx stack and Gentoo's newer docutils stack on one code path.
+    """
+    yield from root.findall(lambda node: isinstance(node, node_types))
+
+
 def _inline_kind(node: docutils.nodes.Node) -> str:
     """Return an author-facing name for an inline node kind."""
     if isinstance(node, docutils.nodes.strong):
@@ -2361,7 +2375,7 @@ def check_nested_inline_markup(
     document = doc if doc is not None else Document(path)
     ranges: list[tuple[int, int]] | None = None if whole_file else document.ranges
     findings: list[Finding] = []
-    for outer in document.doctree.findall(_INLINE_CONTAINER_TYPES):
+    for outer in _findall_node_types(document.doctree, _INLINE_CONTAINER_TYPES):
         nested = document.nested_inline_by_node.get(id(outer), ())
         if not nested:
             continue
@@ -4413,7 +4427,7 @@ class Document:
         exactly once, not once per consumer.
         """
         result: dict[int, tuple[docutils.nodes.Node, ...]] = {}
-        for outer in self.doctree.findall(_INLINE_CONTAINER_TYPES):
+        for outer in _findall_node_types(self.doctree, _INLINE_CONTAINER_TYPES):
             nested = _nested_inline_nodes(outer, self.doctree)
             if nested:
                 result[id(outer)] = nested
