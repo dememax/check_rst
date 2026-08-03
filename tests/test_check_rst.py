@@ -1071,6 +1071,27 @@ def test_nested_inline_markup_detects_both_directions_and_role_syntax(
     assert f"contains {inner}" in findings[0].text
 
 
+@pytest.mark.unit
+def test_findall_node_types_uses_callable_condition_for_docutils_022(check_rst: types.ModuleType) -> None:
+    """Docutils 0.22 rejects a tuple passed directly as Node.findall's
+    condition; the compatibility adapter must use the callable form accepted
+    by both 0.22 and 0.23."""
+    strong = check_rst.docutils.nodes.strong()
+    emphasis = check_rst.docutils.nodes.emphasis()
+    paragraph = check_rst.docutils.nodes.paragraph("", "plain")
+    document = check_rst.docutils.utils.new_document("test")
+    document.extend([strong, emphasis, paragraph])
+
+    found = list(
+        check_rst._findall_node_types(
+            document,
+            (check_rst.docutils.nodes.strong, check_rst.docutils.nodes.emphasis),
+        )
+    )
+
+    assert found == [strong, emphasis]
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize(
     "source",
