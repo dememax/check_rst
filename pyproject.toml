@@ -1,0 +1,78 @@
+# Copyright (C) 2026 Maxime P. DEMENTYEV
+# SPDX-License-Identifier: GPL-3.0-only
+# Packaging, test, formatting, and type-check configuration — check_rst project
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "check-rst"
+dynamic = ["version"]
+description = "Deterministic checking, fixing, and structural queries for reStructuredText and Sphinx"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "GPL-3.0-only"
+authors = [
+    { name = "Maxime P. DEMENTYEV", email = "dememax@hotmail.com" },
+]
+dependencies = [
+    "docutils>=0.23,<0.24",
+    "Sphinx>=9.1,<10",
+    "snowballstemmer>=3.1,<4",
+]
+
+[project.scripts]
+check_rst = "check_rst.cli:main"
+
+[project.urls]
+Repository = "https://github.com/dememax/check_rst"
+
+[tool.setuptools.dynamic]
+version = { attr = "check_rst.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "unit: pure-function tests with no filesystem or Git",
+    "integration: tests that create files or run Git commands",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+required-version = "==0.15.22"
+
+[tool.ruff.lint]
+# B:   flake8-bugbear (design/logic issues)
+# E4/E7/E9: pycodestyle (imports, statements, syntax errors)
+# F:   pyflakes (undefined names, unused imports)
+# UP:  pyupgrade (modernize syntax to 3.14)
+# I:   isort (import ordering)
+# RUF: ruff-specific rules
+# SIM: flake8-simplify (code simplification)
+# PT:  flake8-pytest-style (pytest standards)
+# ANN: flake8-annotations (enforce type hints)
+# TCH: flake8-type-checking (manage typing imports)
+select = ["B", "E4", "E7", "E9", "F", "UP", "I", "RUF", "SIM", "PT", "ANN", "TCH"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "docutils.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "snowballstemmer"
+ignore_missing_imports = true

@@ -1,0 +1,6 @@
+# Copyright (C) 2026 Maxime P. DEMENTYEV
+# SPDX-License-Identifier: GPL-3.0-only
+# Standalone project's own verified-documentation configuration. conf.py
+# lives in docs/, matching a typical downstream project's layout.
+sphinx-src = "docs"
+build-dir = "/tmp/check-rst-sphinx-build"

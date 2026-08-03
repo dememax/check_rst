@@ -1,0 +1,5 @@
+# Copyright (C) 2026 Maxime P. DEMENTYEV
+# SPDX-License-Identifier: GPL-3.0-only
+"""Public package metadata for check_rst."""
+
+__version__ = "0.1.0"
