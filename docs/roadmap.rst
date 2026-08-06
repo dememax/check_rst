@@ -363,6 +363,150 @@ honest exit status, Git-scope enforcement, and the rule that fixes are always
 followed by validation; this is execution reuse, not a weaker workflow.  No
 cache may silently cross an input-state boundary.
 
+=======================================================
+Subcommands: flag-soup incompatibilities become verbs
+=======================================================
+
+*(brainstormed in a Claude Code session, agreed by Max, 2026-08-06; not yet
+implemented)*
+
+``_validate_cli_args`` is, today, a hand-written incompatibility matrix over
+roughly 30 flags: a mutually-exclusive mode group (``--fix``/``--fix-only``/
+``--diff``/``--diff-only``), three flags that are each individually
+self-contained and reject nearly everything else (``--diff-json``, ``--refs``,
+``--context``), and a scatter of narrower pairwise rules (``--normalize-blank-
+lines`` requires ``--fix``/``--diff``, ``--outline-depth`` requires
+``--outline``, ``--git-scope`` excludes ``--recursive``, and so on). None of
+that is incidental complexity to trim — every one of those checks exists
+because the underlying operations genuinely don't compose, the same way
+``--fix-only``'s own docstring already says so explicitly ("a fast mutation-
+only counterpart of ``--diff-only``"). The flags were never really peers on
+one flat surface; the incompatibility matrix is a hand-maintained proxy for a
+grouping ``argparse`` subparsers express directly, in the help text itself,
+enforced structurally rather than by a runtime rejection message.
+
+Four "shapes" cover the whole surface, each a candidate parent parser shared
+by the subcommands that need it:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 56 30
+
+   * - Shape
+     - Flags it carries
+     - Used by
+   * - full
+     - ``--config``, ``--sphinx-src``, ``--build-dir``,
+       ``--recursive``/``--git-scope``/``--exclude``,
+       ``--quiet``/``--verbose``/``--max-output-lines``/``--word-samples``,
+       ``--no-warnings``/``--skip-fixable``/``--no-adornments``/
+       ``--no-directives``
+     - ``check``, ``fix``, ``diff``, ``outline``, (``json``)
+   * - fast
+     - ``--config``, ``--recursive``/``--git-scope``/``--exclude``,
+       ``--quiet`` — deliberately no ``--sphinx-src``/``--build-dir`` at all,
+       matching what ``--fix-only``/``--diff-only`` already reject today
+     - ``fix-only``, ``diff-only``
+   * - single-file
+     - ``--config``, ``--sphinx-src``, ``--build-dir``, exactly one
+       positional file
+     - ``context``, ``refs``
+   * - none
+     - two positional JSON files, nothing else
+     - ``diff-json``
+
+-------------------------------------------------------------
+Tier 1: the mode group becomes ``check``/``fix``/``diff``/…
+-------------------------------------------------------------
+
+``check_rst check``, ``check_rst fix``, ``check_rst diff``, ``check_rst
+fix-only``, ``check_rst diff-only`` — a direct, high-confidence rename of the
+existing mutually-exclusive mode group, each on the *full* parent except
+``fix-only``/``diff-only`` on *fast*.  Making today's flagless default
+(``check``) an explicit verb is itself a small win — right now nothing in the
+invocation says what a bare ``check_rst file.rst`` actually does.  This tier
+alone deletes the mode-group mutex and both ``--fix-only``/``--diff-only``
+allow-lists: an editorial flag like ``--single-space-prose`` simply isn't
+*defined* on ``fix-only``'s parser, so passing it is an ordinary "unrecognized
+argument," not a bespoke rejection message.
+
+"A consolidated edit-validation cycle" above (working name ``--edit-cycle``)
+slots into this exact tier once built — one more *full*-parent verb
+(``check_rst cycle``, or whatever name it keeps) alongside ``fix``/``diff``,
+not a flag bolted onto one of them.
+
+---------------------------------------------------------------
+Tier 2: the three self-contained flags become their own verbs
+---------------------------------------------------------------
+
+``check_rst diff-json OLD.json NEW.json`` (*none* parent), ``check_rst refs
+FILE`` (*single-file*), ``check_rst context ENTRY FILE`` (*single-file*).
+These three are already, behaviorally, subcommands wearing a flag disguise —
+each currently hand-rejects the rest of the flag surface in its own
+``_validate_cli_args`` block.  Highest confidence of the whole set: nothing
+about the fork below touches this tier.
+
+-------------------------------------------------------
+Tier 3: two genuine forks, not yet settled either way
+-------------------------------------------------------
+
+``outline``: "A structure-only view" above already treats ``--outline-only``
+as a named macro for a flag stack ("one flag instead of the ``--quiet
+--skip-fixable --no-warnings --outline`` stack").  A dedicated ``outline``
+verb could make that macro the default behavior — pure structure, no finding
+noise — with an opt-in ``--with-findings`` to layer today's plain
+``--outline`` (structure *and* findings together) on top.  That inverts
+today's default (bare ``--outline`` shows findings; ``--outline-only`` is the
+opt-in), which is worth stating plainly as a behavior change, not just a
+rename.
+
+``json``: less clear-cut, because ``--json`` today composes with most of the
+*full* tier (recursive, sphinx-src, skip-fixable, no-warnings) — it reads as a
+serialization format of the same run, not a different operation the way
+``outline`` genuinely is.  Two live options: its own verb (matching
+``diff-json``'s naming family, with room for future JSON-specific flags), or
+``check_rst check --format=json`` (unifying it with plain ``check``, since
+underneath it is the same run with a different writer).  Whichever way this
+goes decides whether ``_validate_cli_args``'s ``--max-output-lines`` vs.
+structured-output check (and the ``--outline-only``/``--sections-only``/
+``--outline-depth`` vs. ``--json`` checks) become structurally impossible too,
+or need to survive as one runtime check inside a shared ``check`` verb.
+
+-----------------------------------------------------
+What still needs a runtime check regardless of tier
+-----------------------------------------------------
+
+Subcommands remove *mode* conflicts, not *value* validation: ``--max-output-
+lines >= 2``, ``--outline-depth >= 1``, ``--context`` non-empty, ``--word-
+samples >= 0`` stay exactly as they are today, on whichever parser ends up
+owning each flag.
+
+-------------------------------------
+Two decisions before implementation
+-------------------------------------
+
+^^^^^^^^
+Naming
+^^^^^^^^
+
+``fix-only``/``diff-only`` as their own verbs (zero relearning, matches
+today's flag names) versus ``fix --fast``/``diff --fast`` as a flag scoped to
+one verb's own parser (arguably communicates *why* more clearly to a
+first-time reader).  Both delete the identical validation code either way —
+this is pure surface bikeshed, not a technical fork.
+
+^^^^^^^^^^^^^^^^^^^^^^^^
+Backward compatibility
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+``check_rst --fix file.rst`` is a live interface today (this project's own
+tooling, and at least one downstream project's build wrapper, invoke exactly
+this form).  A subcommand redesign is a breaking CLI change no matter how the
+two forks above resolve.  Options: a clean break now, recorded as a
+deliberate version bump while the consumer base is still small; or a
+deprecation window where the old flat flags keep working as aliases that
+print a "use ``check_rst fix`` instead" notice for one release before
+removal.  Not decided either way yet.
 
 ********************
 Accepted, deferred
