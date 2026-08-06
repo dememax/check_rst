@@ -434,6 +434,61 @@ calendar (1415 files) found zero instances — unlike the mistyped-
 directive lint, this one shipped with no real catch yet; recorded
 honestly rather than invented.
 
+*****************************************************************************
+A relocated subtree's old character can silently land it at the wrong depth
+*****************************************************************************
+
+The roadmap's "Accepted, deferred" entry for
+``_first_appearance_adornments`` already found and named half of this,
+in a different trigger: docutils' own title-style inference is
+asymmetric.  Reusing an already-established *shallower* character
+deeper in the tree is silently tolerated — it pops cleanly to that
+shallower, already-known level, no error, no WARNING.  Reusing an
+already-established *deeper* character shallower is the opposite: real,
+loud, "Inconsistent title style," caught by any ordinary Sphinx build
+before ``check_rst`` even runs its own logic. That fix (2026-07-21)
+taught the scanner to see short, previously-invisible titles that were
+triggering the *silent* half by accident. It did not, because nothing
+about it could, close off the silent half itself — the asymmetry is
+docutils' own inference rule, not a check_rst scanning gap, and it has
+a second, independent trigger the roadmap entry never considered:
+moving content between documents on purpose.
+
+Splitting an oversized page or relocating a section (:doc:`guide`,
+"The same principle scales to whole subtrees") pastes a subtree's *old*
+headings into a place that never assigned them a character at all. If
+the pasted content's own former character happens to already mean a
+*shallower* depth in the host — pure accident, since the two documents'
+character histories have nothing to do with each other — the silent
+half of the same asymmetry fires: the pasted section pops to that
+shallower level instead of nesting where it visually sits, and
+``check_hierarchy`` never sees anything wrong, because from a
+structural point of view nothing *is* wrong — the resulting tree is
+completely self-consistent, just not the tree the author placed on the
+page.  No WARNING fires for the same reason the top-level-title WARNING
+above needs one at all and this does not get one yet: that WARNING has
+a recognizable signature to trigger on (this document's own
+first-appearing character, reused with nothing between the two uses).
+A relocated subtree colliding with a host's unrelated character has no
+comparable signature — a legitimately-authored document that happens to
+use the same characters in the same arrangement is indistinguishable
+from this defect from inside the file alone.  Recorded honestly as a
+known blind spot rather than a shipped WARNING, the same as the
+top-level-title rule's own "no real catch yet" — except this one may
+not be catchable at all without knowing the author's intent, which
+lives nowhere in the file.
+
+The only mitigation available today lives in the workflow, not the
+tool: neutralize a subtree's headings back to bare placeholders before
+splicing it into a host that already has its own established
+characters (:doc:`guide`, "Insert a subtree into an *existing*,
+already-populated document") — placeholders cannot collide with
+anything, because they have not yet been assigned a character to
+collide with.  Diffing ``--outline`` before and after any subtree
+splice is the only way to notice a silent misplacement after the fact;
+nothing in a clean ``check_rst`` run distinguishes it from a correctly
+nested document.
+
 ***************************************************
 A confusable letter is a keyboard slip, not noise
 ***************************************************

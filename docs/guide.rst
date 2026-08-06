@@ -269,6 +269,118 @@ first item to declare a style — ``a.`` for lowercase-alpha, ``A.`` for
 uppercase, ``i.`` / ``I.`` for roman.  This is exactly how the roadmap's
 "Reference intelligence" sub-list is written.
 
+=============================================
+The same principle scales to whole subtrees
+=============================================
+
+The placeholder workflow is the smallest case of a larger fact: the
+hierarchy fixer (``check_hierarchy``; "Hierarchy" in "What ``--fix``
+computes for you" below) remaps character-to-depth over an
+*already-valid* section tree — every heading's true depth, as docutils
+infers it from first-appearance order — one document at a time.  It
+never discovers that tree; it relabels one that already exists.  That
+single fact is what makes every operation below just a text splice
+followed by one ``--fix`` call, and it is also exactly what the
+silent-failure mode in :doc:`rules` ("A relocated subtree's old
+character can silently land it at the wrong depth") exploits: a splice
+can hand the fixer a tree that is internally consistent but not the one
+the author intended, and the fixer has no way to tell the difference.
+
+The one precondition every operation below shares: each side of a
+splice must independently pass its own hierarchy check (0 ERRORs, run
+standalone) *before* the splice, not after.  ``--fix`` guarantees a
+clean *remap* of an already-valid tree; it makes no claim about
+*discovering or repairing* one, so a source that was never valid on its
+own stays invalid — merely relabeled — once spliced into something
+bigger.
+
+---------------------------------------------------------------------------
+Extract (hoist, lift out — not *promote*) a subtree into its own document
+---------------------------------------------------------------------------
+
+Splitting an oversized page into several: cut a whole section — title
+plus everything nested under it — out of the source document and paste
+it, characters unchanged, as the entirety of a new file.  Run
+``check_rst --fix`` on the new file alone.  Its former section title
+becomes the new document's own level-1 title; every descendant's
+character shifts up to match, because first-appearance order in the new
+file starts completely fresh — there is nothing else in it to collide
+with.
+
+Deliberately not called *promote*: this project already uses that word
+for a different, adjacent operation — turning a bold pseudo-heading
+into a real section (:doc:`rules`, "Bold pseudo-headings create their
+own outline failure").  Both operations raise a passage's structural
+status, but one changes an author's *typesetting choice* into a real
+heading, and this one changes an *already-real* heading's document —
+reusing the word across both would make either sense ambiguous on its
+own. *Hoist* and *lift out* are offered as synonyms precisely so a
+search for either still lands here even though this page settles on
+*extract*.
+
+Real example (a downstream project, 2026-08-06): a 3655-line
+``coding-standards.rst`` — nearly double the next-largest page in its
+own documentation set — split into six per-topic files of roughly
+330-1000 lines each, one ``--fix`` call per file, no manual adornment
+work at all.
+
+--------------------------------------------------------------------------
+Wrap (group, nest under a new parent — not *merge*) two or more siblings
+--------------------------------------------------------------------------
+
+Two sections that are currently peers at the same depth, both wanted
+under one new shared parent: write a placeholder title *above* both of
+them, at one level shallower, and run ``--fix`` once over the combined
+result.  The siblings' own characters do not need to change — they
+were already correct for their depth relative to a parent one level up
+from them; only the new wrapper title (the placeholder) needs fixing.
+Safe with no precondition beyond the usual one, because both siblings
+already share one consistent character history: they descended from the
+same already-normalized document, so nothing about the wrap introduces
+a character that document has not already assigned a single, consistent
+depth.
+
+Deliberately not called *merge*: this project already uses that word
+for Git merge conflicts (see "History protection" below, and
+``.check_rst.toml``'s own unresolved-merge rejection) — a completely
+unrelated sense that a reader searching this guide for either meaning
+would otherwise collide with. *Group* and *nest under a new parent* are
+offered as synonyms for the same reason as *extract*/*hoist* above.
+
+Real example (the same downstream-project split, 2026-08-06): two
+former same-level sections, one covering a base reactive library and one
+covering its own list/object extension, wrapped under one new shared
+title — because the two were never independently meaningful; the
+extension's own patterns read as unmotivated without the base library's
+primitives explained first.
+
+-----------------------------------------------------------------
+Insert a subtree into an *existing*, already-populated document
+-----------------------------------------------------------------
+
+The operation this guide has not yet had a real worked case for
+(illustrative only — flagged as such rather than invented evidence, the
+same honesty standard :doc:`roadmap` holds itself to for
+unconfirmed items): take a subtree — anything from one section to a
+whole small standalone document — and land it at a specific target
+depth *inside* a bigger host document that already has its own
+established characters.
+
+Physical position in the pasted-together result is what determines the
+target depth (first-appearance order is a whole-file computation, run
+once after the splice, never per-fragment) — but the subtree's *own old
+characters* were assigned relative to a document that no longer exists
+after the splice, and reusing one of the host's already-established
+characters at a different true depth is exactly the risk :doc:`rules`
+describes. The reliable recipe: before pasting, strip the incoming
+subtree's headings back to bare 9-character placeholders (title text
+kept, adornments erased) — the same placeholder this page opened with —
+so nothing about the pasted content can collide with anything the host
+already owns. Paste that neutralized form at the intended position, then
+run ``--fix`` once on the combined file; the fixer has nothing left to
+misinterpret, only fresh titles to size and letter correctly for
+wherever they physically landed.
+
 ================================================
 Titles should carry information, not structure
 ================================================
