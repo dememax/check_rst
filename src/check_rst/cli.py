@@ -6080,6 +6080,289 @@ def _build_single_file_parent() -> argparse.ArgumentParser:
     return parent
 
 
+def _add_scope_flags(parser: argparse.ArgumentParser) -> None:
+    """--recursive/--git-scope/--exclude — shared by check/fix/diff/outline."""
+    parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help=(
+            "treat each positional argument as a directory and recursively "
+            "discover *.rst files under it (pathlib.Path.rglob) instead of "
+            "checking the arguments themselves as files; use --exclude to "
+            "skip specific files. No shell involved, so filenames containing "
+            "spaces are handled correctly. Implies whole-file checking, same "
+            "as naming individual files"
+        ),
+    )
+    parser.add_argument(
+        "--git-scope",
+        action="store_true",
+        help=(
+            "treat positional files as an allowlist intersected with Git's "
+            "changed/untracked RST set, preserving bare-mode diff scoping "
+            "instead of explicit files' normal whole-file scope; requires "
+            "at least one file and is incompatible with --recursive"
+        ),
+    )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help=(
+            "with --recursive, skip any discovered file whose path matches "
+            "PATTERN (pathlib.PurePath.match() semantics: a bare filename "
+            "matches that name at any depth); repeatable"
+        ),
+    )
+
+
+def _add_quiet_verbose_words(parser: argparse.ArgumentParser) -> None:
+    """--quiet/--verbose/--word-samples — shared by check/fix/diff/outline."""
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help=(
+            "show extra detail on bold/rubric WARNING findings: the actual bold/rubric "
+            "text, a preview of the paragraph text after a bold opener, and the "
+            "enclosing section title. No effect on adornment/hierarchy ERRORs or "
+            "Phase 2 — those findings are already maximally detailed (adornments) or "
+            "have no extra native detail to surface (Phase 2). Combine with "
+            "outline --with-findings to see structure and findings together, or use "
+            "either alone. Also raises "
+            "the footer/outline detail level: the --outline 'blocks:' summary and the "
+            "footer's 'lines:'/'words:'/top-and-rare-prose-words lines are hidden by "
+            "default (and under --quiet) and shown only here — see --word-samples to "
+            "promote just the prose-word lines without the rest"
+        ),
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help=(
+            "suppress progress output — phase banners, per-file OK lines, "
+            "per-file fix notices. Findings (path:line: WARNING:/ERROR: "
+            "lines), each repeated finding kind's once-per-run rationale, "
+            "requested reports (--outline, --diff) and the final summary "
+            "line still print. Born from session-transcript "
+            "evidence (2026-07-18): five AI sessions independently piped "
+            "output through grep to recover exactly this view"
+        ),
+    )
+    parser.add_argument(
+        "--word-samples",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "number of entries in the footer's top/rare prose words lines "
+            "(and the JSON model's top_words/rare_words per file). Omit to "
+            "default to 10 under --verbose, or to omit the lines entirely "
+            "(and skip computing them — no stopword/stemmer cost paid) "
+            "otherwise. Passing this explicitly promotes the lines at any "
+            "verbosity level, --quiet included; 0 disables them even under "
+            "--verbose"
+        ),
+    )
+
+
+def _add_max_output_lines(parser: argparse.ArgumentParser) -> None:
+    """--max-output-lines — kept as its own helper (not folded into the
+    quiet/verbose/words group) because diff's parser deliberately never
+    defines it: cli.py's _validate_cli_args already rejects it alongside
+    ordinary --diff, not only --diff-only."""
+    parser.add_argument(
+        "--max-output-lines",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "cap the complete text report at N lines without stopping checks "
+            "or masking their exit status; N must be >= 2. The first N-2 "
+            "ordinary lines are followed by an output-limit statistics line "
+            "and the authoritative final status. Applied after semantic "
+            "filters such as --quiet/--sections-only/--outline-depth. "
+            "Supported on check, fix, and outline; not defined on diff, refs, "
+            "context, or diff-json, which must remain complete"
+        ),
+    )
+
+
+def _add_report_filters(parser: argparse.ArgumentParser) -> None:
+    """--no-warnings/--skip-fixable/--no-adornments/--no-directives — shared
+    by check/fix/diff/outline."""
+    parser.add_argument(
+        "--no-warnings",
+        action="store_true",
+        help="suppress WARNING-level findings; only show and count ERROR-level ones",
+    )
+    parser.add_argument(
+        "--skip-fixable",
+        action="store_true",
+        help=(
+            "suppress ERROR-level findings that --fix resolves automatically "
+            "(byte hygiene: BOM/line endings/trailing whitespace; wrong "
+            "adornment length, underline-only titles, hierarchy char order); "
+            "human-review WARNINGs remain visible; unrelated non-fixable input, "
+            "UTF-8, or Sphinx ERRORs still fail the run. Use on the pre-fix pass "
+            "to focus on what needs human attention before running --fix"
+        ),
+    )
+    parser.add_argument(
+        "--no-adornments",
+        action="store_true",
+        help=(
+            "skip adornment and hierarchy lint and, with fix/diff, their "
+            "structural changes; Phase 0 byte hygiene remains enabled"
+        ),
+    )
+    parser.add_argument(
+        "--no-directives",
+        action="store_true",
+        help="skip directive warnings (rubric, bold patterns)",
+    )
+
+
+def _build_full_parent() -> argparse.ArgumentParser:
+    """Shared parent for the four verbs built on the roadmap's 'full' shape:
+    check, fix, diff, outline."""
+    parent = argparse.ArgumentParser(add_help=False)
+    parent.add_argument(
+        "files",
+        nargs="*",
+        type=pathlib.Path,
+        help=(
+            "files to check, normally checked in full; --git-scope instead "
+            "treats them as a changed-file allowlist. Omit to auto-detect "
+            "changed/untracked *.rst files from git status in the selected "
+            "project instead (cwd normally, FILE's directory with --config) "
+            "— those are scoped to lines changed since HEAD (untracked "
+            "files are still checked in full, having no HEAD state to diff "
+            "against). Any selected file with an unresolved Git index entry "
+            "aborts the complete check/fix before a phase or write starts"
+        ),
+    )
+    _add_project_flags(parent)
+    _add_scope_flags(parent)
+    _add_quiet_verbose_words(parent)
+    _add_report_filters(parent)
+    return parent
+
+
+def _build_mutating_parent() -> argparse.ArgumentParser:
+    """Shared parent for fix/diff only: --fast plus the three editorial
+    fixers that require full parsing (and are therefore rejected by --fast,
+    same as they're absent from check/outline entirely)."""
+    parent = argparse.ArgumentParser(add_help=False)
+    parent.add_argument(
+        "--fast",
+        action="store_true",
+        help=(
+            "fast, parser-free counterpart (was --fix-only/--diff-only): plan "
+            "every selected file before writing, apply only Phase 0 byte "
+            "hygiene and Phase 1 adornment/hierarchy corrections (fix) or "
+            "preview them (diff), then stop without lint, statistics, "
+            "docutils parsing, or either Sphinx phase. Config still roots Git "
+            "selection, but configured Sphinx settings are reported inactive; "
+            "explicit --sphinx-src/--build-dir and the editorial fixers below "
+            "are incompatible. Run ordinary check_rst check afterwards for "
+            "full validation"
+        ),
+    )
+    parent.add_argument(
+        "--normalize-blank-lines",
+        action="store_true",
+        help=(
+            "remove leading blank lines and collapse repeated separator/EOF "
+            "blank lines only when the complete docutils tree is unchanged; "
+            "opt-in because blank lines inside literal-like blocks are "
+            "content. Rejected under --fast, which skips the parser"
+        ),
+    )
+    parent.add_argument(
+        "--collapse-title-spaces",
+        action="store_true",
+        help=(
+            "collapse internal ASCII-space runs in visible section-title "
+            "text while preserving inline literals and requiring unchanged "
+            "structure, attributes, targets, and ids; editorial and opt-in, "
+            "rejected under --fast"
+        ),
+    )
+    parent.add_argument(
+        "--single-space-prose",
+        action="store_true",
+        help=(
+            "apply an explicit single-ASCII-space policy to eligible "
+            "paragraph text under a permitted-delta tree check; protects "
+            "literal/raw/code/math payloads and RST syntax; editorial and "
+            "opt-in, rejected under --fast"
+        ),
+    )
+    return parent
+
+
+# Attribute names a --fast allowlist scan must never flag regardless of
+# `allowed`: mode identity is structural (implied by which verb/flag was
+# used), not a value the allowlist check is meant to police.
+_MODE_IDENTITY_ATTRS = frozenset({"command", "fix", "diff", "fix_only", "diff_only", "fast"})
+
+# Preserves today's exact asymmetry between --fix-only's and --diff-only's
+# allowlists in the now-deleted _validate_cli_args (cli.py, pre-redesign):
+# fix's allows verbose/max_output_lines, diff's does not.
+_FAST_ALLOWLIST: dict[str, frozenset[str]] = {
+    "fix": frozenset(
+        {
+            "files",
+            "config",
+            "git_scope",
+            "no_adornments",
+            "recursive",
+            "exclude",
+            "quiet",
+            "verbose",
+            "max_output_lines",
+        }
+    ),
+    "diff": frozenset({"files", "config", "git_scope", "no_adornments", "recursive", "exclude", "quiet"}),
+}
+
+
+def _validate_fast_allowlist(args: argparse.Namespace, verb: str) -> None:
+    """--fast is self-contained, same as today's --fix-only/--diff-only:
+    reject anything not on that verb's own allowlist (_FAST_ALLOWLIST)."""
+    allowed = _FAST_ALLOWLIST[verb]
+    values = vars(args)
+    incompatible = [
+        name
+        for name, value in values.items()
+        if name not in allowed and name not in _MODE_IDENTITY_ATTRS and _argument_is_set(value)
+    ]
+    if incompatible:
+        print(
+            f"check_rst: {verb} --fast is self-contained — incompatible "
+            f"argument(s): {', '.join('--' + name.replace('_', '-') for name in incompatible)}"
+        )
+        raise SystemExit(1)
+
+
+def _validate_full_scope_args(args: argparse.Namespace) -> None:
+    """--exclude/--git-scope/--recursive peer-flag rules shared by every verb
+    built on _build_full_parent (check/fix/diff/outline) — legitimate peers
+    on one parser, not expressible in argparse itself. Preserves the exact
+    checks and messages from the now-deleted _validate_cli_args."""
+    if args.exclude and not args.recursive:
+        print("check_rst: --exclude requires --recursive")
+        raise SystemExit(1)
+    if args.git_scope:
+        if args.recursive:
+            print("check_rst: --git-scope is incompatible with --recursive")
+            raise SystemExit(1)
+        if not args.files:
+            print("check_rst: --git-scope requires at least one file")
+            raise SystemExit(1)
+
+
 def _build_cli_parser() -> argparse.ArgumentParser:
     """Build the subcommand argparse parser — unwired from _main() until the
     cutover stage; see tests/test_cli_subcommands.py for direct exercise.
@@ -6092,6 +6375,69 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     single_file = _build_single_file_parent()
+    full = _build_full_parent()
+    mutating = _build_mutating_parent()
+
+    check_p = sub.add_parser(
+        "check",
+        parents=[full],
+        help="check .rst files against project formatting rules (default verb)",
+        description=(
+            "Check .rst files against project RST formatting rules "
+            "(Phase 0: byte hygiene — Unix LF, no BOM; Phase 1: Python lint; "
+            "Phase 2: Python Sphinx rules; Phase 3: Sphinx build)."
+        ),
+    )
+    check_p.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help=(
+            "text (default): ordinary findings and summary. json: emit the "
+            "document model as one JSON object on stdout and nothing else — "
+            "per-file findings, outline (with stable docname:title ids in "
+            "the autosectionlabel convention), code-blocks, blockquote "
+            "previews, statistics, and runtime/schema metadata plus the run "
+            "summary. Exit code semantics unchanged either way"
+        ),
+    )
+    _add_max_output_lines(check_p)
+    check_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+
+    fix_p = sub.add_parser(
+        "fix",
+        parents=[full, mutating],
+        help="apply auto-fixable corrections in-place",
+        description=(
+            "Apply auto-fixable corrections in-place before checking; "
+            "the complete selected set is rejected before any write when "
+            "Git reports an unresolved merge entry; "
+            "fixable: byte hygiene (BOM removal, CRLF/CR and exotic line "
+            "separators to LF, trailing whitespace on every source line), "
+            "wrong adornment length, mismatched chars, title spaces, "
+            "missing blank lines, underline-only titles (adornment line must "
+            f"be >= {MIN_UNDERLINE_ONLY_LEN} chars to be recognized as one, "
+            "regardless of the title's length), hierarchy char order. "
+            "--fast skips lint/statistics/Sphinx for a fast mutation-only pass"
+        ),
+    )
+    _add_max_output_lines(fix_p)
+    fix_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+    fix_p.set_defaults(fix=True)
+
+    diff_p = sub.add_parser(
+        "diff",
+        parents=[full, mutating],
+        help="print unified diff of what fix would change",
+        description=(
+            "Print unified diff of what fix would change without modifying "
+            "files. --fast stops after Phase 1 for a fast, read-only "
+            "formatting preview (exits 1 when changes would be made, 0 when "
+            "clean)"
+        ),
+    )
+    diff_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+    diff_p.set_defaults(diff=True)
 
     diff_json_p = sub.add_parser(
         "diff-json",
@@ -6151,7 +6497,13 @@ def _backfill_post_parse(args: argparse.Namespace) -> None:
     """Fill in the handful of attributes that depend on another just-parsed
     value and so can't be a static set_defaults() — see _build_cli_parser().
     """
-    if args.command == "diff-json":
+    if args.command == "check":
+        args.json = args.format == "json"
+    elif args.command == "fix":
+        args.fix_only = args.fast
+    elif args.command == "diff":
+        args.diff_only = args.fast
+    elif args.command == "diff-json":
         args.diff_json = [args.old, args.new]
     elif args.command == "refs":
         args.refs = args.file

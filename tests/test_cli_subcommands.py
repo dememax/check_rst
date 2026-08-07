@@ -153,3 +153,153 @@ def test_context_verb_rejects_empty_entry(check_rst: types.ModuleType) -> None:
 def test_context_verb_carries_no_toctree(check_rst: types.ModuleType) -> None:
     args = _parse(check_rst, ["context", "entry", "--no-toctree", "file.rst"])
     assert args.no_toctree is True
+
+
+# ---------------------------------------------------------------------------
+# Stage 2 — Tier 1 mode verbs: check, fix, diff.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_check_verb_populates_full_attribute_contract(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["check", "file.rst"])
+    assert args.command == "check"
+    assert vars(args).keys() >= _FULL_ATTR_CONTRACT
+    assert args.files == [pathlib.Path("file.rst")]
+    assert args.format == "text"
+    assert args.json is False
+    assert args.fix is False
+    assert args.diff is False
+
+
+@pytest.mark.unit
+def test_check_verb_format_json_backfills_json_flag(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["check", "--format", "json", "file.rst"])
+    assert args.json is True
+
+
+@pytest.mark.unit
+def test_check_verb_carries_scope_and_budget_flags(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["check", "--recursive", "--exclude", "*.gen.rst", "--max-output-lines", "5", "docs"])
+    assert args.recursive is True
+    assert args.exclude == ["*.gen.rst"]
+    assert args.max_output_lines == 5
+    assert args.files == [pathlib.Path("docs")]
+
+
+@pytest.mark.unit
+def test_check_verb_has_no_mutating_flags(check_rst: types.ModuleType) -> None:
+    parser = check_rst._build_cli_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["check", "--normalize-blank-lines", "file.rst"])
+    assert exc.value.code == 2
+
+
+@pytest.mark.unit
+def test_fix_verb_populates_full_attribute_contract(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["fix", "file.rst"])
+    assert args.command == "fix"
+    assert vars(args).keys() >= _FULL_ATTR_CONTRACT
+    assert args.fix is True
+    assert args.fix_only is False
+    assert args.diff is False
+
+
+@pytest.mark.unit
+def test_fix_fast_backfills_fix_only(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["fix", "--fast"])
+    assert args.fix is True
+    assert args.fix_only is True
+
+
+@pytest.mark.unit
+def test_fix_fast_allows_verbose_and_max_output_lines(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["fix", "--fast", "--verbose", "--max-output-lines", "5"])
+    check_rst._validate_fast_allowlist(args, "fix")  # must not raise
+
+
+@pytest.mark.unit
+def test_fix_fast_rejects_sphinx_src(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["fix", "--fast", "--sphinx-src", "docs"])
+    with pytest.raises(SystemExit) as exc:
+        check_rst._validate_fast_allowlist(args, "fix")
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_fix_fast_rejects_editorial_flags(check_rst: types.ModuleType) -> None:
+    """--normalize-blank-lines/--collapse-title-spaces/--single-space-prose
+    all require full parsing, exactly like today's --fix-only rejection."""
+    args = _parse(check_rst, ["fix", "--fast", "--normalize-blank-lines"])
+    with pytest.raises(SystemExit) as exc:
+        check_rst._validate_fast_allowlist(args, "fix")
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_diff_verb_populates_full_attribute_contract(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["diff", "file.rst"])
+    assert args.command == "diff"
+    assert vars(args).keys() >= _FULL_ATTR_CONTRACT
+    assert args.diff is True
+    assert args.diff_only is False
+    assert args.fix is False
+
+
+@pytest.mark.unit
+def test_diff_fast_backfills_diff_only(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["diff", "--fast"])
+    assert args.diff is True
+    assert args.diff_only is True
+
+
+@pytest.mark.unit
+def test_diff_fast_rejects_verbose_unlike_fix_fast(check_rst: types.ModuleType) -> None:
+    """Preserves today's exact asymmetry: --diff-only's allowlist excludes
+    verbose/max-output-lines, --fix-only's includes them."""
+    args = _parse(check_rst, ["diff", "--fast", "--verbose"])
+    with pytest.raises(SystemExit) as exc:
+        check_rst._validate_fast_allowlist(args, "diff")
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_diff_verb_has_no_max_output_lines(check_rst: types.ModuleType) -> None:
+    """--max-output-lines is incompatible with ordinary --diff too, not only
+    --diff-only (cli.py's _validate_cli_args, args.diff is in the
+    incompatible-mode tuple) — so diff's parser never defines the flag."""
+    parser = check_rst._build_cli_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["diff", "--max-output-lines", "5", "file.rst"])
+    assert exc.value.code == 2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("verb", ["check", "fix", "diff"])
+def test_full_scope_rejects_exclude_without_recursive(check_rst: types.ModuleType, verb: str) -> None:
+    args = _parse(check_rst, [verb, "--exclude", "*.gen.rst", "file.rst"])
+    with pytest.raises(SystemExit) as exc:
+        check_rst._validate_full_scope_args(args)
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_full_scope_rejects_git_scope_with_recursive(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["check", "--git-scope", "--recursive", "docs"])
+    with pytest.raises(SystemExit) as exc:
+        check_rst._validate_full_scope_args(args)
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_full_scope_rejects_git_scope_without_files(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["check", "--git-scope"])
+    with pytest.raises(SystemExit) as exc:
+        check_rst._validate_full_scope_args(args)
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_full_scope_allows_git_scope_with_files(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["check", "--git-scope", "file.rst"])
+    check_rst._validate_full_scope_args(args)  # must not raise
