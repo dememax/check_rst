@@ -904,7 +904,7 @@ def test_cli_homoglyphs_warning_shown(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     p = _rst(tmp_path, "Title\n=====\n\nSee Аuthor for details.\n")  # noqa: RUF001
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -921,7 +921,7 @@ def test_cli_json_homoglyphs_included(
 ) -> None:
     p = rst_repo / "test.rst"
     p.write_text("Title\n#####\n\nSee Аuthor for details.\n", encoding="utf-8")  # noqa: RUF001
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     data = json.loads(capsys.readouterr().out)
@@ -1142,7 +1142,7 @@ def test_cli_nested_inline_markup_reports_each_span_and_one_shared_hint(
 ) -> None:
     """The CLI exposes every occurrence without repeating its rationale."""
     p = _rst(tmp_path, "Use **``one``** and **``two``** here.\n")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -1162,7 +1162,7 @@ def test_cli_no_directives_does_not_disable_nested_inline_markup(
 ) -> None:
     """--no-directives skips its named lint, not this independent rule."""
     p = _rst(tmp_path, "Use **``nested``** here.\n")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-directives", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--no-directives", str(p)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -1180,7 +1180,7 @@ def test_cli_json_includes_nested_inline_markup(
 ) -> None:
     """Automation receives the same specific finding as text mode."""
     p = _rst(tmp_path, "Use **``nested``** here.\n")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -1473,7 +1473,7 @@ def test_cli_bold_opener_rationale_printed_once_per_run(
         "**Fifth point.**  Detail five.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -1497,7 +1497,7 @@ def test_cli_bold_opener_rationale_resets_between_runs(
     rationale again."""
     p = rst_repo / "test.rst"
     p.write_text("#######\nTitle\n#######\n\n**A point.**  Detail.\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
 
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -1733,13 +1733,7 @@ def test_cli_verified_mode_accepts_orphan_inside_sphinx_source(
     orphan.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--quiet",
-            "--sphinx-src",
-            str(tmp_path),
-            str(orphan),
-        ],
+        ["check_rst.py", "check", "--quiet", "--sphinx-src", str(tmp_path), str(orphan)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -1766,13 +1760,7 @@ def test_cli_verified_mode_rejects_file_excluded_by_sphinx_environment(
     excluded.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--quiet",
-            "--sphinx-src",
-            str(tmp_path),
-            str(excluded),
-        ],
+        ["check_rst.py", "check", "--quiet", "--sphinx-src", str(tmp_path), str(excluded)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -2019,15 +2007,7 @@ def test_cli_materializes_required_docutils_model_before_sphinx(
     monkeypatch.setattr(check_rst, "_rare_prose_words", lambda *_args: ([], 0))
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--no-directives",
-            "--word-samples",
-            "1",
-            "--sphinx-src",
-            str(rst_repo),
-            str(p),
-        ],
+        ["check_rst.py", "check", "--no-directives", "--word-samples", "1", "--sphinx-src", str(rst_repo), str(p)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -2056,11 +2036,12 @@ def test_cli_verified_mode_surfaces_phase2_inconsistent_title_style(
         "sys.argv",
         [
             "check_rst.py",
+            "outline",
+            "--with-findings",
             "--sphinx-src",
             str(rst_repo),
             "--build-dir",
             str(rst_repo / "_build"),
-            "--outline",
             str(p),
         ],
     )
@@ -2099,7 +2080,7 @@ def test_cli_verified_mode_deduplicates_same_phase2_and_phase3_finding(
         lambda *_args, **_kwargs: (env, raw_warning),
     )
     monkeypatch.setattr(check_rst, "run_sphinx", lambda *_args: [duplicate])
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--sphinx-src", str(rst_repo), str(p)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -2212,7 +2193,7 @@ def test_cli_did_you_mean_suggested_for_broken_doc_reference(
     p = rst_repo / "index.rst"
     p.write_text("Title\n=====\n\n:doc:`other-pge`\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--sphinx-src", str(rst_repo), str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -2370,7 +2351,7 @@ def test_cli_refs_shows_outgoing_and_incoming(
     b = rst_repo / "b.rst"
     b.write_text("B\n=\n\n:doc:`a`\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "--refs", str(b)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "refs", "--sphinx-src", str(rst_repo), str(b)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -2409,13 +2390,7 @@ def test_cli_refs_includes_parent_and_globbed_child_toctree_edges(
     (organs / "beta" / "index.rst").write_text("Beta\n====\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--sphinx-src",
-            str(rst_repo),
-            "--refs",
-            str(target),
-        ],
+        ["check_rst.py", "refs", "--sphinx-src", str(rst_repo), str(target)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -2437,7 +2412,7 @@ def test_cli_refs_requires_sphinx_src(
 ) -> None:
     p = rst_repo / "index.rst"
     p.write_text("Title\n=====\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--refs", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "refs", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -2461,7 +2436,7 @@ def test_cli_refs_file_not_part_of_project(
     # test_docname_for_unreachable_file_returns_none.
     outside = tmp_path.parent / "not_in_this_project.rst"
     outside.write_text("Title\n=====\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "--refs", str(outside)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "refs", "--sphinx-src", str(rst_repo), str(outside)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -2477,7 +2452,7 @@ def test_cli_refs_missing_file_errors_cleanly(
 ) -> None:
     (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
     missing = rst_repo / "missing.rst"
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "--refs", str(missing)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "refs", "--sphinx-src", str(rst_repo), str(missing)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -2637,7 +2612,7 @@ def test_cli_bare_filenames_warning_shown(
     (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\nroot_doc = "a"\n', encoding="utf-8")
     (rst_repo / "a.rst").write_text("A\n=\n\nSee guide.rst for details.\n", encoding="utf-8")
     (rst_repo / "guide.rst").write_text("Guide\n=====\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), str(rst_repo / "a.rst")])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--sphinx-src", str(rst_repo), str(rst_repo / "a.rst")])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -2657,7 +2632,7 @@ def test_cli_json_bare_filenames_included(
     (rst_repo / "guide.rst").write_text("Guide\n=====\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "--json", str(rst_repo / "a.rst")],
+        ["check_rst.py", "check", "--format=json", "--sphinx-src", str(rst_repo), str(rst_repo / "a.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -3755,7 +3730,7 @@ def test_cli_fix_short_titles_converge_with_no_inconsistent_style(
     p.write_text("Doc\n###\n\nSub\n***\n\nDeep\n====\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "--build-dir", str(rst_repo / "_build"), "--fix", str(p)],
+        ["check_rst.py", "fix", "--sphinx-src", str(rst_repo), "--build-dir", str(rst_repo / "_build"), str(p)],
     )
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -4163,7 +4138,7 @@ def test_cli_explicit_file_is_whole_file_auto_detect_is_diff_scoped(
     # pre-existing "must be 7 chars" error sits outside the changed lines.
     p.write_text(_BAD_BLOCK + _APPENDED_UNDERLINE_ONLY, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py"])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check"])
     with pytest.raises(SystemExit) as auto_exit:
         check_rst.main()
     assert auto_exit.value.code == 1
@@ -4171,7 +4146,7 @@ def test_cli_explicit_file_is_whole_file_auto_detect_is_diff_scoped(
     assert "underline-only" in auto_out
     assert "must be 7 chars" not in auto_out
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as explicit_exit:
         check_rst.main()
     assert explicit_exit.value.code == 1
@@ -4189,7 +4164,7 @@ def test_cli_deduplicates_repeated_explicit_file_arguments(
 ) -> None:
     document = rst_repo / "doc.rst"
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(document), str(document.resolve())])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(document), str(document.resolve())])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -4216,7 +4191,7 @@ def test_cli_git_scope_fix_changes_only_selected_changed_file(
     selected.write_text(_BAD_BLOCK, encoding="utf-8")
     unrelated.write_text(_BAD_BLOCK, encoding="utf-8")
     unrelated_before = unrelated.read_bytes()
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix", "--git-scope", str(selected)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--git-scope", str(selected)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -4241,7 +4216,7 @@ def test_cli_git_scope_preserves_diff_scope_for_selected_file(
     _git(rst_repo, "add", "selected.rst")
     _git(rst_repo, "commit", "-m", "historical error")
     selected.write_text(_BAD_BLOCK + "\nChanged.\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--git-scope", str(selected)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--git-scope", str(selected)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -4252,20 +4227,20 @@ def test_cli_git_scope_preserves_diff_scope_for_selected_file(
 
 @pytest.mark.integration
 @pytest.mark.parametrize("selection", ["bare", "git-scope"])
-@pytest.mark.parametrize("mode", ["--fix", "--fix-only"])
+@pytest.mark.parametrize("verb_tail", [["fix"], ["fix", "--fast"]], ids=["fix", "fix-fast"])
 def test_git_scoped_fix_reflows_adornments_when_only_title_text_changed(
     check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     selection: str,
-    mode: str,
+    verb_tail: list[str],
 ) -> None:
     document = rst_repo / "selected.rst"
     document.write_text("#######\nTitle\n#######\n", encoding="utf-8")
     _git(rst_repo, "add", "selected.rst")
     _git(rst_repo, "commit", "-m", "clean title")
     document.write_text("#######\nLonger Title\n#######\n", encoding="utf-8")
-    argv = ["check_rst.py", mode]
+    argv = ["check_rst.py", *verb_tail]
     if selection == "git-scope":
         argv.extend(["--git-scope", str(document)])
     monkeypatch.setattr("sys.argv", argv)
@@ -4289,7 +4264,7 @@ def test_cli_git_scope_unchanged_file_is_not_selected(
     selected.write_text(_BAD_BLOCK, encoding="utf-8")
     _git(rst_repo, "add", "selected.rst")
     _git(rst_repo, "commit", "-m", "unchanged historical file")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--git-scope", str(selected)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--git-scope", str(selected)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -4317,13 +4292,7 @@ def test_cli_git_scope_rejects_file_outside_selected_worktree_before_fix(
     outside.write_text(_BAD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--fix",
-            "--git-scope",
-            str(selected),
-            str(outside),
-        ],
+        ["check_rst.py", "fix", "--git-scope", str(selected), str(outside)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -4441,13 +4410,13 @@ def test_cli_bare_fix_converges_in_one_pass_when_remap_fires(
     _git(rst_repo, "commit", "-m", "wide starred doc")
     p.write_text(_WIDE_STARRED_DOC + _APPENDED_THIRD_LEVEL, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix"])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix"])
     with pytest.raises(SystemExit) as fix_exit:
         check_rst.main()
     assert fix_exit.value.code == 0
     capsys.readouterr()
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py"])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check"])
     with pytest.raises(SystemExit) as check_exit:
         check_rst.main()
     out = capsys.readouterr().out
@@ -4470,7 +4439,7 @@ def test_cli_bare_diff_previews_composed_result(
     _git(rst_repo, "commit", "-m", "wide starred doc")
     p.write_text(_WIDE_STARRED_DOC + _APPENDED_THIRD_LEVEL, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--diff"])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "diff"])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -4502,7 +4471,7 @@ def test_sphinx_src_omitted_runs_heuristic_phase2_skips_phase3(
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -4525,7 +4494,7 @@ def test_sphinx_src_missing_conf_py_errors_before_phase1(
     empty_dir = rst_repo / "not_sphinx"
     empty_dir.mkdir()
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(empty_dir), str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--sphinx-src", str(empty_dir), str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -4547,7 +4516,7 @@ def test_sphinx_src_valid_dir_runs_phase2_and_phase3(
     p.write_text(_GOOD_BLOCK + "\n.. toctree::\n", encoding="utf-8")
     (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--sphinx-src", str(rst_repo), str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -4571,7 +4540,7 @@ def test_cli_invalid_sphinx_configuration_is_clean_error_not_traceback(
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), str(document)],
+        ["check_rst.py", "check", "--sphinx-src", str(rst_repo), str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -4601,7 +4570,7 @@ def test_outline_without_sphinx_src_shows_heuristic_headings_and_code_blocks(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -4632,7 +4601,9 @@ def test_outline_with_sphinx_src_merges_headings_and_code_blocks(
     )
     (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--outline", "--sphinx-src", str(rst_repo), str(p)])
+    monkeypatch.setattr(
+        "sys.argv", ["check_rst.py", "outline", "--with-findings", "--sphinx-src", str(rst_repo), str(p)]
+    )
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -4683,15 +4654,7 @@ def test_outline_with_sphinx_src_uses_sphinx_doctree_for_headings(
     monkeypatch.setattr(check_rst, "run_sphinx", lambda *_args: [])
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--outline-only",
-            "--no-adornments",
-            "--no-directives",
-            "--sphinx-src",
-            str(rst_repo),
-            str(p),
-        ],
+        ["check_rst.py", "outline", "--no-adornments", "--no-directives", "--sphinx-src", str(rst_repo), str(p)],
     )
 
     with pytest.raises(SystemExit):
@@ -4791,7 +4754,7 @@ def test_cli_selected_toctree_parent_surfaces_child_anchored_anomaly(
     monkeypatch.setattr(check_rst, "run_sphinx", lambda *_args: [])
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--quiet", "--sphinx-src", str(tmp_path), str(parent)],
+        ["check_rst.py", "check", "--quiet", "--sphinx-src", str(tmp_path), str(parent)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -4850,13 +4813,7 @@ def test_toctree_recurses_into_included_documents(
 
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--outline-only",
-            "--sphinx-src",
-            str(rst_repo),
-            str(rst_repo / "index.rst"),
-        ],
+        ["check_rst.py", "outline", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -4891,13 +4848,7 @@ def test_toctree_recurses_across_multiple_levels(
 
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--outline-only",
-            "--sphinx-src",
-            str(rst_repo),
-            str(rst_repo / "index.rst"),
-        ],
+        ["check_rst.py", "outline", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -4931,13 +4882,7 @@ def test_toctree_cycle_is_reported_and_does_not_hang(
 
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--outline-only",
-            "--sphinx-src",
-            str(rst_repo),
-            str(rst_repo / "index.rst"),
-        ],
+        ["check_rst.py", "outline", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -4967,13 +4912,7 @@ def test_toctree_diamond_shows_heading_again_without_reexpanding(
 
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--outline-only",
-            "--sphinx-src",
-            str(rst_repo),
-            str(rst_repo / "index.rst"),
-        ],
+        ["check_rst.py", "outline", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -4997,14 +4936,7 @@ def test_toctree_sections_only_hides_container_keeps_cross_file_headings(
 
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--outline-only",
-            "--sections-only",
-            "--sphinx-src",
-            str(rst_repo),
-            str(rst_repo / "index.rst"),
-        ],
+        ["check_rst.py", "outline", "--sections-only", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -5029,15 +4961,7 @@ def test_toctree_outline_depth_bounds_across_file_boundary(
 
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--outline-only",
-            "--outline-depth",
-            "2",
-            "--sphinx-src",
-            str(rst_repo),
-            str(rst_repo / "index.rst"),
-        ],
+        ["check_rst.py", "outline", "--outline-depth", "2", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -5066,14 +4990,7 @@ def test_no_toctree_flag_suppresses_recursion(
 
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--outline-only",
-            "--no-toctree",
-            "--sphinx-src",
-            str(rst_repo),
-            str(rst_repo / "index.rst"),
-        ],
+        ["check_rst.py", "outline", "--no-toctree", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -5105,13 +5022,7 @@ def test_toctree_json_shape_includes_toctrees_and_cross_file_ids(
 
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--json",
-            "--sphinx-src",
-            str(rst_repo),
-            str(rst_repo / "index.rst"),
-        ],
+        ["check_rst.py", "check", "--format=json", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -5140,7 +5051,7 @@ def test_toctree_invisible_without_sphinx_src(
     p = rst_repo / "index.rst"
     p.write_text("Index\n=====\n\n.. toctree::\n\n   sub1\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--outline-only", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -5179,7 +5090,7 @@ def test_skip_fixable_suppresses_width_error(
         More text.
         """,
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--skip-fixable", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--skip-fixable", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -5208,7 +5119,7 @@ def test_skip_fixable_suppresses_underline_only(
         More text.
         """,
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--skip-fixable", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--skip-fixable", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -5237,7 +5148,7 @@ def test_skip_fixable_suppresses_hierarchy_error(
         =====
         """,
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--skip-fixable", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--skip-fixable", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -5254,7 +5165,7 @@ def test_skip_fixable_preserves_directive_warnings(
 ) -> None:
     """Directive WARNINGs (bold headings, rubric) are still shown with --skip-fixable."""
     p = _rst(tmp_path, "**Bold Heading**\n\nSome text.\n")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--skip-fixable", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--skip-fixable", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -5284,7 +5195,7 @@ def test_skip_fixable_preserves_single_top_level_warnings(
         ######
         """,
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--skip-fixable", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--skip-fixable", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -5305,7 +5216,7 @@ def test_cli_json_single_top_level_warning_included(
         "#####\nFirst\n#####\n\n######\nSecond\n######\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     data = json.loads(capsys.readouterr().out)
@@ -5333,7 +5244,7 @@ def test_skip_fixable_mixed_shows_only_warnings(
         Some text.
         """,
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--skip-fixable", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--skip-fixable", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -5373,6 +5284,7 @@ def test_skip_fixable_suppresses_sphinx_structural_duplicate_only(
         "sys.argv",
         [
             "check_rst.py",
+            "check",
             "--skip-fixable",
             "--sphinx-src",
             str(tmp_path),
@@ -5413,7 +5325,7 @@ def test_without_skip_fixable_width_error_exits_1(
         More text.
         """,
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -5450,7 +5362,7 @@ def test_recursive_discovers_nested_rst_files(
     for p in (top, nested, deep):
         p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--recursive", str(tmp_path)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive", str(tmp_path)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -5479,7 +5391,7 @@ def test_recursive_multiple_directories_merged_no_duplicates(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--recursive", str(tmp_path), str(tmp_path / "sub")],
+        ["check_rst.py", "check", "--recursive", str(tmp_path), str(tmp_path / "sub")],
     )
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -5506,7 +5418,7 @@ def test_recursive_exclude_pattern_skips_file(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--recursive", str(tmp_path), "--exclude", "skip.rst"],
+        ["check_rst.py", "check", "--recursive", "--exclude", "skip.rst", str(tmp_path)],
     )
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -5533,15 +5445,7 @@ def test_recursive_multiple_exclude_patterns(
 
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--recursive",
-            str(tmp_path),
-            "--exclude",
-            "skip1.rst",
-            "--exclude",
-            "skip2.rst",
-        ],
+        ["check_rst.py", "check", "--recursive", "--exclude", "skip1.rst", "--exclude", "skip2.rst", str(tmp_path)],
     )
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -5570,12 +5474,7 @@ def test_cli_missing_explicit_file_stops_before_all_check_phases(
     monkeypatch.setattr(check_rst, "run_sphinx", unexpected_sphinx)
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--sphinx-src",
-            str(tmp_path),
-            str(missing),
-        ],
+        ["check_rst.py", "check", "--sphinx-src", str(tmp_path), str(missing)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -5593,54 +5492,13 @@ def test_cli_missing_explicit_file_stops_before_all_check_phases(
 @pytest.mark.parametrize(
     ("argv", "message"),
     [
-        (["--outline-depth", "0"], "--outline-depth must be >= 1"),
-        (["--outline-depth", "-1"], "--outline-depth must be >= 1"),
-        (["--outline-depth", "2"], "--outline-depth requires --outline"),
-        (["--exclude", "skip.rst"], "--exclude requires --recursive"),
-        (["--git-scope"], "--git-scope requires at least one file"),
+        (["outline", "--outline-depth", "0"], "--outline-depth must be >= 1"),
+        (["outline", "--outline-depth", "-1"], "--outline-depth must be >= 1"),
+        (["check", "--exclude", "skip.rst"], "--exclude requires --recursive"),
+        (["check", "--git-scope"], "--git-scope requires at least one file"),
         (
-            ["--git-scope", "--recursive", "docs"],
+            ["check", "--git-scope", "--recursive", "docs"],
             "--git-scope is incompatible with --recursive",
-        ),
-        (
-            ["--diff-only", "--outline", "doc.rst"],
-            "--diff-only is self-contained",
-        ),
-        (
-            ["--diff-json", "old.json", "new.json", "--fix", "extra.rst"],
-            "--diff-json is self-contained",
-        ),
-        (
-            ["--diff-json", "old.json", "new.json", "--config", "config.toml"],
-            "--diff-json is self-contained",
-        ),
-        (
-            ["--refs", "index.rst", "--json"],
-            "--refs is self-contained",
-        ),
-        (
-            ["--refs", "index.rst", "extra.rst"],
-            "--refs is self-contained",
-        ),
-        (
-            ["--outline-only", "--fix", "doc.rst"],
-            "--outline-only is read-only",
-        ),
-        (
-            ["--outline-only", "--diff", "doc.rst"],
-            "--outline-only is read-only",
-        ),
-        (
-            ["--outline-only", "--json", "doc.rst"],
-            "--outline-only and --json are separate output modes",
-        ),
-        (
-            ["--outline", "--sections-only", "--json", "doc.rst"],
-            "--sections-only does not filter --json",
-        ),
-        (
-            ["--outline", "--outline-depth", "1", "--json", "doc.rst"],
-            "--outline-depth does not filter --json",
         ),
     ],
 )
@@ -5651,6 +5509,16 @@ def test_cli_rejects_semantically_incompatible_arguments_before_actions(
     argv: list[str],
     message: str,
 ) -> None:
+    """The remaining value-level/peer-flag rules that still need a runtime
+    check under the subcommand redesign (docs/roadmap.rst, "Subcommands:
+    flag-soup incompatibilities become verbs") — every combination this
+    parametrize used to cover that the redesign made structurally
+    impossible (e.g. --outline-only + --fix, --refs + --json, --diff-json +
+    --config) was removed rather than converted: those now fail as an
+    ordinary argparse "unrecognized argument" (exit 2, message on stderr),
+    which is argparse's own behavior, not this project's logic to pin down
+    with a regression test. --outline-depth requiring --outline is likewise
+    gone: the flag only exists on outline's own parser now."""
     monkeypatch.setattr("sys.argv", ["check_rst.py", *argv])
 
     with pytest.raises(SystemExit) as exc:
@@ -5681,13 +5549,14 @@ def test_cli_help_uses_launcher_name(
 
 
 @pytest.mark.integration
-def test_cli_help_covers_safety_and_self_contained_modes(
+def test_cli_help_covers_examples_and_self_contained_modes(
     check_rst: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Help is sufficient to discover write safety and the less-obvious
-    self-contained report modes without treating examples as exhaustive."""
+    """Top-level help (the module docstring) is sufficient to discover the
+    self-contained report verbs and see worked examples of each, without
+    treating examples as exhaustive."""
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--help"])
 
     with pytest.raises(SystemExit) as exc:
@@ -5695,15 +5564,43 @@ def test_cli_help_covers_safety_and_self_contained_modes(
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    assert "unresolved merge entry" in out
     assert "Common examples:" in out
-    assert "check_rst --refs doc.rst" in out
-    assert "check_rst --diff-json before.json after.json" in out
-    assert "check_rst --fix-only" in out
-    assert "check_rst --max-output-lines 40" in out
-    assert "configured Sphinx settings are reported inactive" in " ".join(out.split())
-    assert "authoritative final status" in " ".join(out.split())
-    assert "Phase 0 byte hygiene remains enabled" in out
+    assert "check_rst refs doc.rst" in out
+    assert "check_rst diff-json before.json after.json" in out
+    assert "check_rst fix --fast" in out
+    assert "check_rst check --max-output-lines 40" in out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("verb", "needle"),
+    [
+        ("fix", "unresolved merge entry"),
+        ("fix", "configured Sphinx settings are reported inactive"),
+        ("check", "authoritative final status"),
+        ("check", "Phase 0 byte hygiene remains enabled"),
+    ],
+)
+def test_cli_verb_help_covers_write_safety_claims(
+    check_rst: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    verb: str,
+    needle: str,
+) -> None:
+    """Under the subcommand redesign, each flag's safety-relevant detail
+    lives on its own verb's --help page rather than one combined top-level
+    page — progressive disclosure, not information loss (see
+    test_cli_help_covers_examples_and_self_contained_modes for the
+    top-level page's own remaining content)."""
+    monkeypatch.setattr("sys.argv", ["check_rst.py", verb, "--help"])
+
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+
+    assert exc.value.code == 0
+    out = " ".join(capsys.readouterr().out.split())
+    assert needle in out
     assert "once-per-run rationale" in out
 
 
@@ -5723,15 +5620,7 @@ def test_cli_file_valued_build_dir_stops_before_fix_or_phases(
     build_file.write_text("occupied", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--fix",
-            "--sphinx-src",
-            str(tmp_path),
-            "--build-dir",
-            str(build_file),
-            str(p),
-        ],
+        ["check_rst.py", "fix", "--sphinx-src", str(tmp_path), "--build-dir", str(build_file), str(p)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -5755,7 +5644,7 @@ def test_cli_explicit_build_dir_requires_resolved_sphinx_source(
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--build-dir", str(tmp_path / "_build"), str(document)],
+        ["check_rst.py", "check", "--build-dir", str(tmp_path / "_build"), str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -5778,7 +5667,7 @@ def test_cli_no_toctree_requires_resolved_sphinx_source(
 ) -> None:
     document = tmp_path / "doc.rst"
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--outline", "--no-toctree", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--no-toctree", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -5791,24 +5680,22 @@ def test_cli_no_toctree_requires_resolved_sphinx_source(
 
 
 @pytest.mark.integration
-def test_cli_no_toctree_requires_outline_or_json_consumer(
+def test_cli_no_toctree_requires_format_json(
     check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Under the subcommand redesign, --no-toctree's "requires one of
+    --outline/--outline-only/--json/--context" half narrows to "requires
+    --format=json" on check's own parser — outline and context each
+    guarantee the condition structurally now (see _validate_check_args)."""
     (tmp_path / "conf.py").write_text('project = "test"\n', encoding="utf-8")
     document = tmp_path / "doc.rst"
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--sphinx-src",
-            str(tmp_path),
-            "--no-toctree",
-            str(document),
-        ],
+        ["check_rst.py", "check", "--sphinx-src", str(tmp_path), "--no-toctree", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -5816,7 +5703,7 @@ def test_cli_no_toctree_requires_outline_or_json_consumer(
 
     assert exc.value.code == 1
     out = capsys.readouterr().out
-    assert "--no-toctree requires --outline, --outline-only, --json, or --context" in out
+    assert "--no-toctree requires --format=json" in out
     assert "Phase 1" not in out
 
 
@@ -5837,13 +5724,7 @@ def test_cli_foreign_sphinx_file_stops_before_fix_or_phases(
     foreign.write_text(original, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--fix",
-            "--sphinx-src",
-            str(sphinx_src),
-            str(foreign),
-        ],
+        ["check_rst.py", "fix", "--sphinx-src", str(sphinx_src), str(foreign)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -5887,7 +5768,7 @@ def test_cli_unmerged_file_stops_before_fix_and_preserves_markers(
     invocation_dir = rst_repo.parent / "outside-invocation"
     invocation_dir.mkdir(exist_ok=True)
     monkeypatch.setattr(check_rst, "PROJECT_ROOT", invocation_dir)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", str(p)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -5909,7 +5790,7 @@ def test_recursive_nonexistent_directory_errors(
     """A --recursive argument that doesn't exist is a hard error, not a
     silent empty result — same fail-loud precedent as --sphinx-src."""
     missing = tmp_path / "does_not_exist"
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--recursive", str(missing)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive", str(missing)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -5928,7 +5809,7 @@ def test_recursive_file_argument_errors(
     """A --recursive argument that is a file, not a directory, is a hard error."""
     p = tmp_path / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--recursive", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -5944,7 +5825,7 @@ def test_recursive_no_directories_given_errors(
 ) -> None:
     """--recursive with no positional directories is a clear error, not a
     silent no-op or an implicit fallback to some other scope."""
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--recursive"])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive"])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -5962,7 +5843,7 @@ def test_recursive_no_rst_files_found_exits_zero(
     """A --recursive directory with no *.rst files anywhere under it is not
     an error — same "nothing to do" convention as the no-files-changed case."""
     (tmp_path / "empty").mkdir()
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--recursive", str(tmp_path / "empty")])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive", str(tmp_path / "empty")])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -5983,7 +5864,7 @@ def test_recursive_filename_with_spaces(
     spaced = tmp_path / "saved chat transcript.rst"
     spaced.write_text(_BAD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--recursive", str(tmp_path)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive", str(tmp_path)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -6006,7 +5887,7 @@ def test_recursive_implies_whole_file_scoping(
     p = tmp_path / "test.rst"
     p.write_text(_BAD_BLOCK, encoding="utf-8")  # pre-existing-style violation, no git involved
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--recursive", str(tmp_path)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive", str(tmp_path)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -6415,14 +6296,14 @@ def test_cli_normalize_blank_lines_is_opt_in_and_composes_with_fix(
     original = "\n\n##########\nDocument\n##########\n\n\nBody.\n\n\n"
     document.write_text(original, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", str(document)])
     with pytest.raises(SystemExit):
         check_rst.main()
     assert document.read_text(encoding="utf-8") == original
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--fix", "--normalize-blank-lines", str(document)],
+        ["check_rst.py", "fix", "--normalize-blank-lines", str(document)],
     )
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -6444,7 +6325,7 @@ def test_cli_normalize_blank_lines_diff_previews_without_writing(
     document.write_text(original, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--diff", "--normalize-blank-lines", str(document)],
+        ["check_rst.py", "diff", "--normalize-blank-lines", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -6458,27 +6339,44 @@ def test_cli_normalize_blank_lines_diff_previews_without_writing(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("mode", [None, "--fix-only", "--diff-only"])
-def test_cli_normalize_blank_lines_requires_parser_capable_mutation_mode(
+def test_cli_normalize_blank_lines_absent_from_check_verb(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Under the subcommand redesign (docs/roadmap.rst, "Subcommands:
+    flag-soup incompatibilities become verbs"), --normalize-blank-lines only
+    exists on fix's/diff's own parser — check simply doesn't define it, so
+    this is now an ordinary argparse "unrecognized argument" (exit 2), not
+    this project's own logic to pin a message for."""
+    document = tmp_path / "test.rst"
+    document.write_text("Alpha.\n\n\nBeta.\n", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--normalize-blank-lines", str(document)])
+
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+
+    assert exc.value.code == 2
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("verb", ["fix", "diff"])
+def test_cli_normalize_blank_lines_rejected_under_fast(
     check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    mode: str | None,
+    verb: str,
 ) -> None:
     document = tmp_path / "test.rst"
     document.write_text("Alpha.\n\n\nBeta.\n", encoding="utf-8")
-    argv = ["check_rst.py", "--normalize-blank-lines"]
-    if mode is not None:
-        argv.append(mode)
-    argv.append(str(document))
-    monkeypatch.setattr("sys.argv", argv)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", verb, "--fast", "--normalize-blank-lines", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
 
     assert exc.value.code == 1
-    assert "requires --fix or --diff" in capsys.readouterr().out
+    assert f"{verb} --fast is self-contained" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -6549,14 +6447,14 @@ def test_cli_collapse_title_spaces_is_opt_in_and_resizes_adornments(
     original = "#############\nTitle  text\n#############\n\nBody.\n"
     document.write_text(original, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", str(document)])
     with pytest.raises(SystemExit):
         check_rst.main()
     assert document.read_text(encoding="utf-8") == original
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--fix", "--collapse-title-spaces", str(document)],
+        ["check_rst.py", "fix", "--collapse-title-spaces", str(document)],
     )
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -6567,27 +6465,42 @@ def test_cli_collapse_title_spaces_is_opt_in_and_resizes_adornments(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("mode", [None, "--fix-only", "--diff-only"])
-def test_cli_collapse_title_spaces_requires_parser_capable_mutation_mode(
+def test_cli_collapse_title_spaces_absent_from_check_verb(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """See test_cli_normalize_blank_lines_absent_from_check_verb: same
+    structural elimination, --collapse-title-spaces only exists on fix's/
+    diff's own parser now."""
+    document = tmp_path / "test.rst"
+    document.write_text("Title  text\n===========\n", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--collapse-title-spaces", str(document)])
+
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+
+    assert exc.value.code == 2
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("verb", ["fix", "diff"])
+def test_cli_collapse_title_spaces_rejected_under_fast(
     check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    mode: str | None,
+    verb: str,
 ) -> None:
     document = tmp_path / "test.rst"
     document.write_text("Title  text\n===========\n", encoding="utf-8")
-    argv = ["check_rst.py", "--collapse-title-spaces"]
-    if mode is not None:
-        argv.append(mode)
-    argv.append(str(document))
-    monkeypatch.setattr("sys.argv", argv)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", verb, "--fast", "--collapse-title-spaces", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
 
     assert exc.value.code == 1
-    assert "requires --fix or --diff" in capsys.readouterr().out
+    assert f"{verb} --fast is self-contained" in capsys.readouterr().out
 
 
 @pytest.mark.unit
@@ -6690,14 +6603,14 @@ def test_cli_single_space_prose_is_opt_in_and_preserves_literal_payload(
     original = "##########\nDocument\n##########\n\nAlpha.  Beta with ``fixed  text``.\n"
     document.write_text(original, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", str(document)])
     with pytest.raises(SystemExit):
         check_rst.main()
     assert document.read_text(encoding="utf-8") == original
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--fix", "--single-space-prose", str(document)],
+        ["check_rst.py", "fix", "--single-space-prose", str(document)],
     )
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -6719,13 +6632,7 @@ def test_cli_editorial_space_options_compose_in_diff_without_writing(
     document.write_text(original, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--diff",
-            "--collapse-title-spaces",
-            "--single-space-prose",
-            str(document),
-        ],
+        ["check_rst.py", "diff", "--collapse-title-spaces", "--single-space-prose", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -6741,27 +6648,42 @@ def test_cli_editorial_space_options_compose_in_diff_without_writing(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("mode", [None, "--fix-only", "--diff-only"])
-def test_cli_single_space_prose_requires_parser_capable_mutation_mode(
+def test_cli_single_space_prose_absent_from_check_verb(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """See test_cli_normalize_blank_lines_absent_from_check_verb: same
+    structural elimination, --single-space-prose only exists on fix's/
+    diff's own parser now."""
+    document = tmp_path / "test.rst"
+    document.write_text("Alpha.  Beta.\n", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--single-space-prose", str(document)])
+
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+
+    assert exc.value.code == 2
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("verb", ["fix", "diff"])
+def test_cli_single_space_prose_rejected_under_fast(
     check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    mode: str | None,
+    verb: str,
 ) -> None:
     document = tmp_path / "test.rst"
     document.write_text("Alpha.  Beta.\n", encoding="utf-8")
-    argv = ["check_rst.py", "--single-space-prose"]
-    if mode is not None:
-        argv.append(mode)
-    argv.append(str(document))
-    monkeypatch.setattr("sys.argv", argv)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", verb, "--fast", "--single-space-prose", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
 
     assert exc.value.code == 1
-    assert "requires --fix or --diff" in capsys.readouterr().out
+    assert f"{verb} --fast is self-contained" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -6942,14 +6864,14 @@ def test_cli_hygiene_error_reported_and_exit_1(
     p = rst_repo / "test.rst"
     p.write_bytes(b"#######\r\nTitle\r\n#######\r\n\r\nText.\r\n")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "CRLF" in out
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--skip-fixable", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--skip-fixable", str(p)])
     with pytest.raises(SystemExit) as exc2:
         check_rst.main()
     assert exc2.value.code == 0
@@ -6969,7 +6891,7 @@ def test_cli_fix_resolves_hygiene_and_recheck_is_clean(
     p = rst_repo / "test.rst"
     p.write_bytes(b"\xef\xbb\xbf#########\r\n Title A \r\n#####\r\n\r\nText.\r\n")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -6981,7 +6903,7 @@ def test_cli_fix_resolves_hygiene_and_recheck_is_clean(
     assert not raw.startswith(b"\xef\xbb\xbf")
     assert raw == b"#########\nTitle A\n#########\n\nText.\n"
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc2:
         check_rst.main()
     assert exc2.value.code == 0
@@ -6997,7 +6919,7 @@ def test_cli_diff_previews_hygiene_changes(
     """--diff must show Phase 0 edits, not merely count the affected file."""
     p = rst_repo / "test.rst"
     p.write_bytes(b"####### \nTitle\n#######\n\nText.\n")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--diff", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "diff", str(p)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -7158,7 +7080,7 @@ def test_cli_bare_invocation_outside_git_repo_clean_error(
     (2026-07-18): the 'project-agnostic, call from any project' tool
     crashed with a raw traceback when that project wasn't a git repo."""
     monkeypatch.setattr(check_rst, "PROJECT_ROOT", tmp_path)  # no .git here
-    monkeypatch.setattr("sys.argv", ["check_rst.py"])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check"])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -7278,7 +7200,7 @@ def test_cli_summary_line_always_printed(
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -7295,7 +7217,7 @@ def test_cli_summary_counts_errors_and_warnings(
     p = rst_repo / "test.rst"
     p.write_text(_BAD_BLOCK + "\n**Bold Heading**\n\nText after.\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -7313,7 +7235,7 @@ def test_cli_summary_fix_mode_reports_fixed_files(
     p = rst_repo / "test.rst"
     p.write_text(_BAD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -7332,7 +7254,7 @@ def test_cli_summary_diff_mode_reports_would_change(
     p = rst_repo / "test.rst"
     p.write_text(_BAD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--diff", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "diff", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -7355,7 +7277,7 @@ def test_cli_diff_only_prints_preview_without_checks_or_writes(
 
     monkeypatch.setattr(check_rst, "_build_sphinx_env", unexpected_check)
     monkeypatch.setattr(check_rst, "run_sphinx", unexpected_check)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--diff-only", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "diff", "--fast", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -7379,7 +7301,7 @@ def test_cli_diff_only_clean_file_exits_zero(
 ) -> None:
     document = rst_repo / "test.rst"
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--diff-only", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "diff", "--fast", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -7399,7 +7321,7 @@ def test_cli_fix_only_composes_hygiene_and_structure_with_structured_output(
     reports what changed without continuing into validation phases."""
     document = rst_repo / "test.rst"
     document.write_bytes(b"\xef\xbb\xbf#########\r\n Title A \r\n#####\r\n\r\nText.\r\n")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix-only", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -7432,7 +7354,7 @@ def test_cli_fix_only_plans_all_inputs_before_writing_invalid_utf8(
     invalid.write_bytes(b"Title\n\xff\n")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--fix-only", str(fixable), str(invalid)],
+        ["check_rst.py", "fix", "--fast", str(fixable), str(invalid)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7460,7 +7382,7 @@ def test_cli_fix_only_missing_sibling_aborts_before_writing(
     fixable.write_bytes(original)
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--fix-only", str(fixable), str(missing)],
+        ["check_rst.py", "fix", "--fast", str(fixable), str(missing)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7497,7 +7419,7 @@ def test_cli_fix_only_ignores_configured_sphinx_and_never_parses(
     monkeypatch.setattr(check_rst, "run_sphinx", unexpected_phase)
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--fix-only", "--config", str(config), str(document)],
+        ["check_rst.py", "fix", "--fast", "--config", str(config), str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7516,9 +7438,9 @@ def test_cli_fix_only_ignores_configured_sphinx_and_never_parses(
 @pytest.mark.parametrize(
     ("extra", "message"),
     [
-        (["--sphinx-src", "docs"], "--fix-only is self-contained"),
-        (["--build-dir", "build"], "--fix-only is self-contained"),
-        (["--skip-fixable"], "--fix-only is self-contained"),
+        (["--sphinx-src", "docs"], "fix --fast is self-contained"),
+        (["--build-dir", "build"], "fix --fast is self-contained"),
+        (["--skip-fixable"], "fix --fast is self-contained"),
     ],
 )
 def test_cli_fix_only_rejects_meaningless_options_before_actions(
@@ -7532,7 +7454,7 @@ def test_cli_fix_only_rejects_meaningless_options_before_actions(
     document = tmp_path / "test.rst"
     original = _BAD_BLOCK
     document.write_text(original, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix-only", *extra, str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", *extra, str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -7553,7 +7475,7 @@ def test_cli_fix_only_no_adornments_is_hygiene_only(
     document.write_bytes(_BAD_BLOCK.replace("\n", "\r\n").encode())
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--fix-only", "--no-adornments", str(document)],
+        ["check_rst.py", "fix", "--fast", "--no-adornments", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7575,7 +7497,7 @@ def test_cli_fix_only_quiet_emits_only_the_status_footer(
 ) -> None:
     document = rst_repo / "test.rst"
     document.write_text(_BAD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix-only", "--quiet", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", "--quiet", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -7601,7 +7523,7 @@ def test_cli_fix_only_write_failure_is_nonzero_and_keeps_final_status(
         raise OSError("read-only filesystem")
 
     monkeypatch.setattr(check_rst, "_apply_fix_plan", fail_write)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix-only", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -7622,13 +7544,13 @@ def test_cli_fix_only_is_convergent_and_verbose_names_clean_files(
 ) -> None:
     document = rst_repo / "test.rst"
     document.write_text(_BAD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix-only", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", str(document)])
     with pytest.raises(SystemExit) as first:
         check_rst.main()
     assert first.value.code == 0
     capsys.readouterr()
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--fix-only", "--verbose", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", "--verbose", str(document)])
     with pytest.raises(SystemExit) as second:
         check_rst.main()
 
@@ -7673,7 +7595,7 @@ def test_cli_max_output_lines_rejects_values_below_two(
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--max-output-lines", "1", str(document)],
+        ["check_rst.py", "check", "--max-output-lines", "1", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7694,13 +7616,7 @@ def test_cli_max_output_lines_two_reserves_statistics_and_failed_footer(
     document.write_text(_BAD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--quiet",
-            "--max-output-lines",
-            "2",
-            str(document),
-        ],
+        ["check_rst.py", "check", "--quiet", "--max-output-lines", "2", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7726,13 +7642,7 @@ def test_cli_max_output_lines_reports_zero_suppression_without_padding(
     document.write_text(_BAD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--quiet",
-            "--max-output-lines",
-            "10",
-            str(document),
-        ],
+        ["check_rst.py", "check", "--quiet", "--max-output-lines", "10", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7762,13 +7672,7 @@ def test_cli_max_output_lines_classifies_suppressed_warnings(
     )
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--quiet",
-            "--max-output-lines",
-            "2",
-            str(document),
-        ],
+        ["check_rst.py", "check", "--quiet", "--max-output-lines", "2", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7795,14 +7699,7 @@ def test_cli_max_output_lines_applies_after_outline_filters_and_classifies(
     )
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--outline-only",
-            "--sections-only",
-            "--max-output-lines",
-            "3",
-            str(document),
-        ],
+        ["check_rst.py", "outline", "--sections-only", "--max-output-lines", "3", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7827,7 +7724,7 @@ def test_cli_max_output_lines_early_failure_has_hint_and_status_footer(
     missing = tmp_path / "missing.rst"
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--max-output-lines", "2", str(missing)],
+        ["check_rst.py", "check", "--max-output-lines", "2", str(missing)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7851,13 +7748,7 @@ def test_cli_max_output_lines_keeps_footer_last_after_verbose_statistics(
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--verbose",
-            "--max-output-lines",
-            "5",
-            str(document),
-        ],
+        ["check_rst.py", "check", "--verbose", "--max-output-lines", "5", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7881,13 +7772,7 @@ def test_cli_max_output_lines_supports_fix_only_without_masking_mutation(
     document.write_text(_BAD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--fix-only",
-            "--max-output-lines",
-            "2",
-            str(document),
-        ],
+        ["check_rst.py", "fix", "--fast", "--max-output-lines", "2", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7902,33 +7787,23 @@ def test_cli_max_output_lines_supports_fix_only_without_masking_mutation(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    "mode",
-    ["json", "diff", "diff-only", "refs", "context", "diff-json"],
-)
-def test_cli_max_output_lines_rejects_incomplete_structured_or_copyable_modes(
+def test_cli_max_output_lines_rejects_format_json(
     check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    mode: str,
 ) -> None:
+    """Of the old incompatible_budget_mode rule's six modes, --format=json
+    is the only one that survives as a value-level check under the
+    subcommand redesign — see _validate_check_args. The other five
+    (diff/diff --fast/refs/context/diff-json, tested below) never define
+    --max-output-lines on their own parser at all now."""
     document = tmp_path / "test.rst"
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
-    argv = ["check_rst.py", "--max-output-lines", "10"]
-    if mode == "json":
-        argv.extend(["--json", str(document)])
-    elif mode == "diff":
-        argv.extend(["--diff", str(document)])
-    elif mode == "diff-only":
-        argv.extend(["--diff-only", str(document)])
-    elif mode == "refs":
-        argv.extend(["--refs", str(document)])
-    elif mode == "context":
-        argv.extend(["--context", "Title", str(document)])
-    else:
-        argv.extend(["--diff-json", "old.json", "new.json"])
-    monkeypatch.setattr("sys.argv", argv)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "check", "--format=json", "--max-output-lines", "10", str(document)],
+    )
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -7937,6 +7812,45 @@ def test_cli_max_output_lines_rejects_incomplete_structured_or_copyable_modes(
     lines = capsys.readouterr().out.splitlines()
     assert any("--max-output-lines" in line and "incompatible" in line for line in lines)
     assert lines[-1] == ("check_rst: command failed before producing a run summary, exit status 1")
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "argv_tail",
+    [
+        ["diff", "--max-output-lines", "10", "FILE"],
+        ["diff", "--fast", "--max-output-lines", "10", "FILE"],
+        ["refs", "--max-output-lines", "10", "FILE"],
+        ["context", "Title", "--max-output-lines", "10", "FILE"],
+        ["diff-json", "--max-output-lines", "10", "old.json", "new.json"],
+    ],
+)
+def test_cli_max_output_lines_absent_from_structured_or_copyable_verbs(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv_tail: list[str],
+) -> None:
+    """--max-output-lines is now an ordinary argparse "unrecognized
+    arguments" error on every verb that used to need a custom
+    incompatible_budget_mode rejection for it — none of diff/refs/context/
+    diff-json define the flag on their own parser. Still exit 2, but on
+    stdout, not stderr: --max-output-lines being present anywhere in raw
+    argv activates main()'s OutputBudgetSink (_requested_output_limit's own
+    pre-argparse raw scan) before argparse ever runs, which merges
+    stdout/stderr into one captured stream — same architecture the passing
+    test_cli_max_output_lines_rejects_format_json above already relies on."""
+    document = tmp_path / "test.rst"
+    document.write_text(_GOOD_BLOCK, encoding="utf-8")
+    argv = ["check_rst.py", *[str(document) if a == "FILE" else a for a in argv_tail]]
+    monkeypatch.setattr("sys.argv", argv)
+
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+
+    assert exc.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().out
 
 
 @pytest.mark.integration
@@ -7951,7 +7865,7 @@ def test_cli_quiet_suppresses_progress_keeps_summary(
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -7976,7 +7890,7 @@ def test_cli_findings_match_de_facto_compiler_output_shape(
     matchers, editor jump-to-error) already knows how to parse."""
     p = rst_repo / "test.rst"
     p.write_text(_BAD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8000,7 +7914,7 @@ def test_cli_quiet_keeps_findings(
     p = rst_repo / "test.rst"
     p.write_text(_BAD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -8022,7 +7936,7 @@ def test_cli_quiet_keeps_requested_outline(
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8060,7 +7974,7 @@ def test_outline_blocks_summary_hidden_by_default(
         "Root\n####\n\n.. code-block:: bash\n\n   echo one\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8080,7 +7994,7 @@ def test_outline_blocks_summary_shown_with_verbose(
         "Root\n####\n\n.. code-block:: bash\n\n   echo one\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8096,7 +8010,7 @@ def test_footer_lines_words_hidden_by_default(
 ) -> None:
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8114,7 +8028,7 @@ def test_footer_lines_words_shown_with_verbose(
 ) -> None:
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8141,7 +8055,7 @@ def test_default_run_never_computes_word_frequency(
     p = rst_repo / "test.rst"
     p.write_text("#######\nTitle\n#######\n\nSome real prose content here.\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -8165,7 +8079,7 @@ def test_word_samples_zero_disables_even_under_verbose(
     p = rst_repo / "test.rst"
     p.write_text("#######\nTitle\n#######\n\nSome real prose content here.\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", "--word-samples", "0", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", "--word-samples", "0", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8188,7 +8102,7 @@ def test_word_samples_promotes_top_rare_words_under_quiet(
         "#######\nTitle\n#######\n\nproduct server product server product.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--word-samples", "5", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--word-samples", "5", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8215,7 +8129,7 @@ def test_json_word_samples_disabled_by_default(
         "#######\nTitle\n#######\n\nproduct server product server.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     data = json.loads(capsys.readouterr().out)
@@ -8234,7 +8148,7 @@ def test_word_samples_rejects_negative(
 ) -> None:
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--word-samples", "-1", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--word-samples", "-1", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -8313,7 +8227,7 @@ def test_cli_outline_depth_limits_levels(
         "Root\n####\n\nSub\n***\n\nDeep\n====\n\nDeeper\n------\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--outline", "--outline-depth", "2", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--outline-depth", "2", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8347,7 +8261,7 @@ def test_cli_outline_depth_hides_deep_code_blocks(
     )
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--quiet", "--outline", "--outline-depth", "2", str(p)],
+        ["check_rst.py", "outline", "--with-findings", "--quiet", "--outline-depth", "2", str(p)],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -8373,7 +8287,7 @@ def test_cli_summary_reports_line_statistics(
     # _GOOD_BLOCK: 7 lines, 2 of them empty.
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8403,7 +8317,7 @@ def test_cli_summary_line_statistics_aggregate_across_files(
     p1.write_text(_GOOD_BLOCK, encoding="utf-8")  # 7 lines, 2 empty
     p2.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p1), str(p2)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p1), str(p2)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8427,7 +8341,7 @@ def test_cli_non_utf8_file_clean_error_not_traceback(
     p = rst_repo / "latin1.rst"
     p.write_bytes(b"Title\n=====\n\nLatin-1 caf\xe9 here.\n")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -8455,7 +8369,7 @@ def test_cli_summary_shows_bytes_when_differs_from_chars(
     p = rst_repo / "test.rst"
     p.write_text("########\nR\u00e9sum\u00e9\n########\n\nCaf\u00e9.\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8489,7 +8403,7 @@ def test_cli_outline_legend_line_replaces_per_entry_level_info(
         "Root\n####\n\nSub A\n*****\n\nDeep\n====\n\nSub B\n*****\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8515,7 +8429,7 @@ def test_cli_outline_legend_shows_total_sections(
         "Root\n####\n\nSub A\n*****\n\nDeep\n====\n\nSub B\n*****\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8540,7 +8454,7 @@ def test_cli_outline_blocks_summary_line(
         "He wrote:\n\n    Quoted line.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8559,7 +8473,7 @@ def test_cli_outline_blocks_summary_absent_without_blocks(
     are no sections."""
     p = rst_repo / "test.rst"
     p.write_text("Root\n####\n\nJust a plain paragraph.\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8583,7 +8497,7 @@ def test_cli_outline_section_bracket_shows_cumulative_code_and_quote_counts(
         "Root\n####\n\nSub\n***\n\n.. code-block:: bash\n\n   echo hi\n\nHe wrote:\n\n    Quoted line.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8693,7 +8607,7 @@ def test_cli_outline_includes_blockquotes_in_order(
         "#######\nTitle\n#######\n\nHe wrote:\n\n    Quoted answer text.\n\nAfter.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -8715,7 +8629,7 @@ def test_cli_outline_depth_trims_blockquotes_too(
     )
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--quiet", "--outline", "--outline-depth", "2", str(p)],
+        ["check_rst.py", "outline", "--with-findings", "--quiet", "--outline-depth", "2", str(p)],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -8752,7 +8666,7 @@ def test_cli_outline_only_pure_structure_with_honest_footer(
         "Title\n#####\n\n**Bold Heading**\n\nHe wrote:\n\n    Quoted.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--outline-only", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1  # the underline-only ERROR still counts
@@ -8776,7 +8690,7 @@ def test_cli_outline_only_implies_outline_and_quiet(
     """No need to also pass --outline or --quiet — one flag is the point."""
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--outline-only", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -8797,7 +8711,7 @@ def test_cli_outline_only_composes_with_outline_depth(
     p.write_text("Root\n####\n\nSub\n***\n\nDeep\n====\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--outline-only", "--outline-depth", "2", str(p)],
+        ["check_rst.py", "outline", "--outline-depth", "2", str(p)],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -8832,7 +8746,7 @@ def test_config_dedicated_file_applies_and_is_echoed(
     p = rst_repo / "index.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -8857,7 +8771,7 @@ def test_config_pyproject_table_applies(
     p = rst_repo / "index.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -8877,7 +8791,7 @@ def test_config_build_dir_without_sphinx_source_is_reported_inactive(
     config.write_text('build-dir = "_build"\n', encoding="utf-8")
     document = rst_repo / "doc.rst"
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -8908,7 +8822,7 @@ def test_config_cli_flags_override(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "--build-dir", str(rst_repo / "_build"), str(p)],
+        ["check_rst.py", "check", "--sphinx-src", str(rst_repo), "--build-dir", str(rst_repo / "_build"), str(p)],
     )
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -8930,7 +8844,7 @@ def test_config_unknown_key_fails_loudly(
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -8955,7 +8869,7 @@ def test_config_dedicated_file_wins_over_pyproject(
     p = rst_repo / "index.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -8978,7 +8892,7 @@ def test_config_echo_suppressed_when_quiet(
     p = rst_repo / "index.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -9011,12 +8925,7 @@ def test_explicit_config_from_foreign_cwd_resolves_relative_values_from_config(
     monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--config",
-            str(config.relative_to(foreign, walk_up=True)),
-            str(document),
-        ],
+        ["check_rst.py", "check", "--config", str(config.relative_to(foreign, walk_up=True)), str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -9052,7 +8961,7 @@ def test_explicit_config_bare_run_discovers_git_changes_from_config_root(
     foreign.mkdir()
     monkeypatch.chdir(foreign)
     monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--config", str(config)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -9081,7 +8990,7 @@ def test_explicit_config_suppresses_cwd_config_discovery(
     (foreign / ".check_rst.toml").write_text('sphix-src = "typo must not be loaded"\n', encoding="utf-8")
     monkeypatch.chdir(foreign)
     monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--config", str(config), str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -9109,7 +9018,7 @@ def test_explicit_pyproject_config_uses_tool_table(
     foreign.mkdir()
     monkeypatch.chdir(foreign)
     monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--config", str(config), str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -9138,7 +9047,7 @@ def test_explicit_config_json_uses_config_root_for_document_ids(
     monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--json", "--config", str(config), str(document)],
+        ["check_rst.py", "check", "--format=json", "--config", str(config), str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -9182,7 +9091,7 @@ def test_explicit_config_errors_cleanly_before_actions(
     monkeypatch.setattr(check_rst, "_changed_rst_files", unexpected_action)
     monkeypatch.setattr(check_rst, "_build_sphinx_env", unexpected_action)
     monkeypatch.setattr(check_rst, "run_sphinx", unexpected_action)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--config", str(config)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -9217,6 +9126,7 @@ def test_explicit_config_values_are_overridden_by_cli_paths(
         "sys.argv",
         [
             "check_rst.py",
+            "check",
             "--config",
             str(config),
             "--sphinx-src",
@@ -9250,7 +9160,7 @@ def test_refs_accepts_explicit_config(
     config.write_text('sphinx-src = "."\nbuild-dir = "_build"\n', encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--config", str(config), "--refs", str(document)],
+        ["check_rst.py", "refs", "--config", str(config), str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -9296,7 +9206,7 @@ def test_call_counts_heuristic_run_never_builds_sphinx(
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
     check_rst.CALL_COUNTS.clear()
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
 
@@ -9325,7 +9235,16 @@ def test_call_counts_verified_run_builds_exactly_once(
     check_rst.CALL_COUNTS.clear()
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "--build-dir", str(rst_repo / "_build"), str(a), str(b)],
+        [
+            "check_rst.py",
+            "check",
+            "--sphinx-src",
+            str(rst_repo),
+            "--build-dir",
+            str(rst_repo / "_build"),
+            str(a),
+            str(b),
+        ],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -9371,7 +9290,7 @@ def test_cli_check_run_reads_each_file_once(
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
     check_rst.CALL_COUNTS.clear()
-    monkeypatch.setattr("sys.argv", ["check_rst.py", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     assert check_rst.CALL_COUNTS["_read_source"] == 1
@@ -9391,7 +9310,7 @@ def test_cli_outline_run_still_one_read_one_parse(
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
     check_rst.CALL_COUNTS.clear()
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--outline-only", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     assert check_rst.CALL_COUNTS["_read_source"] == 1
@@ -9417,7 +9336,7 @@ def test_cli_json_valid_and_complete(
         "Title\n=====\n\n**Bold Heading**\n\nHe wrote:\n\n    Quoted text.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1  # underline-only ERROR — exit semantics unchanged
@@ -9449,7 +9368,7 @@ def test_cli_json_no_warnings_filters_records_and_summary(
 ) -> None:
     document = rst_repo / "test.rst"
     document.write_text("#######\nTitle\n#######\n\n**Heading-like text**\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", "--no-warnings", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", "--no-warnings", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -9472,14 +9391,7 @@ def test_cli_json_no_warnings_filters_sphinx_findings(
     document.write_text("#######\nTitle\n#######\n\nSee :doc:`missing`.\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--json",
-            "--no-warnings",
-            "--sphinx-src",
-            str(rst_repo),
-            str(document),
-        ],
+        ["check_rst.py", "check", "--format=json", "--no-warnings", "--sphinx-src", str(rst_repo), str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -9506,7 +9418,7 @@ def test_cli_json_stable_section_ids(
     p = sub / "guide.rst"
     p.write_text("#######\nTitle\n#######\n\nText.\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     data = json.loads(capsys.readouterr().out)
@@ -9539,7 +9451,7 @@ def test_cli_json_section_ids_are_unique_for_duplicate_titles(
             """),
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(document)])
 
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -9547,22 +9459,6 @@ def test_cli_json_section_ids_are_unique_for_duplicate_titles(
     data = json.loads(capsys.readouterr().out)
     ids = [entry["id"] for entry in data["files"][0]["outline"]]
     assert ids == ["doc:Title", "doc:Repeated", "doc:Repeated#2"]
-
-
-@pytest.mark.integration
-def test_cli_json_rejects_fix_and_diff(
-    check_rst: types.ModuleType,
-    rst_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    p = rst_repo / "test.rst"
-    p.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", "--fix", str(p)])
-    with pytest.raises(SystemExit) as exc:
-        check_rst.main()
-    assert exc.value.code == 1
-    assert "--json" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -9647,7 +9543,7 @@ def test_cli_json_outline_carries_extent(
 ) -> None:
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     data = json.loads(capsys.readouterr().out)
@@ -9714,7 +9610,7 @@ def test_cli_footer_top_prose_words(
         "product server again.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -9765,7 +9661,7 @@ def test_cli_footer_top_prose_words_excludes_english_stopwords(
         "communicate again. product server run again.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -9811,7 +9707,7 @@ def test_cli_footer_top_prose_words_excludes_russian_stopwords(
         f"{data} {in_} {network}.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -9842,7 +9738,7 @@ def test_cli_footer_top_prose_words_excludes_french_stopwords(
         "Le capteur et le serveur échangent des données.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -9868,7 +9764,7 @@ def test_cli_footer_top_words_stem_grouping_shows_surface_form(
         "\u041f\u0440\u043e\u0431\u043b\u0435\u043c\u044b \u0438 \u043f\u0440\u043e\u0431\u043b\u0435\u043c\u044b \u0434\u0430\u044e\u0442 \u043f\u0440\u043e\u0431\u043b\u0435\u043c\u0430.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -9890,7 +9786,7 @@ def test_cli_json_top_words(
         "#########\nproduct\n#########\n\nproduct server and server product.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", "--word-samples", "10", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", "--word-samples", "10", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     data = json.loads(capsys.readouterr().out)
@@ -9931,7 +9827,7 @@ def test_cli_footer_top_words_bounded_with_suppression_note(
     words = " ".join(["alpha"] * 3 + nato)
     p.write_text(f"#######\nTitle\n#######\n\n{words}.\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--word-samples", "10", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--word-samples", "10", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -9966,7 +9862,7 @@ def test_cli_footer_rare_words_with_sibling_annotation(
         "One procesess appears here; zebra abc123def.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -10002,7 +9898,7 @@ def test_cli_footer_rare_words_bounded(
     ]
     p = rst_repo / "test.rst"
     p.write_text("#######\nTitle\n#######\n\n" + " ".join(nato) + ".\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--word-samples", "10", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--word-samples", "10", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -10026,7 +9922,7 @@ def test_cli_json_rare_words(
         "One procesess appears.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", "--word-samples", "10", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", "--word-samples", "10", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     data = json.loads(capsys.readouterr().out)
@@ -10059,7 +9955,7 @@ def test_prose_grouping_detects_french_documents(
         "#######\nTitre\n#######\n\nLe serveur vérifie la connexion; il faut vérifier; elle est vérifiée.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -10088,7 +9984,7 @@ def test_cli_rare_words_catches_the_confessed_mistake(
         f"#########\nTitle\n#########\n\n{ok} {dav}. {ok} {dav}. {ok} {dav}. {bad} {dav}.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -10112,7 +10008,7 @@ def test_cli_rare_words_annotates_once_vs_once_pair(
         "#######\nTitle\n#######\n\nDetect the JS frameworks today.\n\nSee the fameworks page again.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -10164,7 +10060,7 @@ def test_prose_statistics_on_realistic_journal_note(
         "   16-15 HTML and JS fameworks of restserver\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -10282,7 +10178,7 @@ def test_cli_footer_explicit_warning_when_stopwords_unavailable(
         raise check_rst.StopwordsUnavailable("sphinx.search.en has neither X nor Y")
 
     monkeypatch.setattr(check_rst, "_stopword_sets", _boom)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit) as exc_info:
         check_rst.main()
     assert exc_info.value.code == 0  # a broken cosmetic stat must not fail the run
@@ -10310,7 +10206,7 @@ def test_cli_json_word_stats_error_when_stopwords_unavailable(
         raise check_rst.StopwordsUnavailable("sphinx.search.en has neither X nor Y")
 
     monkeypatch.setattr(check_rst, "_stopword_sets", _boom)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", "--word-samples", "10", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", "--word-samples", "10", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     data = json.loads(capsys.readouterr().out)
@@ -10336,14 +10232,7 @@ def test_cli_no_warnings_suppresses_word_stats_failure_warning(
     monkeypatch.setattr(check_rst, "_stopword_sets", _boom)
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--quiet",
-            "--no-warnings",
-            "--word-samples",
-            "10",
-            str(document),
-        ],
+        ["check_rst.py", "check", "--quiet", "--no-warnings", "--word-samples", "10", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -10539,7 +10428,7 @@ def test_cli_diff_json_end_to_end(
     delta, no manual eyeballing of two large JSON blobs required."""
     p = rst_repo / "test.rst"
     p.write_text("#######\nTitle\n#######\n\n**A point.**  Detail.\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     old_json = capsys.readouterr().out
@@ -10549,7 +10438,7 @@ def test_cli_diff_json_end_to_end(
         "#######\nTitle\n#######\n\n**A point.**  Detail.\n\n**Another point.**  More.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     new_json = capsys.readouterr().out
@@ -10557,7 +10446,7 @@ def test_cli_diff_json_end_to_end(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--diff-json", str(rst_repo / "old.json"), str(rst_repo / "new.json")],
+        ["check_rst.py", "diff-json", str(rst_repo / "old.json"), str(rst_repo / "new.json")],
     )
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -10578,7 +10467,7 @@ def test_cli_diff_json_missing_file_errors_cleanly(
 ) -> None:
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--diff-json", str(tmp_path / "missing1.json"), str(tmp_path / "missing2.json")],
+        ["check_rst.py", "diff-json", str(tmp_path / "missing1.json"), str(tmp_path / "missing2.json")],
     )
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -10611,7 +10500,7 @@ def test_cli_diff_json_rejects_malformed_or_wrong_schema_cleanly(
     new.write_text(json.dumps(_json_dump()), encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--diff-json", str(old), str(new)],
+        ["check_rst.py", "diff-json", str(old), str(new)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -10744,7 +10633,7 @@ def test_cli_outline_admonitions_counted_in_blocks_legend_and_section_brackets(
         "Title\n#####\n\n.. important::\n\n   Read this.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -10765,7 +10654,7 @@ def test_cli_json_admonitions(
         "Title\n#####\n\n.. admonition:: Custom\n\n   Body.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     data = json.loads(capsys.readouterr().out)
@@ -10864,7 +10753,7 @@ def test_cli_outline_comments_counted_in_blocks_legend_and_section_brackets(
         "Title\n#####\n\n.. code: bash\n\n    echo hi\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -10885,7 +10774,7 @@ def test_cli_json_comments(
         "Title\n#####\n\n.. An ordinary comment.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     data = json.loads(capsys.readouterr().out)
@@ -11061,7 +10950,7 @@ def test_cli_outline_lists_counted_in_blocks_legend_and_section_brackets(
 ) -> None:
     p = rst_repo / "test.rst"
     p.write_text("Title\n#####\n\n* One.\n* Two.\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -11084,7 +10973,7 @@ def test_cli_outline_depth_hides_list_items_keeps_container(
     p.write_text("Title\n#####\n\n* One.\n* Two.\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--quiet", "--outline", "--outline-depth", "2", str(p)],
+        ["check_rst.py", "outline", "--with-findings", "--quiet", "--outline-depth", "2", str(p)],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -11115,7 +11004,9 @@ def test_cli_sections_only_hides_leaf_entries_keeps_headings(
         "Title\n#####\n\n* One.\n* Two.\n\n.. code-block:: python\n\n   pass\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--outline", "--sections-only", str(p)])
+    monkeypatch.setattr(
+        "sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", "--sections-only", str(p)]
+    )
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -11139,7 +11030,7 @@ def test_cli_sections_only_keeps_bracket_counts_and_legend(
     p.write_text("Title\n#####\n\n* One.\n* Two.\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--quiet", "--verbose", "--outline", "--sections-only", str(p)],
+        ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", "--sections-only", str(p)],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -11159,7 +11050,9 @@ def test_cli_sections_only_hidden_note_wording(
     that word specifically when --sections-only is involved."""
     p = rst_repo / "test.rst"
     p.write_text("Title\n#####\n\n* One.\n* Two.\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--outline", "--sections-only", str(p)])
+    monkeypatch.setattr(
+        "sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", "--sections-only", str(p)]
+    )
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -11181,15 +11074,7 @@ def test_cli_sections_only_composes_with_outline_depth(
     )
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--quiet",
-            "--outline",
-            "--sections-only",
-            "--outline-depth",
-            "1",
-            str(p),
-        ],
+        ["check_rst.py", "outline", "--with-findings", "--quiet", "--sections-only", "--outline-depth", "1", str(p)],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -11202,22 +11087,6 @@ def test_cli_sections_only_composes_with_outline_depth(
 
 
 @pytest.mark.integration
-def test_cli_sections_only_requires_outline_mode(
-    check_rst: types.ModuleType,
-    rst_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    p = rst_repo / "test.rst"
-    p.write_text("Title\n#####\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sections-only", str(p)])
-    with pytest.raises(SystemExit) as exc:
-        check_rst.main()
-    assert exc.value.code == 1
-    assert "--sections-only requires --outline" in capsys.readouterr().out
-
-
-@pytest.mark.integration
 def test_cli_sections_only_works_with_outline_only(
     check_rst: types.ModuleType,
     rst_repo: Path,
@@ -11226,7 +11095,7 @@ def test_cli_sections_only_works_with_outline_only(
 ) -> None:
     p = rst_repo / "test.rst"
     p.write_text("Title\n#####\n\n* One.\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--outline-only", "--sections-only", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--sections-only", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -11243,7 +11112,7 @@ def test_cli_json_lists(
 ) -> None:
     p = rst_repo / "test.rst"
     p.write_text("Title\n#####\n\n* One.\n* Two.\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     data = json.loads(capsys.readouterr().out)
@@ -11647,7 +11516,7 @@ def test_cli_outline_blocks_summary_includes_tables(
         "Root\n####\n\n=====  =====\nA      B\n=====  =====\n1      2\n=====  =====\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--verbose", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -11668,7 +11537,7 @@ def test_cli_outline_section_bracket_cumulative_tables(
         "Root\n####\n\nSub\n***\n\n=====  =====\nA      B\n=====  =====\n1      2\n=====  =====\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--quiet", "--outline", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -11688,7 +11557,7 @@ def test_cli_json_tables(
         "Title\n=====\n\n=====  =====\nA      B\n=====  =====\n1      2\n=====  =====\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--json", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     data = json.loads(capsys.readouterr().out)
@@ -11740,7 +11609,7 @@ def test_cli_context_list_item_reports_parent_path_and_adjacent_siblings(
         "#######\nTitle\n#######\n\n* First item.\n* Target item.\n* Third item.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--context", "Target item.", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "Target item.", str(p)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -11772,7 +11641,7 @@ def test_cli_context_section_stable_id_and_applicable_finding(
         "#######\nTitle\n#######\n\n********\nTarget\n********\n\n**Decision**\n\nDetails.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--context", "test:Target", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "test:Target", str(p)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -11798,7 +11667,7 @@ def test_cli_context_ambiguous_exact_match_lists_candidates_without_guessing(
         "#######\nTitle\n#######\n\n* Repeat.\n* Repeat.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--context", "Repeat.", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "Repeat.", str(p)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -11822,7 +11691,7 @@ def test_cli_context_ambiguous_candidates_are_bounded_without_silent_truncation(
     p = rst_repo / "test.rst"
     items = "".join("* Repeat.\n" for _ in range(25))
     p.write_text(f"#######\nTitle\n#######\n\n{items}", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--context", "Repeat.", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "Repeat.", str(p)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -11846,7 +11715,7 @@ def test_cli_context_universal_selector_addresses_anonymous_container(
         "#######\nTitle\n#######\n\n* First.\n* Second.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--context", "test:bullet-list@5", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "test:bullet-list@5", str(p)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -11867,17 +11736,24 @@ def test_cli_context_requires_exactly_one_positional_file(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Under the subcommand redesign, context's parser defines exactly two
+    positionals (ENTRY, FILE) — a third one is now an ordinary argparse
+    "unrecognized arguments" (exit 2, message on stderr), not this
+    project's own logic to pin down (that logic still checks the one
+    surviving value rule — the file must end in .rst — see
+    test_context_verb_rejects_empty_entry's sibling assertions in
+    tests/test_cli_subcommands.py)."""
     one = rst_repo / "one.rst"
     two = rst_repo / "two.rst"
     one.write_text("Title\n=====\n", encoding="utf-8")
     two.write_text("Title\n=====\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--context", "Title", str(one), str(two)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "Title", str(one), str(two)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
 
-    assert exc.value.code == 1
-    assert "--context requires exactly one positional .rst file" in capsys.readouterr().out
+    assert exc.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
 
 
 @pytest.mark.integration
@@ -11901,14 +11777,7 @@ def test_cli_context_verified_references_are_scoped_to_selected_entry(
     (tmp_path / "outside.rst").write_text("Outside\n=======\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--sphinx-src",
-            str(tmp_path),
-            "--context",
-            "target:Details",
-            str(target),
-        ],
+        ["check_rst.py", "context", "target:Details", "--sphinx-src", str(tmp_path), str(target)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -11946,14 +11815,7 @@ def test_cli_context_resolves_nested_cross_file_toctree_in_its_source_document(
     grandchild.write_text("Grandchild\n==========\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "check_rst.py",
-            "--sphinx-src",
-            str(tmp_path),
-            "--context",
-            "child:toctree@4",
-            str(index),
-        ],
+        ["check_rst.py", "context", "child:toctree@4", "--sphinx-src", str(tmp_path), str(index)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -11966,23 +11828,3 @@ def test_cli_context_resolves_nested_cross_file_toctree_in_its_source_document(
     assert "index:toctree@4" in out
     assert 'child:Child — section "Child"' in out
     assert "parent: child:Child" in out
-
-
-@pytest.mark.integration
-def test_cli_context_rejects_mutating_mode_before_touching_file(
-    check_rst: types.ModuleType,
-    rst_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    p = rst_repo / "test.rst"
-    original = "Title\n=====\n"
-    p.write_text(original, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--context", "Title", "--fix", str(p)])
-
-    with pytest.raises(SystemExit) as exc:
-        check_rst.main()
-
-    assert exc.value.code == 1
-    assert "--context is a self-contained read-only query" in capsys.readouterr().out
-    assert p.read_text(encoding="utf-8") == original
