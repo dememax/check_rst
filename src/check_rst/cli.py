@@ -5958,6 +5958,222 @@ def _run_fix_only(
     raise SystemExit(1 if errors else 0)
 
 
+# ---------------------------------------------------------------------------
+# Subcommand CLI redesign (docs/roadmap.rst, "Subcommands: flag-soup
+# incompatibilities become verbs") — built and tested in isolation
+# (tests/test_cli_subcommands.py) before being wired into _main() in place of
+# the flat-flag parser + _validate_cli_args below. Staged: Tier 2 (diff-json,
+# refs, context) first, since those are self-contained and untouched by
+# either open fork the roadmap entry records.
+#
+# _CLI_ATTR_DEFAULTS is the complete cross-pipeline attribute contract: every
+# name _main()'s ~960-line dispatch/pipeline body reads via `args.<name>`,
+# across every verb combined. Every subparser gets this whole dict via
+# set_defaults() so the untouched pipeline body never hits an AttributeError
+# regardless of which verb reached it — parser-level defaults always win over
+# an omitted flag, and are always overridden by a flag the verb's own parser
+# actually defines and the user passed.
+# ---------------------------------------------------------------------------
+
+_CLI_ATTR_DEFAULTS: dict[str, object] = {
+    "build_dir": None,
+    "collapse_title_spaces": False,
+    "config": None,
+    "context": None,
+    "diff": False,
+    "diff_json": None,
+    "diff_only": False,
+    "exclude": [],
+    "files": [],
+    "fix": False,
+    "fix_only": False,
+    "git_scope": False,
+    "json": False,
+    "max_output_lines": None,
+    "no_adornments": False,
+    "no_directives": False,
+    "no_toctree": False,
+    "no_warnings": False,
+    "normalize_blank_lines": False,
+    "outline": False,
+    "outline_depth": None,
+    "outline_only": False,
+    "quiet": False,
+    "recursive": False,
+    "refs": None,
+    "sections_only": False,
+    "single_space_prose": False,
+    "skip_fixable": False,
+    "sphinx_src": None,
+    "verbose": False,
+    "word_samples": None,
+}
+
+
+def _add_project_flags(parser: argparse.ArgumentParser) -> None:
+    """--config/--sphinx-src/--build-dir — shared by every verb that can run verified Sphinx."""
+    parser.add_argument(
+        "--config",
+        type=pathlib.Path,
+        default=None,
+        metavar="FILE",
+        help=(
+            "load check_rst settings from FILE instead of discovering "
+            ".check_rst.toml or pyproject.toml in cwd. Relative sphinx-src "
+            "and build-dir values, and bare Git file discovery, are rooted "
+            "at FILE's directory; positional CLI paths remain cwd-relative"
+        ),
+    )
+    parser.add_argument(
+        "--sphinx-src",
+        type=pathlib.Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "Sphinx source directory. Enables the verified versions of Phase 2 "
+            "(Python Sphinx rules: a real in-process Sphinx env) and Phase 3 "
+            "(Sphinx build integrity check) against it. Never auto-detected, "
+            "even when a conf.py is sitting right there in cwd or an ancestor "
+            "directory — this is deliberate, not a missing feature: pass it "
+            "explicitly whenever you want verified results. Default: omit this "
+            "option and Phase 2 falls back to a heuristic, text-search-only "
+            "code-block detector (clearly labeled as such, with known false-"
+            "positive edge cases) and Phase 3 is skipped entirely — there is no "
+            "implicit directory ever guessed at. DIR must contain conf.py or "
+            "this errors immediately; e.g. --sphinx-src . for a repo whose "
+            "conf.py is at the root, or --sphinx-src docs/ when the source is "
+            "a subdir"
+        ),
+    )
+    parser.add_argument(
+        "--build-dir",
+        type=pathlib.Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "Sphinx output directory; if omitted a unique temp dir is created "
+            "and removed after the run. Requires verified mode from "
+            "--sphinx-src or project configuration"
+        ),
+    )
+
+
+def _add_no_toctree_flag(parser: argparse.ArgumentParser) -> None:
+    """--no-toctree — shared by every verb whose structure/model can recurse toctrees."""
+    parser.add_argument(
+        "--no-toctree",
+        action="store_true",
+        help=(
+            "don't recurse into .. toctree:: directives when building this "
+            "entry's structure (verified mode only — requires --sphinx-src); "
+            "default recurses fully, pulling in every reachable document's "
+            "own headings, bounded only by --outline-depth, never by each "
+            "toctree's own maxdepth"
+        ),
+    )
+
+
+def _build_single_file_parent() -> argparse.ArgumentParser:
+    """Shared parent for verbs scoped to exactly one file: context, refs."""
+    parent = argparse.ArgumentParser(add_help=False)
+    _add_project_flags(parent)
+    return parent
+
+
+def _build_cli_parser() -> argparse.ArgumentParser:
+    """Build the subcommand argparse parser — unwired from _main() until the
+    cutover stage; see tests/test_cli_subcommands.py for direct exercise.
+
+    Every subparser is backfilled with _CLI_ATTR_DEFAULTS so the untouched
+    _main() pipeline body can read any args.<name> regardless of verb.
+    """
+    parser = argparse.ArgumentParser(prog="check_rst")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+
+    single_file = _build_single_file_parent()
+
+    diff_json_p = sub.add_parser(
+        "diff-json",
+        help="semantic diff between two --format=json dumps",
+        description=(
+            "Semantic diff between two check_rst check --format=json dumps "
+            "(e.g. before/after a large edit): which outline sections were "
+            "added/removed, whether any surviving section's depth/char "
+            "changed, which findings are new vs resolved — matched by "
+            "(severity, text), never by line number, which drifts with any "
+            "unrelated edit. Self-contained: no other flags apply, and no "
+            "RST is read or checked."
+        ),
+    )
+    diff_json_p.add_argument("old", metavar="OLD.json")
+    diff_json_p.add_argument("new", metavar="NEW.json")
+    diff_json_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+
+    refs_p = sub.add_parser(
+        "refs",
+        parents=[single_file],
+        help="per-file :doc:/:ref: reference report",
+        description=(
+            "Per-file :doc:/:ref: reference report: this file's own OUTGOING "
+            "targets, and every other file's INCOMING reference to it, "
+            "derived from the live Sphinx environment (never objects.inv). "
+            "Requires --sphinx-src (directly or via .check_rst.toml or "
+            "--config)."
+        ),
+    )
+    refs_p.add_argument("file", type=pathlib.Path, metavar="FILE")
+    refs_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+
+    context_p = sub.add_parser(
+        "context",
+        parents=[single_file],
+        help="targeted pre-edit briefing for one entry",
+        description=(
+            "Targeted pre-edit briefing for one exact entry in the same "
+            "heterogeneous model as outline. ENTRY may be a stable section "
+            "id, a generated selector shown by this mode's ambiguity output, "
+            "or an exact title/term/preview. Reports range, kind, enclosing "
+            "path, parent, adjacent siblings, direct children, applicable "
+            "findings, and references (when verified Sphinx mode is "
+            "available). Never guesses between multiple exact matches."
+        ),
+    )
+    context_p.add_argument("entry", metavar="ENTRY")
+    context_p.add_argument("file", type=pathlib.Path, metavar="FILE")
+    _add_no_toctree_flag(context_p)
+    context_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+
+    return parser
+
+
+def _backfill_post_parse(args: argparse.Namespace) -> None:
+    """Fill in the handful of attributes that depend on another just-parsed
+    value and so can't be a static set_defaults() — see _build_cli_parser().
+    """
+    if args.command == "diff-json":
+        args.diff_json = [args.old, args.new]
+    elif args.command == "refs":
+        args.refs = args.file
+    elif args.command == "context":
+        args.context, args.files = args.entry, [args.file]
+        args.quiet = True  # forced, same as today's --context behavior
+
+
+def _validate_context_args(args: argparse.Namespace) -> None:
+    """The two value-level checks that survive from today's --context
+    self-contained allowlist (cli.py's now-deleted _validate_cli_args):
+    everything else in that allowlist is structural once `context` only
+    accepts ENTRY and FILE on its own parser.
+    """
+    if not args.context.strip():
+        print("check_rst: --context ENTRY must not be empty")
+        raise SystemExit(1)
+    if args.files[0].suffix != ".rst":
+        print("check_rst: --context requires exactly one positional .rst file")
+        raise SystemExit(1)
+
+
 def _argument_is_set(value: object) -> bool:
     """Return whether an argparse value represents an explicitly active option."""
     if value is None or value is False:
