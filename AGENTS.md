@@ -101,17 +101,17 @@ After an RST edit, invoke the worktree implementation so validation never
 accidentally uses an older installed command:
 
 ```bash
-PYTHONPATH=src python3.14 -m check_rst --skip-fixable
-PYTHONPATH=src python3.14 -m check_rst --fix-only
-PYTHONPATH=src python3.14 -m check_rst
+PYTHONPATH=src python3.14 -m check_rst check --skip-fixable
+PYTHONPATH=src python3.14 -m check_rst fix --fast
+PYTHONPATH=src python3.14 -m check_rst check
 ```
 
 Review semantic WARNINGs in the first pass. Never suppress them merely to
 make the validation loop quiet. In a dirty worktree containing unrelated RST
 edits, use the same `--git-scope` allowlist on all three commands.
 
-`--fix`, explicit filenames, and recursive scopes can modify source. Inspect
-Git state and preview uncertain or foreign content with `--diff` before
+`fix`, explicit filenames, and recursive scopes can modify source. Inspect
+Git state and preview uncertain or foreign content with `diff` before
 writing. Preserve unrelated user changes.
 
 ## Packaging and compatibility
@@ -133,7 +133,7 @@ paragraph opener or a list item with a bold pseudo-heading. Use lists for
 true sequences, classifications, and compact co-equal registers.
 
 Declare new RST sections with a nine-character placeholder underline and let
-the worktree `check_rst --fix-only` computation materialize adornment
+the worktree `check_rst fix --fast` computation materialize adornment
 geometry. Do not count adornment characters manually.
 
 ## Commits

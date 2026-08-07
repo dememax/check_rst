@@ -36,11 +36,11 @@ that enforces them.
 
    If you read nothing else: writing, declare a new section with a
    9-character placeholder underline and no overline, then run
-   ``check_rst --skip-fixable`` (review WARNINGs) → ``check_rst --fix-only``
-   (bare form when the whole dirty RST set is yours) → ``check_rst``
-   (confirm clean).  In a shared dirty worktree, add the same
-   ``--git-scope path/to/owned.rst`` allowlist to all three commands.
-   Reading, run ``check_rst --outline-only <file>`` before editing
+   ``check_rst check --skip-fixable`` (review WARNINGs) → ``check_rst fix
+   --fast`` (bare form when the whole dirty RST set is yours) →
+   ``check_rst check`` (confirm clean).  In a shared dirty worktree, add the
+   same ``--git-scope path/to/owned.rst`` allowlist to all three commands.
+   Reading, run ``check_rst outline <file>`` before editing
    anything you have not already read this session.  Everything below
    is why those two habits are enough.
 
@@ -89,21 +89,21 @@ The task split follows directly:
    * - Synthesizing calendar notes into aggregation pages
      - AI (semantic)
    * - Computing adornment widths, characters, and required title separators
-     - ``check_rst --fix`` (deterministic)
+     - ``check_rst fix`` (deterministic)
    * - Normalizing leading, repeated separator, and terminal blank lines
-     - ``check_rst --fix --normalize-blank-lines`` (opt-in, parser-verified)
+     - ``check_rst fix --normalize-blank-lines`` (opt-in, parser-verified)
    * - Collapsing repeated spaces in visible section-title text
-     - ``check_rst --fix --collapse-title-spaces`` (opt-in, permitted delta)
+     - ``check_rst fix --collapse-title-spaces`` (opt-in, permitted delta)
    * - Enforcing single-space style in eligible paragraph text
-     - ``check_rst --fix --single-space-prose`` (opt-in, permitted delta)
+     - ``check_rst fix --single-space-prose`` (opt-in, permitted delta)
    * - Tracking the 32-character adornment hierarchy
      - ``check_rst`` (deterministic)
    * - Line endings, BOM, byte hygiene
-     - ``check_rst --fix`` (deterministic)
+     - ``check_rst fix`` (deterministic)
    * - Detecting inline markup silently trapped inside another inline role
      - ``check_rst`` (deterministic)
    * - Recovering a file's section tree and code-block inventory
-     - ``check_rst --outline`` (deterministic)
+     - ``check_rst outline`` (deterministic)
    * - Verifying ``:doc:``/``:ref:`` cross-references actually resolve
      - ``check_rst`` Phase 3 (deterministic)
 
@@ -129,24 +129,24 @@ The placeholder workflow
 ==========================
 
 Never write finished adornments.  Declare that a section exists and let
-``--fix`` compute everything else::
+``fix`` compute everything else::
 
     Sensors
     *********
 
 That 9-character underline (no overline) is not syntax — it is metadata
-meaning "a new section starts here".  ``check_rst --fix`` converts it
+meaning "a new section starts here".  ``check_rst fix`` converts it
 into a correct overline+underline pair, exactly two columns wider than
 the title's display width.  Nine characters is the convention because
 the tool needs at least 4 to recognize an underline attempt at all, and
 9 is unambiguous for any real title.  (This is the actual placeholder
-used by :doc:`example`, before ``--fix`` ever touched it.)
+used by :doc:`example`, before ``fix`` ever touched it.)
 
 The split of responsibility is precise: the *length* is always the
 tool's job, but the *character* is your declaration of which level the
 section belongs to — pick the one your target level already uses in
-this document (check ``--outline``), same as matching the surrounding
-sections.  ``--fix`` remaps characters only when the document's
+this document (check ``outline``), same as matching the surrounding
+sections.  ``fix`` remaps characters only when the document's
 first-appearance order deviates from the project ranking; it cannot
 read your mind about intended depth — that is the semantic half of the
 contract, and it stays yours.
@@ -186,7 +186,7 @@ automation benefits.
      - Real project-style RST section
    * - Source compactness
      - Fewer characters, separators, and blank lines
-     - More physical markup; geometry delegated to ``--fix``
+     - More physical markup; geometry delegated to ``fix``
    * - Human scanning
      - Dense source with a weak inline cue
      - Strong, pre-attentive boundaries and visible hierarchy
@@ -214,7 +214,7 @@ audit that structure, not a reason to replace Markdown with RST.
 Section titles also help orient ordinary patches because distinctive nearby
 heading lines are recognizable context, while ``check_rst`` provides the
 stronger guarantees: verified ranges and selectors, plus section-identity
-matching in ``--diff-json``.  Do not claim that Git currently puts RST
+matching in ``diff-json``.  Do not claim that Git currently puts RST
 titles into hunk headers automatically: this repository has no RST diff
 driver configured in ``.gitattributes``.  A future driver could make titles
 formal hunk anchors, but that would be a separate integration enhancement,
@@ -274,13 +274,13 @@ The same principle scales to whole subtrees
 =============================================
 
 The placeholder workflow is the smallest case of a larger fact: the
-hierarchy fixer (``check_hierarchy``; "Hierarchy" in "What ``--fix``
+hierarchy fixer (``check_hierarchy``; "Hierarchy" in "What ``fix``
 computes for you" below) remaps character-to-depth over an
 *already-valid* section tree — every heading's true depth, as docutils
 infers it from first-appearance order — one document at a time.  It
 never discovers that tree; it relabels one that already exists.  That
 single fact is what makes every operation below just a text splice
-followed by one ``--fix`` call, and it is also exactly what the
+followed by one ``fix`` call, and it is also exactly what the
 silent-failure mode in :doc:`rules` ("A relocated subtree's old
 character can silently land it at the wrong depth") exploits: a splice
 can hand the fixer a tree that is internally consistent but not the one
@@ -288,7 +288,7 @@ the author intended, and the fixer has no way to tell the difference.
 
 The one precondition every operation below shares: each side of a
 splice must independently pass its own hierarchy check (0 ERRORs, run
-standalone) *before* the splice, not after.  ``--fix`` guarantees a
+standalone) *before* the splice, not after.  ``fix`` guarantees a
 clean *remap* of an already-valid tree; it makes no claim about
 *discovering or repairing* one, so a source that was never valid on its
 own stays invalid — merely relabeled — once spliced into something
@@ -301,7 +301,7 @@ Extract (hoist, lift out — not *promote*) a subtree into its own document
 Splitting an oversized page into several: cut a whole section — title
 plus everything nested under it — out of the source document and paste
 it, characters unchanged, as the entirety of a new file.  Run
-``check_rst --fix`` on the new file alone.  Its former section title
+``check_rst fix`` on the new file alone.  Its former section title
 becomes the new document's own level-1 title; every descendant's
 character shifts up to match, because first-appearance order in the new
 file starts completely fresh — there is nothing else in it to collide
@@ -321,7 +321,7 @@ search for either still lands here even though this page settles on
 Real example (a downstream project, 2026-08-06): a 3655-line
 ``coding-standards.rst`` — nearly double the next-largest page in its
 own documentation set — split into six per-topic files of roughly
-330-1000 lines each, one ``--fix`` call per file, no manual adornment
+330-1000 lines each, one ``fix`` call per file, no manual adornment
 work at all.
 
 --------------------------------------------------------------------------
@@ -330,7 +330,7 @@ Wrap (group, nest under a new parent — not *merge*) two or more siblings
 
 Two sections that are currently peers at the same depth, both wanted
 under one new shared parent: write a placeholder title *above* both of
-them, at one level shallower, and run ``--fix`` once over the combined
+them, at one level shallower, and run ``fix`` once over the combined
 result.  The siblings' own characters do not need to change — they
 were already correct for their depth relative to a parent one level up
 from them; only the new wrapper title (the placeholder) needs fixing.
@@ -377,7 +377,7 @@ subtree's headings back to bare 9-character placeholders (title text
 kept, adornments erased) — the same placeholder this page opened with —
 so nothing about the pasted content can collide with anything the host
 already owns. Paste that neutralized form at the intended position, then
-run ``--fix`` once on the combined file; the fixer has nothing left to
+run ``fix`` once on the combined file; the fixer has nothing left to
 misinterpret, only fresh titles to size and letter correctly for
 wherever they physically landed.
 
@@ -406,16 +406,16 @@ The three-step loop
 
 Within a configured Git project::
 
-    check_rst --skip-fixable   # 1. review WARNINGs (exit 0)
-    check_rst --fix-only       # 2. bare form only — mutate without validation phases
-    check_rst                  # 3. confirm clean
+    check_rst check --skip-fixable   # 1. review WARNINGs (exit 0)
+    check_rst fix --fast             # 2. bare form only — mutate without validation phases
+    check_rst check                  # 3. confirm clean
 
 When unrelated or user-owned RST changes share the worktree, preserve the
 same Git-diff protection while selecting only your file::
 
-    check_rst --skip-fixable --git-scope path/to/owned.rst
-    check_rst --fix-only --git-scope path/to/owned.rst
-    check_rst --git-scope path/to/owned.rst
+    check_rst check --skip-fixable --git-scope path/to/owned.rst
+    check_rst fix --fast --git-scope path/to/owned.rst
+    check_rst check --git-scope path/to/owned.rst
 
 No long options: ``.check_rst.toml`` at the repo root declares
 ``sphinx-src`` and ``build-dir``, so the bare commands already run
@@ -432,9 +432,9 @@ verifies convergence — a clean pass is a machine-checked guarantee, not an
 impression.  The fixed ``--build-dir`` keeps repeat runs cheap: Sphinx
 recompiles only changed pages.
 
-=================================
-What ``--fix`` computes for you
-=================================
+===============================
+What ``fix`` computes for you
+===============================
 
 * Byte hygiene: BOM removal, CRLF/CR and exotic line separators to LF,
   trailing whitespace on every source line (Unix LF policy, whole-file).
@@ -443,7 +443,7 @@ What ``--fix`` computes for you
   separator around a title block.
 * Hierarchy: remaps adornment characters so first-appearance order
   matches the project ranking — the check and the remap are the same
-  computation, so a clean check guarantees ``--fix`` changes nothing.
+  computation, so a clean check guarantees ``fix`` changes nothing.
 
 Repeated blank separators are intentionally absent from that default list.
 They need the separate, parser-verified operation below because an empty source
@@ -453,10 +453,10 @@ line can be literal content rather than disposable geometry.
 Opt-in blank-line normalization
 =================================
 
-Use ``--normalize-blank-lines`` only with ordinary ``--fix`` or ``--diff``::
+Use ``--normalize-blank-lines`` only with ordinary ``fix`` or ``diff``::
 
-    check_rst --diff --normalize-blank-lines path/to/document.rst
-    check_rst --fix --normalize-blank-lines path/to/document.rst
+    check_rst diff --normalize-blank-lines path/to/document.rst
+    check_rst fix --normalize-blank-lines path/to/document.rst
 
 The operation considers leading empty lines before content and repeated
 empty-line runs between content or at EOF, and changes a run only when the
@@ -474,8 +474,8 @@ element and therefore no useful leading-versus-trailing distinction.
 
 This is an explicit whole-document source normalization for every selected
 file, including files selected through ``--git-scope``.  Preview it when source
-history matters.  The option is rejected with ``--fix-only`` and
-``--diff-only``: their defining contract is that no RST parser runs, whereas
+history matters.  The option is rejected with ``fix --fast`` and
+``diff --fast``: their defining contract is that no RST parser runs, whereas
 this operation's safety proof is the parse comparison itself.  Internal spaces
 inside a title or paragraph remain editorial content and are never changed by
 this option.
@@ -486,10 +486,10 @@ Opt-in editorial text spacing
 
 Two separate modifiers expose two separate authoring decisions::
 
-    check_rst --diff --collapse-title-spaces path/to/document.rst
-    check_rst --fix --collapse-title-spaces path/to/document.rst
-    check_rst --diff --single-space-prose path/to/document.rst
-    check_rst --fix --single-space-prose path/to/document.rst
+    check_rst diff --collapse-title-spaces path/to/document.rst
+    check_rst fix --collapse-title-spaces path/to/document.rst
+    check_rst diff --single-space-prose path/to/document.rst
+    check_rst fix --single-space-prose path/to/document.rst
 
 ``--collapse-title-spaces`` changes visible text owned by section titles.
 ``--single-space-prose`` changes eligible visible text owned by paragraphs,
@@ -524,17 +524,17 @@ sentence-separator style: evaluation found 466 such runs in the ``check_rst``
 documentation alone.  Across the tracked corpus, 13,227 internal repeated-space
 runs included 7,598 table-shaped and 4,050 indented occurrences, while only 22
 runs were in section titles.  Those facts are why the options are named,
-separate, whole-document, and never part of default ``--fix``.  Preview the
+separate, whole-document, and never part of default ``fix``.  Preview the
 selected files and choose the style deliberately.
 
-Like blank-line normalization, both modifiers require ordinary ``--fix`` or
-``--diff`` and are rejected by parser-free ``--fix-only`` and ``--diff-only``.
+Like blank-line normalization, both modifiers require ordinary ``fix`` or
+``diff`` and are rejected by parser-free ``fix --fast`` and ``diff --fast``.
 
 =======================================================
 History protection: bare mode and selective Git scope
 =======================================================
 
-Bare ``check_rst --fix`` uses ``git status`` to select the existing
+Bare ``check_rst fix`` uses ``git status`` to select the existing
 changed/untracked ``.rst`` files, resolving porcelain paths against
 Git's worktree root even when invoked from a subdirectory.  Adornment
 geometry is scoped to hunks from ``git diff -U0 HEAD``.  Two
@@ -577,7 +577,7 @@ fixing``.  If selection produces no existing RST files, no phase runs.
 Fast mechanical mutation and previews
 =======================================
 
-``--fix-only`` is the write-side counterpart of ``--diff-only``.  It plans
+``fix --fast`` is the write-side counterpart of ``diff --fast``.  It plans
 every selected file before writing, applies only Phase 0 byte hygiene and the
 raw-line adornment/hierarchy fixer, verifies that the computed result is a
 local fixed point, and stops.  It never runs the remaining Phase 1 rules,
@@ -586,8 +586,8 @@ changed file is success; input, write, and non-convergence failures are the
 only non-zero outcomes.  Run an ordinary check afterwards for the semantic
 and Sphinx validation::
 
-    check_rst --fix-only --git-scope path/to/owned.rst
-    check_rst --git-scope path/to/owned.rst
+    check_rst fix --fast --git-scope path/to/owned.rst
+    check_rst check --git-scope path/to/owned.rst
 
 Before writing, the default output states whether adornment geometry is
 Git-diff-scoped or whole-file.  Each changed file then receives a structured
@@ -608,36 +608,36 @@ does not use them.  Explicit ``--sphinx-src``/``--build-dir`` and
 ``--skip-fixable`` are rejected rather than silently ignored.  File selection,
 ``--git-scope``, ``--recursive``/``--exclude``, whole-file hygiene/hierarchy
 exceptions, path preflight, and unresolved-merge rejection otherwise match
-ordinary ``--fix``.
+ordinary ``fix``.
 
-``--diff`` previews the composed result of both default fixers, plus any
+``diff`` previews the composed result of both default fixers, plus any
 requested editorial-spacing and blank-line stages, and then continues
 through the normal findings, statistics, and Sphinx phases.  When the only
-question is "what would the deterministic fix change?", ``--diff-only``
+question is "what would the deterministic fix change?", ``diff --fast``
 prints that same unified diff and stops before those phases.  It exits 1
 when a change would be made (or an input error occurs) and 0 when the
 selected files are already mechanically clean::
 
-    check_rst --diff-only --git-scope path/to/owned.rst
+    check_rst diff --fast --git-scope path/to/owned.rst
 
 The mode is intentionally self-contained: file/configuration selection,
 ``--git-scope``, ``--recursive``/``--exclude``, ``--no-adornments`` and
 ``--quiet`` may shape the preview; checking/reporting options do not mix
-with it.  Use ordinary ``--diff`` when the same invocation must also run
+with it.  Use ordinary ``diff`` when the same invocation must also run
 the full validation pipeline.
 
-===============================================================
-Why you can trust --fix: adornments and hygiene, nothing else
-===============================================================
+=============================================================
+Why you can trust fix: adornments and hygiene, nothing else
+=============================================================
 
 An independent Claude Code session, before recommending a real project
 normalize six real, externally-authored documents in full, needed to
-answer one question first: does ``--fix`` touch only adornment
+answer one question first: does ``fix`` touch only adornment
 geometry, or can it also mutate prose content?  It hand-rolled a grep
-filter over ``check_rst --diff`` output to check every changed line was
+filter over ``check_rst diff`` output to check every changed line was
 made of nothing but adornment characters — a workaround worth
 retiring by stating the guarantee directly, since it is true and
-provable, not just true by convention: default ``--fix`` has exactly two
+provable, not just true by convention: default ``fix`` has exactly two
 fixers.  ``fix_hygiene`` (Phase 0: BOM removal, CRLF/CR/exotic line
 separators to LF, control whitespace to space, and parser-ignored trailing
 whitespace on every source line) and ``fix_structure`` (Phase 1: adornment
@@ -649,7 +649,7 @@ whole-document property — not scenario-by-scenario, one document
 exercising every fixer path (underline-only synthesis, wrong-length
 correction, hierarchy remap, BOM/CRLF/trailing-whitespace normalization) at
 once, asserting every prose line's semantic content survives, in order.  If you want the
-same confidence the hard way: ``check_rst --diff`` before trusting any
+same confidence the hard way: ``check_rst diff`` before trusting any
 normalize, same as "Fixing foreign content needs one extra caution"
 above already recommends — this section is why that recommendation is
 safe to act on, not just cautious phrasing.
@@ -687,13 +687,13 @@ geometry generally also serves the fresh AI through the parsed model; both
 lose when a concept that should be independently retrievable exists only as
 bold prose.
 
-======================================
-``--outline``: the structural oracle
-======================================
+====================================
+``outline``: the structural oracle
+====================================
 
 ::
 
-    check_rst --sphinx-src . --build-dir /tmp/journal-sphinx-build --outline <file>
+    check_rst outline --with-findings --sphinx-src . --build-dir /tmp/journal-sphinx-build <file>
 
 prints a ``levels:`` legend — each depth with its adornment character
 and section count, plus the document's total section count, stated
@@ -725,20 +725,22 @@ Read it **before editing any file you have not already read this
 session, and again after any edit that could have moved things** —
 having read a file once does not make a remembered line number trust-
 worthy after your own inserts shift everything below them; a fresh
-``--outline-only`` is authoritative regardless of how many times you
+``outline`` run is authoritative regardless of how many times you
 have already read the file this session, a stale mental line map never
 is.  It answers "where does my new section attach, and at what level"
 as data instead of interpretation, and it is a compressed
 representation (a hundred headings instead of thousands of lines) when
 the full text would not fit comfortably in context.  Consulting it
 first — and again after editing — is cheaper on both budgets at once:
-less context spent, fewer structural mistakes made.  For machine consumption use ``--json`` — the
-same model as one JSON object (findings included, stable section ids,
-every entry's own preview/kind/dims fields) — and for the
-human-readable pure structure query use ``--outline-only``: one flag
-implying ``--outline`` and ``--quiet`` and suppressing the finding
-lines — a display filter, so the footer still counts findings and the
-exit code stays honest.  ``--outline-depth N`` bounds the view under
+less context spent, fewer structural mistakes made.  For machine
+consumption use ``check --format=json`` — the same model as one JSON
+object (findings included, stable section ids, every entry's own
+preview/kind/dims fields) — and for the human-readable pure structure
+query use bare ``outline``: structure-only by default, implying
+``--quiet`` and suppressing the finding lines — a display filter, so
+the footer still counts findings and the exit code stays honest; pass
+``--with-findings`` to layer today's finding lines back on top.
+``--outline-depth N`` bounds the view under
 one contract: **the depth limit trims entries, never information** —
 the ``levels:``/``blocks:`` legend always describes the whole document,
 a section's bracketed counts always reflect its full subtree regardless
@@ -771,19 +773,19 @@ not a closed list that must be updated whenever another entry class appears.
 
 Sections additionally have a stable, title-based selector,
 ``docname:Title``.  That preferred form is also the section ``id`` stored by
-``--json`` and matched by ``--diff-json``; repeated titles gain ``#2``, ``#3``,
-and so on.  Universal ``kind@line`` aliases are accepted by ``--context`` for
+``check --format=json`` and matched by ``diff-json``; repeated titles gain ``#2``, ``#3``,
+and so on.  Universal ``kind@line`` aliases are accepted by ``context`` for
 sections too, but are not JSON ids.  When exact semantic text is ambiguous,
-copy the generated selector from ``--context``'s candidate report — its spelling
+copy the generated selector from ``context``'s candidate report — its spelling
 and occurrence suffix are authoritative.
 
 The superficially similar ``@line``/``@docname:line`` suffix printed beside a
 top or rare prose word is only a source jump target.  It is not an entry
-selector and cannot be passed to ``--context``.
+selector and cannot be passed to ``context``.
 
-===================================================
-``--context``: one entry without the full outline
-===================================================
+=================================================
+``context``: one entry without the full outline
+=================================================
 
 ``--sections-only`` is intentionally blind to list items and every other
 leaf entry; the complete outline is intentionally exhaustive.  When one
@@ -791,12 +793,12 @@ view hides the target and the other is too large, do not return to raw
 ``grep`` (see "Piping anti-patterns" below).  Ask the document model
 for the one entry directly::
 
-    check_rst --context 'roadmap:Table queries' \
+    check_rst context 'roadmap:Table queries' \
         docs/roadmap.rst
 
-``--context ENTRY`` is a self-contained, read-only query requiring exactly
+``context ENTRY`` is a self-contained, read-only query requiring exactly
 one positional ``.rst`` file.  It resolves the same heterogeneous entry
-stream that ``--outline`` prints — sections, list containers and items,
+stream that ``outline`` prints — sections, list containers and items,
 code-blocks, blockquotes, tables, admonitions, comments, toctrees, and future
 entry classes, using the selector scheme above or exact title, term, caption,
 or preview text.  Resolution is exact, never fuzzy; even an anonymous list
@@ -816,7 +818,7 @@ range, and parent path instead of guessing; at most 20 are printed, followed
 by the suppressed count.  Repeat the command with the chosen selector.  No
 match also exits 1.  A unique resolution exits 0 even when the briefing
 contains an applicable ERROR: the exit status answers whether the query was
-resolved, not whether the document validates.  ``--context`` prepares an
+resolved, not whether the document validates.  ``context`` prepares an
 edit; the three-step validation loop still validates it.
 
 =============================================================
@@ -824,7 +826,7 @@ Block previews: know what's inside without opening the file
 =============================================================
 
 Every code-block, blockquote, table, admonition, comment, and list
-item in ``--outline`` carries a preview of its own content — not just
+item in ``outline`` carries a preview of its own content — not just
 its location and kind.  This is the difference between a table of
 contents and an index: a bare list of headings tells you a section
 exists, a preview tells you *what is in it*, at a glance, at the exact
@@ -840,7 +842,7 @@ expect (``Table (list, 3x2), "Sensor readings": Time Temp 09:00 21.4
 claims it says; does a ``.. note::``/``.. important::`` carry the
 weight its placement implies, or is it filler (``admonition
 (important): If you read nothing else: ...`` — this page's own tl;dr,
-found live to be completely invisible to ``--outline`` before this
+found live to be completely invisible to ``outline`` before this
 entry kind existed, even though docutils parsed it fine all along);
 and is this comment really just a comment, or a directive that lost
 its second colon (``comment "code: bash" [suspicious — looks like a
@@ -857,7 +859,7 @@ quotation, and the preview is what lets you confirm that exemption is
 doing the right thing on a specific quote, not just trust it in the
 abstract.
 
-The practical payoff: a month-scale ``--recursive --outline`` audit
+The practical payoff: a month-scale ``outline --recursive`` audit
 becomes skimmable.  Where a corpus-wide grep for a suspicious code
 snippet or a mis-captioned table used to mean opening candidate files
 one by one, the preview usually answers the question from the outline
@@ -889,8 +891,8 @@ were pure repeated noise after the first read.
    * - 0
      - ``--quiet``
      - Findings, each repeated finding kind's shared rationale, the one-line
-       summary, and anything explicitly requested (``--outline``, ``--diff``,
-       ``--json``)
+       summary, and anything explicitly requested (``outline``, ``diff``,
+       ``--format=json``)
    * - 1
      - *(default)*
      - Level 0, plus phase banners, per-file progress notices, the
@@ -908,7 +910,7 @@ were pure repeated noise after the first read.
 The ``levels:`` legend is the one deliberate exception folded *into*
 the default rather than promoted out of it: section structure is core
 information an AI orients by on every read, not verbose detail — it
-was already unconditional whenever ``--outline`` ran, and stays that
+was already unconditional whenever ``outline`` ran, and stays that
 way.  ``blocks:`` — one line, but strictly a summary the entries below
 it already contain — is the one demoted alongside the genuinely
 detailed lines.
@@ -921,19 +923,19 @@ Omit it and the level decides (10 under ``--verbose``, hidden
 otherwise); ``--word-samples 0`` disables the lines even under
 ``--verbose`` — an explicit request always wins, in either direction.
 This also unifies what used to be two independent, silently
-mismatched defaults: the footer's old hardcoded 13 and the ``--json``
+mismatched defaults: the footer's old hardcoded 13 and the ``--format=json``
 model's old hardcoded 10 are now the one shared, flag-controlled value.
 
 Real output, same file, three levels::
 
-    $ check_rst --quiet station.rst
+    $ check_rst check --quiet station.rst
       (bold paragraph opener: AI documents often use this pattern as an
       informal heading; consider a proper section title)
     station.rst:11: WARNING: bold paragraph opener 'Note:'
     check_rst: 1 file(s) checked, 0 error(s), 1 warning(s), 719 char(s)
       (87 distinct, 31 once), 835 byte(s), 112 space(s) (16%)
 
-    $ check_rst --quiet --word-samples 3 station.rst
+    $ check_rst check --quiet --word-samples 3 station.rst
       (bold paragraph opener: AI documents often use this pattern as an
       informal heading; consider a proper section title)
     station.rst:11: WARNING: bold paragraph opener 'Note:'
@@ -966,10 +968,10 @@ text report without stopping the checker or replacing its exit status.  ``N``
 has a minimum of two because the last two lines are permanently reserved for
 an output-limit statistics line and the authoritative final status::
 
-    check_rst --max-output-lines 40 --git-scope path/to/owned.rst
+    check_rst check --max-output-lines 40 --git-scope path/to/owned.rst
 
 The first ``N - 2`` lines are the ordinary output after ``--quiet``,
-``--outline-only``, ``--sections-only``, ``--outline-depth``, and other
+bare ``outline``, ``--sections-only``, ``--outline-depth``, and other
 semantic display controls have already acted.  The statistics line then says
 how many detail lines were shown and skipped, classifies suppressed
 ERROR/WARNING diagnostics and outline records, and gives the limit required
@@ -988,9 +990,10 @@ line when no normal run summary was reached.  Counts refer to newline-delimited
 program output, not terminal-wrapped display rows.
 
 The initial compatibility boundary protects formats whose completeness is
-part of their meaning.  Ordinary checks, ``--fix``, outline modes, and
-``--fix-only`` accept the limit.  ``--json``, ``--diff-json``, ``--refs``,
-``--context``, ``--diff``, and ``--diff-only`` reject it: truncated JSON must
+part of their meaning.  ``check``, ``fix`` (bare or ``--fast``), and
+``outline`` accept the limit.  ``check --format=json``, ``diff-json``,
+``refs``, ``context``, and ``diff`` (bare or ``--fast`` — the flag is not
+even defined on ``diff``'s own parser) reject it: truncated JSON must
 not become invalid or look complete, and a truncated patch must not look
 applicable.
 
@@ -1013,7 +1016,7 @@ defined rather than accidental.
   truncation carries no signal that anything was lost.  The pipeline's
   apparent success can also be ``head``'s exit status rather than
   ``check_rst``'s unless the caller preserves the producer status.
-  ``--quiet``, ``--outline-only``, and ``--sections-only`` already bound
+  ``--quiet``, bare ``outline``, and ``--sections-only`` already bound
   output through explicit display contracts, while ``--outline-depth``
   additionally reports exactly how many entries it hid.  Reach for one
   of these first; when only a hard line budget fits, use
@@ -1033,7 +1036,7 @@ defined rather than accidental.
   findings, their once-per-kind shared rationale, the requested report,
   and the summary — see "De-facto compiler output" below, which is what made the old
   ``grep '^⚠'``/``grep 'WARNING:'`` habit largely moot.  One specific
-  structural entry buried in a large ``--outline``: ``--context ENTRY``
+  structural entry buried in a large ``outline``: ``context ENTRY``
   (see above) resolves it exactly, with its full sibling/parent/
   reference context attached — something no grep over raw markup can
   reconstruct.
@@ -1126,11 +1129,11 @@ references used to leave entirely to you: previously, fixing a typo'd
 target meant re-running the whole check to find out if your guess was
 right; now the first run already names it.
 
-===================================================
---refs: who this file points at, who points at it
-===================================================
+=================================================
+refs: who this file points at, who points at it
+=================================================
 
-``check_rst --refs FILE`` (with project configuration, or explicit
+``check_rst refs FILE`` (with project configuration, or explicit
 ``--sphinx-src``) prints two lists: every
 ``:doc:``/``:ref:``/``:term:`` target and resolved toctree child *FILE*
 itself writes (``outgoing:``), and every OTHER file whose role or
@@ -1140,7 +1143,7 @@ Journal, the incoming half answers the question aggregation-page
 maintenance keeps asking: "which aggregation pages already point at
 this calendar note" — before, that meant a corpus-wide grep and manual
 cross-checking; now it is one command.  A self-contained mode, same
-family as ``--diff-json``: incompatible flags or extra file arguments
+family as ``diff-json``: incompatible flags or extra file arguments
 are rejected, never silently ignored.
 
 Both lists come from the SAME live Sphinx environment Phase 2 already
@@ -1159,20 +1162,20 @@ doesn't resolve prints ``BROKEN`` in the outgoing list — Phase 3 already
 reports why (and, since the previous section, suggests the fix); this
 list exists to show what's THERE, not to duplicate that diagnosis.
 
-============================================
-Semantic diffs: comparing two --json dumps
-============================================
+===================================================
+Semantic diffs: comparing two --format=json dumps
+===================================================
 
 After a large edit — your own, or a subagent's — "did I break anything,
 or just add what I meant to add?" is usually answered by eyeballing a
 diff of the *file*, not of what changed *structurally*.
-``--diff-json OLD.json NEW.json`` answers the structural question
-directly, from two ``--json`` dumps taken before and after::
+``diff-json OLD.json NEW.json`` answers the structural question
+directly, from two ``check --format=json`` dumps taken before and after::
 
-    $ check_rst --json guide.rst > before.json
+    $ check_rst check --format=json guide.rst > before.json
     ... edit guide.rst: add a "Rollback" section with a bold opener ...
-    $ check_rst --json guide.rst > after.json
-    $ check_rst --diff-json before.json after.json
+    $ check_rst check --format=json guide.rst > after.json
+    $ check_rst diff-json before.json after.json
     Summary:
       files_checked: 1 -> 1 (0)
       errors: 0 -> 0 (0)
@@ -1231,7 +1234,7 @@ Automatic discovery stays at the working directory
 ====================================================
 
 Without ``--config`` there is no parent-directory walking: run
-``check_rst`` from the repo root to apply its declaration.  Bare Git
+``check_rst check`` from the repo root to apply its declaration.  Bare Git
 selection resolves porcelain paths against
 ``git rev-parse --show-toplevel`` when invoked from a repository
 subdirectory, but it does not implicitly inherit a parent directory's
@@ -1244,8 +1247,8 @@ Explicit selection works from any directory
 Pass either supported file explicitly to select its project from an
 unrelated working directory::
 
-    check_rst --config /repo/.check_rst.toml /repo/docs/page.rst
-    check_rst --config /repo/pyproject.toml /repo/docs/page.rst
+    check_rst check --config /repo/.check_rst.toml /repo/docs/page.rst
+    check_rst check --config /repo/pyproject.toml /repo/docs/page.rst
 
 The dedicated file's whole document remains the table; an explicitly
 selected ``pyproject.toml`` uses ``[tool.check_rst]``.  ``--config``
@@ -1256,7 +1259,7 @@ Relative ``sphinx-src`` and ``build-dir`` values resolve from the
 selected config's directory.  With no positional files, bare Git
 selection and diff scoping also run from that directory::
 
-    check_rst --config /repo/.check_rst.toml
+    check_rst check --config /repo/.check_rst.toml
 
 Positional files and ``--recursive`` directories retain normal CLI
 semantics: their relative paths resolve from the invocation directory,
@@ -1268,7 +1271,7 @@ Applied values are echoed
 
 Every non-quiet run starts with ``config: .check_rst.toml —
 sphinx-src=., build-dir=…`` for automatic discovery, or the selected
-config's absolute path for ``--config``.  The ``--json`` model carries
+config's absolute path for ``--config``.  The ``--format=json`` model carries
 the same ``config`` object saying which file supplied which values.
 You always know why a run is in verified mode.  It also carries a schema
 version and structured runtime metadata; normal verified output prints the
@@ -1297,15 +1300,16 @@ A typo'd ``sphix-src`` silently ignored would be worse than no config
 at all (the same fail-loudly precedent as ``--sphinx-src`` without a
 ``conf.py``).  An explicitly requested config that is missing, not a
 regular file, malformed TOML, or empty also fails before Git discovery,
-any checking phase, or ``--fix``.  ``--refs`` accepts ``--config`` because
-it needs project settings; ``--diff-json`` rejects it because that mode is
+any checking phase, or ``fix``.  ``refs`` accepts ``--config`` because
+it needs project settings; ``diff-json`` rejects it because that mode is
 self-contained and reads no RST project.
 
 The same actionable verified-mode error applies to every option whose
-meaning depends on Phase 3 data: ``--refs``, explicit ``--build-dir``, and
-``--no-toctree``.  The last also requires an actual outline consumer
-(``--outline``, ``--outline-only``, or ``--json``); otherwise it would do
-nothing.
+meaning depends on Phase 3 data: ``refs``, explicit ``--build-dir``, and
+``--no-toctree``.  On ``check`` the last also requires ``--format=json``;
+otherwise it would do nothing.  On ``outline`` and ``context`` — the other
+two verbs that carry ``--no-toctree`` — an outline consumer is guaranteed
+by the verb itself, so no separate requirement applies.
 
 For a foreign repository: run heuristic (no flags) until its
 ``conf.py`` location is confirmed, then propose committing a
@@ -1318,10 +1322,10 @@ Auditing a scope
 
 For a calendar month, a project's docs tree, or an external repository::
 
-    check_rst --recursive <dir> --skip-fixable            # WARNINGs needing judgment
-    check_rst --recursive <dir> --diff-only               # fast mechanical preview
-    check_rst --recursive <dir> --diff                    # preview plus complete validation
-    check_rst --recursive <dir> --exclude <name> ...      # skip specific files
+    check_rst check --recursive <dir> --skip-fixable        # WARNINGs needing judgment
+    check_rst diff --fast --recursive <dir>                 # fast mechanical preview
+    check_rst diff --recursive <dir>                        # preview plus complete validation
+    check_rst check --recursive <dir> --exclude <name> ...  # skip specific files
 
 Multi-document review has a correct order, not just a correct command
 set: normalize each document before reasoning across all of them,
@@ -1329,24 +1333,28 @@ never the reverse — a hierarchy question asked against an unverified
 file gets an unverified answer.  Concretely: (1) ``--skip-fixable``
 surfaces this document's own latent structural candidates (bold
 openers, rubrics); (2) the AI turns the ones that are genuine sections
-into real placeholder headings; (3) ``--fix`` normalizes the result;
+into real placeholder headings; (3) ``fix`` normalizes the result;
 (4) a bare confirm run verifies convergence; only once every document
 in scope has been through 1–4 does (5) cross-document reasoning
-(``--refs``, ``--diff-json``, an aggregation-page pass) run against
+(``refs``, ``diff-json``, an aggregation-page pass) run against
 verified structure instead of raw markup.  Skipping straight to step 5
 on a scope that never passed 1–4 means every cross-document answer
 inherits whatever the unverified documents got wrong.
 
 ``--recursive`` discovers ``*.rst`` natively (no shell, so spaced
 filenames are safe) and always checks in full — which is exactly why an
-audit never runs ``--fix`` automatically (see History protection).  The
+audit never runs ``fix`` automatically (see History protection).  The
 ``--exclude`` option is valid only with ``--recursive``; using it in any
 other mode is an argument error rather than a silently ignored filter.
-Likewise, ``--outline-depth`` must be at least 1 and must accompany an
-outline mode.  Output modes reject combinations they cannot honestly apply:
-``--outline-only`` is read-only and separate from ``--json``;
-``--sections-only`` and ``--outline-depth`` do not pretend to filter the
-JSON model; and ``--json`` cannot fix files.  ``--no-warnings``, when
+Likewise, ``--outline-depth`` must be at least 1, and it exists only on
+``outline``'s own parser, so passing it elsewhere is an ordinary
+"unrecognized argument," not a runtime combination check.  Output modes
+are separated structurally now, not merely rejected at runtime:
+``outline`` (structure-only by default) and ``check --format=json`` are
+different subcommands, so ``--sections-only``/``--outline-depth`` —
+defined only on ``outline``'s own parser — can never even be passed
+alongside ``--format=json``; and ``check --format=json`` cannot fix
+files.  ``--no-warnings``, when
 explicitly chosen for a query, filters warnings consistently from per-file
 findings, Sphinx findings, word-statistics diagnostics, and the summary.
 The semantic-rules guide documents scope decisions, the dirty-file check that
@@ -1368,13 +1376,13 @@ Verified mode: with ``--sphinx-src``
 ======================================
 
 ``--sphinx-src DIR`` builds a real, in-process Sphinx environment: the
-structure behind ``--outline`` (headings *and* code-blocks) is resolved
+structure behind ``outline`` (headings *and* code-blocks) is resolved
 exactly as a real build would resolve it, and Phase 3 runs
 ``sphinx-build`` for cross-reference integrity.  ``DIR`` must contain
 ``conf.py`` or the tool errors immediately — a typo'd path is a mistake
 worth failing loudly on, not silently degrading.  Every selected file
 must belong to that Sphinx source environment: a file from an unrelated
-directory is rejected before Phase 1 (and therefore before ``--fix``);
+directory is rejected before Phase 1 (and therefore before ``fix``);
 a path Sphinx itself excludes is rejected after environment
 construction.  Verified mode never builds one project while claiming
 another project's file was clean.
@@ -1396,7 +1404,7 @@ Omit ``--sphinx-src`` and nothing is guessed: Phase 3 is skipped
 entirely, and Phase 2's code-block detection switches to a pure
 text-search fallback, **clearly labeled as heuristic in the output**.
 Everything else keeps full strength — Phase 0 hygiene, all Phase 1
-rules, the placeholder workflow and ``--fix``, heading outlines — none
+rules, the placeholder workflow and ``fix``, heading outlines — none
 of that ever needed Sphinx.
 
 Why the heuristic exists at all: bare docutils cannot parse Sphinx-only
@@ -1443,10 +1451,10 @@ type); that is a hard error, never a heuristic fallback.
 Fixing foreign content needs one extra caution
 ------------------------------------------------
 
-``--fix`` remaps adornment characters to *this* project's preferred
+``fix`` remaps adornment characters to *this* project's preferred
 ranking — a document written entirely with ``~`` headings gets
 rewritten to ``#``.  On content from another project, always run
-``--diff`` first and confirm the rewrite is wanted; and check the
+``diff`` first and confirm the rewrite is wanted; and check the
 target repo for uncommitted changes before writing (the semantic-rules
 guide's audit workflow).
 
@@ -1458,7 +1466,7 @@ An independent Claude Code session normalized six externally generated
 documents in a downstream project this way (2026-07-21), and it is a materially
 different claim than "it fixes my adornments" — the tool managing a
 whole external-content lifecycle: pandoc converts Markdown to RST,
-``check_rst --fix`` normalizes every adornment, and a human/AI judges
+``check_rst fix`` normalizes every adornment, and a human/AI judges
 which bold-as-heading WARNINGs represent a real structural intent
 (step 1 of the loop, same as always) — but the promoted bold-to-real-
 heading decisions are *semantic*, and the pipeline reproduces

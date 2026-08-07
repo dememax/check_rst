@@ -86,9 +86,9 @@ python3.14 -m check_rst
 
 ```bash
 check_rst --help
-check_rst path/to/document.rst
-check_rst --outline-only path/to/document.rst
-check_rst --diff path/to/document.rst
+check_rst check path/to/document.rst
+check_rst outline path/to/document.rst
+check_rst diff path/to/document.rst
 ```
 
 A repository can declare its Sphinx source and reusable build directory in
@@ -113,7 +113,7 @@ protected by the complete regression suite:
 python3.14 -m pytest
 ruff format --check --no-cache src tests
 ruff check --no-cache src tests
-PYTHONPATH=src python3.14 -m check_rst --recursive docs
+PYTHONPATH=src python3.14 -m check_rst check --recursive docs
 ```
 
 The standalone repository was seeded from Journal commit `3f7fef1` on
