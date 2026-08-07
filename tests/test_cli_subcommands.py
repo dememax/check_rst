@@ -303,3 +303,83 @@ def test_full_scope_rejects_git_scope_without_files(check_rst: types.ModuleType)
 def test_full_scope_allows_git_scope_with_files(check_rst: types.ModuleType) -> None:
     args = _parse(check_rst, ["check", "--git-scope", "file.rst"])
     check_rst._validate_full_scope_args(args)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 — outline's inverted default, and check's --format/--no-toctree
+# interaction.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_outline_verb_default_is_structure_only(check_rst: types.ModuleType) -> None:
+    """Decision 3: bare `outline FILE` inverts today's default — structure
+    only, same as today's --outline-only, not today's combined --outline."""
+    args = _parse(check_rst, ["outline", "file.rst"])
+    assert args.command == "outline"
+    assert vars(args).keys() >= _FULL_ATTR_CONTRACT
+    assert args.outline is True
+    assert args.outline_only is True
+    assert args.files == [pathlib.Path("file.rst")]
+
+
+@pytest.mark.unit
+def test_outline_with_findings_opts_into_combined_view(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["outline", "--with-findings", "file.rst"])
+    assert args.outline is True
+    assert args.outline_only is False
+
+
+@pytest.mark.unit
+def test_outline_verb_carries_depth_sections_toctree_and_budget_flags(check_rst: types.ModuleType) -> None:
+    args = _parse(
+        check_rst,
+        ["outline", "--outline-depth", "3", "--sections-only", "--no-toctree", "--max-output-lines", "5", "file.rst"],
+    )
+    assert args.outline_depth == 3
+    assert args.sections_only is True
+    assert args.no_toctree is True
+    assert args.max_output_lines == 5
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("depth", [0, -1])
+def test_outline_depth_rejects_below_one(check_rst: types.ModuleType, depth: int) -> None:
+    args = _parse(check_rst, ["outline", "--outline-depth", str(depth), "file.rst"])
+    with pytest.raises(SystemExit) as exc:
+        check_rst._validate_outline_args(args)
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_outline_depth_one_is_allowed(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["outline", "--outline-depth", "1", "file.rst"])
+    check_rst._validate_outline_args(args)  # must not raise
+
+
+@pytest.mark.unit
+def test_check_no_toctree_requires_format_json(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["check", "--no-toctree", "file.rst"])
+    with pytest.raises(SystemExit) as exc:
+        check_rst._validate_check_args(args)
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_check_no_toctree_allowed_with_format_json(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["check", "--format", "json", "--no-toctree", "file.rst"])
+    check_rst._validate_check_args(args)  # must not raise
+
+
+@pytest.mark.unit
+def test_check_max_output_lines_incompatible_with_format_json(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["check", "--format", "json", "--max-output-lines", "5", "file.rst"])
+    with pytest.raises(SystemExit) as exc:
+        check_rst._validate_check_args(args)
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_check_max_output_lines_allowed_in_text_format(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["check", "--max-output-lines", "5", "file.rst"])
+    check_rst._validate_check_args(args)  # must not raise

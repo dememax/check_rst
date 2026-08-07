@@ -6401,6 +6401,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
             "summary. Exit code semantics unchanged either way"
         ),
     )
+    _add_no_toctree_flag(check_p)
     _add_max_output_lines(check_p)
     check_p.set_defaults(**_CLI_ATTR_DEFAULTS)
 
@@ -6438,6 +6439,75 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     diff_p.set_defaults(**_CLI_ATTR_DEFAULTS)
     diff_p.set_defaults(diff=True)
+
+    outline_p = sub.add_parser(
+        "outline",
+        parents=[full],
+        help="print each file's section structure (structure-only by default)",
+        description=(
+            "Print each file's section structure: a 'levels:' legend mapping "
+            "each depth to its adornment char (once — the mapping is "
+            'constant within a document), then "{start}-{end}: {title}" per '
+            "heading (the range is the section's full extent — feed it "
+            "straight to sed/Read), indented 4 spaces per level, with a "
+            "'[N subsections]' count on parents, plus code-block, "
+            "blockquote, table, admonition, comment, list, and verified "
+            "toctree entries (previews are bounded). depth is this "
+            "document's own nesting order (1 = top-level), independent of "
+            "check_hierarchy's own HIERARCHY ranking — the same character "
+            "can report a different depth in a different file; char is "
+            "shown alongside so the HIERARCHY rank stays inferable. Always "
+            "whole-document, never diff-scoped. Purely informational — "
+            "never affects the exit code. Structure-only by default (no "
+            "finding lines, same as today's --outline-only) — pass "
+            "--with-findings to layer bold/rubric WARNING findings on top, "
+            "today's plain --outline behavior. Always prints once, during "
+            "Phase 2, never Phase 1: with --sphinx-src, headings + "
+            "code-blocks from a real Sphinx env, verified; without it, the "
+            "same shape from a heuristic text-search code-block detector "
+            "instead, clearly labeled as such (see --sphinx-src)"
+        ),
+    )
+    outline_p.add_argument(
+        "--with-findings",
+        action="store_true",
+        help=(
+            "layer bold/rubric WARNING findings on top of the structure "
+            "view — today's plain --outline behavior, before this verb's "
+            "default inverted to structure-only. A display choice, not a "
+            "different check: findings are always counted in the summary "
+            "footer and the exit code stays honest either way"
+        ),
+    )
+    outline_p.add_argument(
+        "--outline-depth",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "show only entries of every kind at nesting depth <= N; a "
+            "trailing note reports how many deeper entries were hidden — "
+            "bounded output, never silent truncation. Default: unlimited"
+        ),
+    )
+    outline_p.add_argument(
+        "--sections-only",
+        action="store_true",
+        help=(
+            "show only headings — every leaf entry kind (code-block, "
+            "blockquote, table, admonition, comment, list) suppressed "
+            "regardless of depth, unlike --outline-depth which bounds by "
+            "depth, not by kind. A display filter: the levels:/blocks: "
+            "legend and every heading's own bracketed counts still reflect "
+            "the whole document, and a trailing note reports how many "
+            "entries were hidden — bounded output, never silent truncation. "
+            "Composes with --outline-depth"
+        ),
+    )
+    _add_no_toctree_flag(outline_p)
+    _add_max_output_lines(outline_p)
+    outline_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+    outline_p.set_defaults(outline=True)
 
     diff_json_p = sub.add_parser(
         "diff-json",
@@ -6503,6 +6573,8 @@ def _backfill_post_parse(args: argparse.Namespace) -> None:
         args.fix_only = args.fast
     elif args.command == "diff":
         args.diff_only = args.fast
+    elif args.command == "outline":
+        args.outline_only = not args.with_findings
     elif args.command == "diff-json":
         args.diff_json = [args.old, args.new]
     elif args.command == "refs":
@@ -6523,6 +6595,35 @@ def _validate_context_args(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     if args.files[0].suffix != ".rst":
         print("check_rst: --context requires exactly one positional .rst file")
+        raise SystemExit(1)
+
+
+def _validate_outline_args(args: argparse.Namespace) -> None:
+    """The one value-level check that survives from today's --outline-depth
+    rule (cli.py's now-deleted _validate_cli_args): the ">= 1" range. The
+    "requires --outline/--outline-only" half is now structural — the flag
+    only exists on outline's own parser."""
+    if args.outline_depth is not None and args.outline_depth < 1:
+        print("check_rst: --outline-depth must be >= 1")
+        raise SystemExit(1)
+
+
+def _validate_check_args(args: argparse.Namespace) -> None:
+    """The two value-level checks that survive on check's own parser from
+    today's now-deleted _validate_cli_args: --no-toctree's "requires one of
+    --outline/--outline-only/--json/--context" half narrows to "requires
+    --format=json" now that check has neither --outline nor --context; and
+    --max-output-lines' incompatibility with --json is the only surviving
+    case of that rule now that diff/diff-only/diff-json/refs/context never
+    carry --max-output-lines at all."""
+    if args.no_toctree and not args.json:
+        print("check_rst: --no-toctree requires --format=json")
+        raise SystemExit(1)
+    if args.max_output_lines is not None and args.json:
+        print(
+            "check_rst: --max-output-lines is incompatible with "
+            "--format=json — structured or copyable output must remain complete"
+        )
         raise SystemExit(1)
 
 
