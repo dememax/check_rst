@@ -222,7 +222,7 @@ import sys
 import tempfile
 import tomllib
 import unicodedata
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import docutils.frontend
 import docutils.nodes
@@ -4754,21 +4754,23 @@ def run_sphinx(
 # ---------------------------------------------------------------------------
 
 
-class Document:
-    """Read-only facade over one .rst file — stage 1 of the document model.
+class _DocumentCore:
+    """The read/parse foundation every Document domain builds on: the
+    Phase 0-normalized text, its lines, the git diff ranges, and the
+    docutils doctree. Split out of Document (found by code review:
+    Document was one ~15-property god object — splitting an
+    outline-domain module from a prose/wordstats module still forced
+    both to import the whole class, since neither sub-domain had its
+    own smaller facade) so each domain mixin below depends on only
+    this small core, not on its sibling domains' properties.
 
-    Everything the checkers and reporters need, computed at most once and
-    shared: the Phase 0-normalized text, its lines, the hygiene findings,
-    the docutils doctree, the outline, code-block and blockquote entries,
-    and the git diff ranges.  Lazy (cached_property), so a consumer pays
-    only for what it touches; CALL_COUNTS assertions pin the one-read/
-    one-parse contract in the tests.
-
-    Deliberately read-only: fixers keep working on their own mutating line
-    buffer and write to disk; after a fixer writes, construct a NEW
-    Document.  Invalidation is explicit in the object lifetime — which is
-    exactly what makes the caching safe (a path-keyed cache would serve
-    stale text after --fix writes).
+    Lazy (cached_property), so a consumer pays only for what it
+    touches; CALL_COUNTS assertions pin the one-read/one-parse
+    contract in the tests. Deliberately read-only: fixers keep working
+    on their own mutating line buffer and write to disk; after a fixer
+    writes, construct a NEW Document. Invalidation is explicit in the
+    object lifetime — which is exactly what makes the caching safe (a
+    path-keyed cache would serve stale text after --fix writes).
     """
 
     def __init__(
@@ -4807,6 +4809,12 @@ class Document:
     def doctree(self) -> docutils.nodes.document:
         return _parse_rst(self.path, text=self.text)
 
+
+class _DocumentInlineMixin(_DocumentCore):
+    """Inline-markup domain: consumed by check_nested_inline_markup's own
+    warning and check_directives' misdiagnosis guard — nothing else in
+    Document needs this, so it depends on _DocumentCore alone."""
+
     @functools.cached_property
     def nested_inline_by_node(self) -> dict[int, tuple[docutils.nodes.Node, ...]]:
         """Successful explicit inline constructs found inside each outer span.
@@ -4822,6 +4830,12 @@ class Document:
             if nested:
                 result[id(outer)] = nested
         return result
+
+
+class _DocumentProseMixin(_DocumentCore):
+    """Prose domain: word-stats and check_homoglyphs' shared skip-list
+    consumer — depends on _DocumentCore's doctree alone, not on the
+    outline domain's entry-finder properties below."""
 
     @functools.cached_property
     def prose_text(self) -> str:
@@ -4857,33 +4871,64 @@ class Document:
                 parts.append(str(text_node))
         return "\n".join(parts)
 
+
+class _DocumentOutlineMixin(_DocumentCore):
+    """Outline domain: every entry-finder consumed by --outline/--json and
+    check_bare_filenames/toctree reporting — the largest single cluster,
+    but still only dependent on _DocumentCore, not on the inline-markup
+    or prose domains above.
+
+    Each finder below takes ``doc: Document | None`` (the pre-split type,
+    still correct: most of their other callers pass a real Document and
+    some, like check_bare_filenames, use cross-domain attributes on it)
+    — so passing `self` needs one cast per property here. Nobody ever
+    instantiates this mixin on its own; it exists only as part of the
+    composed Document below, so the cast states a fact, not a hope."""
+
     @functools.cached_property
     def outline(self) -> list[OutlineEntry]:
-        return build_outline(self.path, doc=self)
+        return build_outline(self.path, doc=cast("Document", self))
 
     @functools.cached_property
     def block_quotes(self) -> list[BlockQuoteEntry]:
-        return find_block_quotes(self.path, doc=self)
+        return find_block_quotes(self.path, doc=cast("Document", self))
 
     @functools.cached_property
     def admonitions(self) -> list[AdmonitionEntry]:
-        return find_admonitions(self.path, doc=self)
+        return find_admonitions(self.path, doc=cast("Document", self))
 
     @functools.cached_property
     def comments(self) -> list[CommentEntry]:
-        return find_comments(self.path, doc=self)
+        return find_comments(self.path, doc=cast("Document", self))
 
     @functools.cached_property
     def lists(self) -> list[ListEntry]:
-        return find_lists(self.path, doc=self)
+        return find_lists(self.path, doc=cast("Document", self))
 
     @functools.cached_property
     def code_blocks_heuristic(self) -> list[CodeBlockEntry]:
-        return find_code_blocks_heuristic(self.path, doc=self)
+        return find_code_blocks_heuristic(self.path, doc=cast("Document", self))
 
     @functools.cached_property
     def tables(self) -> list[TableEntry]:
-        return find_tables(self.path, doc=self)
+        return find_tables(self.path, doc=cast("Document", self))
+
+
+class Document(_DocumentInlineMixin, _DocumentProseMixin, _DocumentOutlineMixin):
+    """Read-only facade over one .rst file — stage 1 of the document
+    model, composed from _DocumentCore plus its three domain mixins
+    above. Every existing `document.outline`/`.tables`/`.text`/... call
+    site keeps working unchanged: composition via inheritance preserves
+    the exact same attribute surface (confirmed by direct probe: a
+    diamond-shared _DocumentCore base plus functools.cached_property
+    behaves identically whether attributes live on one class or are
+    assembled from mixins, under both CPython and strict mypy).  What
+    changes is where each domain's code CAN live once cli.py is
+    eventually split into modules: each mixin above already depends on
+    _DocumentCore alone, never on a sibling mixin, so a future outline
+    module only needs to import _DocumentCore, not the prose or
+    inline-markup domains bundled with it today.
+    """
 
 
 def _resolve_document(path: pathlib.Path, doc: Document | None) -> Document:
