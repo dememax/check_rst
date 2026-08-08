@@ -472,3 +472,69 @@ def test_diff_json_allows_no_config(check_rst: types.ModuleType) -> None:
     incompatible combination worth rejecting."""
     args = _parse(check_rst, ["--no-config", "diff-json", "old.json", "new.json"])
     check_rst._validate_diff_json_args(args)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# list-table verb (docs/roadmap.rst, "Targeted aligned-table to list-table
+# transformation") — narrower shape than check/fix/diff/outline: files +
+# scope flags (--recursive/--git-scope/--exclude) + --quiet, plus its own
+# --apply/--only/--skip. No report-filter or --word-samples flags — this
+# verb runs no Phase 1 lint pass of its own. --sphinx-src/--build-dir are
+# rejected (verified Sphinx mode is irrelevant to a bare-docutils source
+# transformation, the same fail-loudly precedent as diff-json rejecting
+# them); --config stays available since it still roots project/Git-scope
+# discovery for this verb's own --recursive/--git-scope.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_list_table_verb_populates_full_attribute_contract(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["list-table", "file.rst"])
+    assert args.command == "list-table"
+    assert vars(args).keys() >= _FULL_ATTR_CONTRACT
+    assert args.files == [pathlib.Path("file.rst")]
+    assert args.only == []
+    assert args.skip == []
+    assert args.apply is False
+
+
+@pytest.mark.unit
+def test_list_table_only_and_skip_repeatable(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["list-table", "--only", "1", "--only", "3", "--skip", "2", "file.rst"])
+    assert args.only == [1, 3]
+    assert args.skip == [2]
+
+
+@pytest.mark.unit
+def test_list_table_carries_scope_flags(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["list-table", "--recursive", "--exclude", "*.gen.rst", "docs"])
+    assert args.recursive is True
+    assert args.exclude == ["*.gen.rst"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "flag", ["--no-warnings", "--skip-fixable", "--no-adornments", "--no-directives", "--word-samples"]
+)
+def test_list_table_has_no_report_filter_flags(check_rst: types.ModuleType, flag: str) -> None:
+    parser = check_rst._build_cli_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(
+            ["list-table", flag, "1", "file.rst"] if flag == "--word-samples" else ["list-table", flag, "file.rst"]
+        )
+    assert exc.value.code == 2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("flag", ["--sphinx-src", "--build-dir"])
+def test_list_table_rejects_sphinx_mode_flags(check_rst: types.ModuleType, flag: str) -> None:
+    args = _parse(check_rst, [flag, "docs", "list-table", "file.rst"])
+    with pytest.raises(SystemExit) as exc:
+        check_rst._validate_list_table_args(args)
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_list_table_allows_config(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["--config", "x.toml", "list-table", "file.rst"])
+    check_rst._validate_list_table_args(args)  # must not raise

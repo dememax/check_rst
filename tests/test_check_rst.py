@@ -11544,6 +11544,26 @@ def test_tables_headerless_chains_all_rows(check_rst: types.ModuleType, tmp_path
 
 
 @pytest.mark.integration
+def test_tables_end_extends_through_multiline_final_row(check_rst: types.ModuleType, tmp_path: Path) -> None:
+    """Found live building list-table's acceptance fixture from a real
+    grid table whose last row spans two physical lines: docutils' own
+    .line tracking only reports a multi-line cell's FIRST physical line,
+    so the old approach (extend last_content_line through a trailing
+    border only) stopped at that first line instead of the row's real
+    continuation and the border past it — silently truncating the
+    table's own reported end for any table whose last row is multi-line,
+    not just for list-table's own use of it."""
+    p = _rst(
+        tmp_path,
+        "Title\n#####\n\n"
+        "+-----+-----+\n| A   | B   |\n+=====+=====+\n| 1   | 2   |\n+-----+-----+\n| x   | y   |\n| ext |     |\n+-----+-----+\n",
+    )
+    entries = check_rst.find_tables(p)
+    assert len(entries) == 1
+    assert (entries[0].lineno, entries[0].end) == (4, 11)
+
+
+@pytest.mark.integration
 def test_tables_depth_matches_enclosing_section(check_rst: types.ModuleType, tmp_path: Path) -> None:
     p = _rst(
         tmp_path,
@@ -11953,3 +11973,139 @@ def test_cli_context_resolves_nested_cross_file_toctree_in_its_source_document(
     assert "index:toctree@4" in out
     assert 'child:Child — section "Child"' in out
     assert "parent: child:Child" in out
+
+
+# ---------------------------------------------------------------------------
+# list-table verb (docs/roadmap.rst, "Targeted aligned-table to list-table
+# transformation") — full CLI-level integration. The conversion algorithm
+# itself (docutils table-parser wrapping, rendering, semantic validation)
+# is covered exhaustively in tests/test_list_table.py; these tests confirm
+# the CLI wiring: exit codes, diff/write output, --quiet, --only/--skip
+# end to end through check_rst.main().
+# ---------------------------------------------------------------------------
+
+_LIST_TABLE_GRID = "+-----+-------+\n| A   | B     |\n+=====+=======+\n| 1   | two   |\n+-----+-------+\n"
+
+
+@pytest.mark.integration
+def test_cli_list_table_dry_run_prints_diff_and_exits_1(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = tmp_path / "doc.rst"
+    p.write_text("Title\n#####\n\n" + _LIST_TABLE_GRID, encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", str(p)])
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "-+-----+-------+" in out
+    assert "+.. list-table::" in out
+    assert p.read_text(encoding="utf-8") == "Title\n#####\n\n" + _LIST_TABLE_GRID  # untouched
+    assert "1 file(s) would change" in out
+
+
+@pytest.mark.integration
+def test_cli_list_table_apply_writes_file_and_exits_0(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = tmp_path / "doc.rst"
+    original = "Title\n#####\n\n" + _LIST_TABLE_GRID
+    p.write_text(original, encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", "--apply", str(p)])
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+    assert exc.value.code == 0
+    written = p.read_text(encoding="utf-8")
+    assert ".. list-table::" in written
+    assert written != original
+    out = capsys.readouterr().out
+    assert "converted table(s) 1" in out
+    assert "1 file(s) converted" in out
+
+
+@pytest.mark.integration
+def test_cli_list_table_no_eligible_tables_is_clean_exit_0(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = tmp_path / "doc.rst"
+    p.write_text("Title\n#####\n\nJust prose.\n", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", str(p)])
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+    assert exc.value.code == 0
+    assert "no eligible tables to convert" in capsys.readouterr().out
+
+
+@pytest.mark.integration
+def test_cli_list_table_unknown_ordinal_is_fatal(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = tmp_path / "doc.rst"
+    p.write_text("Title\n#####\n\n" + _LIST_TABLE_GRID, encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", "--only", "5", str(p)])
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "unknown table ordinal(s): 5" in out
+    assert p.read_text(encoding="utf-8") == "Title\n#####\n\n" + _LIST_TABLE_GRID  # untouched
+
+
+@pytest.mark.integration
+def test_cli_list_table_skip_excludes_table_from_conversion(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = tmp_path / "doc.rst"
+    p.write_text("Title\n#####\n\n" + _LIST_TABLE_GRID, encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", "--skip", "1", str(p)])
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+    assert exc.value.code == 0
+    assert "no eligible tables to convert" in capsys.readouterr().out
+
+
+@pytest.mark.integration
+def test_cli_list_table_quiet_suppresses_status_and_skip_notice(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = tmp_path / "doc.rst"
+    p.write_text("Title\n#####\n\nJust prose.\n", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", "--quiet", str(p)])
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+    assert exc.value.code == 0
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.integration
+def test_cli_list_table_rejects_sphinx_src(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = tmp_path / "doc.rst"
+    p.write_text("Title\n#####\n\n" + _LIST_TABLE_GRID, encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(tmp_path), "list-table", str(p)])
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+    assert exc.value.code == 1
+    assert "does not use Sphinx" in capsys.readouterr().out

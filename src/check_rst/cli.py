@@ -197,6 +197,9 @@ Common examples::
     check_rst context 'doc:Section' doc.rst  # one entry's pre-edit briefing
     check_rst refs doc.rst                  # configured project's incoming/outgoing references
     check_rst diff-json before.json after.json  # compare two prior --format=json snapshots
+    check_rst list-table doc.rst             # preview every eligible table converted to list-table
+    check_rst list-table --apply doc.rst     # write the conversion
+    check_rst list-table --only 2 --apply doc.rst  # convert just the 2nd table, leave the rest aligned
 """
 
 from __future__ import annotations
@@ -226,6 +229,8 @@ import docutils.parsers.rst
 import docutils.parsers.rst.languages
 import docutils.parsers.rst.languages.en
 import docutils.parsers.rst.states
+import docutils.parsers.rst.tableparser
+import docutils.statemachine
 import docutils.utils
 
 from check_rst import __version__
@@ -3227,6 +3232,7 @@ _GRID_TABLE_BORDER_RE = re.compile(r"^[ \t]*\+[-+]+\+[ \t]*$")
 # 2+ '='-runs separated by whitespace — never a bare section underline
 # (a single '=====' run), which is the one thing this must not match.
 _SIMPLE_TABLE_RULE_RE = re.compile(r"^[ \t]*=+(?:[ \t]+=+)+[ \t]*$")
+_TABLE_OPTION_RE = re.compile(r"^[ \t]+:([\w-]+):")
 
 
 def _table_kind_and_start(lines: list[str], anchor: int) -> tuple[str, int]:
@@ -3296,12 +3302,32 @@ def _table_end(lines: list[str], last_content_line: int) -> int:
     """Extend *last_content_line* (1-based) through any trailing grid
     border / simple-table rule that belongs to it — the bottom border a
     grid or simple table always ends on, which carries no line info of
-    its own in the doctree (only cell paragraphs do)."""
+    its own in the doctree (only cell paragraphs do).
+
+    Also extends through a grid table's own bare ``|``-led continuation
+    lines first, when the table's last row spans multiple physical
+    source lines: docutils' own .line tracking only reports a multi-line
+    cell's FIRST physical line, so *last_content_line* can land there
+    instead of on the row's real last line — found live building
+    list-table's own real-world acceptance fixture, where the previous,
+    border-only extension silently truncated a table whose last row was
+    multi-line, not just for that feature's own use of this function."""
     end = last_content_line
     i = last_content_line  # 0-based index of the line right after
-    while i < len(lines) and (_GRID_TABLE_BORDER_RE.match(lines[i]) or _SIMPLE_TABLE_RULE_RE.match(lines[i])):
-        end = i + 1
-        i += 1
+    while i < len(lines):
+        if _GRID_TABLE_BORDER_RE.match(lines[i]) or _SIMPLE_TABLE_RULE_RE.match(lines[i]):
+            end = i + 1
+            i += 1
+            continue
+        if lines[i].lstrip().startswith("|"):
+            # a grid row's own continuation line, not yet a border — no
+            # other RST construct produces a bare '|'-led line
+            # immediately following confirmed table content, so this is
+            # still part of the same table's last row.
+            end = i + 1
+            i += 1
+            continue
+        break
     return end
 
 
@@ -3354,6 +3380,326 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
 
         entries.append(TableEntry(start, depth, kind, (rows, cols), caption, preview, end))
     return entries
+
+
+# ---------------------------------------------------------------------------
+# list-table conversion (docs/roadmap.rst, "Targeted aligned-table to
+# list-table transformation") — built in isolated stages, same as the
+# subcommand redesign, before CLI wiring.  Stage 1: the --only/--skip
+# ordinal resolver.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_list_table_selection(
+    tables: list[TableEntry], only: list[int], skip: list[int]
+) -> tuple[list[TableEntry], list[int]]:
+    """Resolve --only/--skip ordinals (1-based, document order) against
+    *tables* into the tables to convert.
+
+    Returns (targets, unknown_ordinals). unknown_ordinals lists every
+    --only/--skip value outside 1..len(tables) — including 0 and negative
+    values, which are never valid — in the order given, duplicates
+    included, so the caller can report exactly what was wrong; targets is
+    always empty when unknown_ordinals is non-empty, a stale/invalid
+    selector must never silently convert a different table than the one
+    named. Otherwise: the eligible set starts as every table, narrows to
+    exactly the --only ordinals if any were given, then --skip removes
+    ordinals from whatever that is — a direct --only/--skip contradiction
+    (the same ordinal in both) resolves to an empty target list here,
+    which this pure function does not itself treat as an error; the
+    caller distinguishes "resolved empty because of the selection" from
+    "resolved empty because the file has no tables at all" by checking
+    whether *tables* was empty to begin with.
+    """
+    n = len(tables)
+    unknown = [ordinal for ordinal in (*only, *skip) if not (1 <= ordinal <= n)]
+    if unknown:
+        return [], unknown
+    selected = set(range(1, n + 1))
+    if only:
+        selected &= set(only)
+    selected -= set(skip)
+    targets = [table for position, table in enumerate(tables, start=1) if position in selected]
+    return targets, []
+
+
+# Kinds this conversion accepts: bare/directive-wrapped grid and simple
+# tables (a ``.. table::`` directive reports kind='table' regardless of
+# which alignment grammar it wraps — TableEntry's own kind detection
+# cannot tell the two apart, so the parser choice below inspects the
+# actual first content line instead). Already 'list' needs no conversion;
+# 'csv' is fundamentally different source (external/inline CSV data, not
+# an aligned grid) and stays out of scope.
+_LIST_TABLE_ELIGIBLE_KINDS = frozenset({"grid", "simple", "table"})
+
+
+def _table_kind_eligible(kind: str) -> bool:
+    return kind in _LIST_TABLE_ELIGIBLE_KINDS
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ParsedTable:
+    """A grid/simple table's parsed structure — docutils' own tableparser
+    output, reshaped only enough to be self-describing. colspecs is
+    character column widths; each row is a list of cells in
+    ``(morerows, morecols, line_offset, StringList)`` shape, or ``None``
+    at a position a spanning cell above/to the left already covers —
+    docutils' own convention, kept verbatim rather than reinterpreted."""
+
+    colspecs: list[int]
+    header_rows: list[list[tuple[int, int, int, docutils.statemachine.StringList] | None]]
+    body_rows: list[list[tuple[int, int, int, docutils.statemachine.StringList] | None]]
+
+
+def _parse_aligned_table(lines: list[str]) -> ParsedTable:
+    """Parse a grid or simple table's raw source *lines* (border rows
+    included, nothing else) via docutils' own GridTableParser/
+    SimpleTableParser — never reimplementing the alignment grammar.
+    Grid vs simple is chosen from the first line's own shape ('+' border
+    vs '=' rule), not from TableEntry.kind, which collapses both under
+    'table' for a directive-wrapped source (see _LIST_TABLE_ELIGIBLE_KINDS)."""
+    is_grid = lines[0].lstrip().startswith("+")
+    parser: docutils.parsers.rst.tableparser.TableParser = (
+        docutils.parsers.rst.tableparser.GridTableParser()
+        if is_grid
+        else docutils.parsers.rst.tableparser.SimpleTableParser()
+    )
+    colspecs, header_rows, body_rows = parser.parse(docutils.statemachine.StringList(lines))
+    return ParsedTable(colspecs, header_rows, body_rows)
+
+
+def _table_has_span(parsed: ParsedTable) -> bool:
+    """True if any real cell (not a covered/None position) claims extra
+    rows or columns.  list-table cannot express a merged cell, so this
+    must be a hard, explanatory refusal — never a silent flatten,
+    duplication, or guess at a spanned cell's content."""
+    for row in (*parsed.header_rows, *parsed.body_rows):
+        for cell in row:
+            if cell is not None and (cell[0] or cell[1]):
+                return True
+    return False
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ListTableCandidate:
+    """One table judged ready for conversion, or refused with a reason —
+    never a silent skip; the caller reports every refusal. parsed and
+    caption are populated only when refusal is None."""
+
+    entry: TableEntry
+    parsed: ParsedTable | None
+    caption: str | None
+    refusal: str | None
+
+
+def _evaluate_list_table_candidate(lines: list[str], entry: TableEntry) -> ListTableCandidate:
+    """Judge one table ready for conversion, or refuse it with a reported
+    reason. Scope for this version: bare tables and directive-wrapped
+    tables with an optional caption only — :name:/:class:/:align: (or any
+    other ``.. table::`` option) is an explicit, reported refusal, not
+    yet supported (docs/roadmap.rst, "Targeted aligned-table to
+    list-table transformation"), never a silent mishandling."""
+    if entry.kind == "list":
+        return ListTableCandidate(entry, None, None, "already a list-table — nothing to convert")
+    if entry.kind == "csv":
+        return ListTableCandidate(entry, None, None, "csv-table is out of scope for this conversion")
+    if not _table_kind_eligible(entry.kind):
+        return ListTableCandidate(entry, None, None, f"kind {entry.kind!r} is not supported")
+
+    directive_line = lines[entry.lineno - 1]
+    match = _TABLE_DIRECTIVE_RE.match(directive_line.strip())
+    caption: str | None = None
+    body_start = entry.lineno - 1
+    if match:
+        caption = directive_line.strip()[match.end() :].strip() or None
+        cursor = entry.lineno  # 0-based index of the line right after the directive
+        option_names = []
+        while cursor < entry.end:
+            option_match = _TABLE_OPTION_RE.match(lines[cursor])
+            if option_match is None:
+                break
+            option_names.append(option_match.group(1))
+            cursor += 1
+        if option_names:
+            return ListTableCandidate(entry, None, caption, f"the {option_names[0]!r} option is not yet supported")
+        if cursor < entry.end and not lines[cursor].strip():
+            cursor += 1  # the required blank line between options/caption and body
+        body_start = cursor
+
+    body_lines = lines[body_start : entry.end]
+    indent = len(body_lines[0]) - len(body_lines[0].lstrip()) if body_lines else 0
+    dedented = [line[indent:] if len(line) >= indent else line.lstrip() for line in body_lines]
+
+    parsed = _parse_aligned_table(dedented)
+    if _table_has_span(parsed):
+        return ListTableCandidate(
+            entry, None, caption, "contains a merged row or column (span), which list-table cannot express"
+        )
+    return ListTableCandidate(entry, parsed, caption, None)
+
+
+_LIST_TABLE_BODY_INDENT = 3
+_LIST_TABLE_FIRST_MARKER = "* -"
+_LIST_TABLE_OTHER_MARKER = "  -"
+
+
+def _render_list_table_row(row: list[tuple[int, int, int, docutils.statemachine.StringList] | None]) -> list[str]:
+    """One row's worth of ``* -``/``  -`` lines. Every cell's own source
+    lines are used verbatim — never re-serialized through a parsed tree
+    — indented so continuation lines align under the first line's own
+    content column, the same rule RST itself requires for list-item
+    bodies. None cells never reach here — spans are rejected before
+    rendering (_evaluate_list_table_candidate)."""
+    out: list[str] = []
+    content_column = _LIST_TABLE_BODY_INDENT + len(_LIST_TABLE_FIRST_MARKER) + 1
+    for index, cell in enumerate(row):
+        if cell is None:
+            raise AssertionError("spanned cell reached the renderer — caller must reject spans first")
+        _, _, _, block = cell
+        cell_lines = list(block)
+        # docutils pads every cell in a row to the row's tallest cell's
+        # line count (confirmed by direct probe) — trailing empty entries
+        # are that padding, not real trailing blank lines in the cell's
+        # own content, so they're dropped; an INTERIOR empty line (a
+        # genuine blank line separating two paragraphs in one cell) is
+        # kept.
+        while cell_lines and cell_lines[-1] == "":
+            cell_lines.pop()
+        marker = _LIST_TABLE_FIRST_MARKER if index == 0 else _LIST_TABLE_OTHER_MARKER
+        prefix = " " * _LIST_TABLE_BODY_INDENT + marker
+        if not cell_lines:
+            out.append(prefix)
+            continue
+        out.append(f"{prefix} {cell_lines[0]}".rstrip())
+        for extra in cell_lines[1:]:
+            out.append(f"{' ' * content_column}{extra}".rstrip())
+    return out
+
+
+def _render_list_table(parsed: ParsedTable, caption: str | None) -> str:
+    """Emit RST text for a ``.. list-table::`` directive equivalent to
+    *parsed*. :widths: carries colspecs straight through — confirmed by
+    direct probe that docutils passes explicit :widths: values through to
+    each colspec's own colwidth unchanged, making the resulting doctree's
+    column-width representation match the original exactly, not merely
+    proportionally."""
+    lines = [f".. list-table:: {caption}" if caption else ".. list-table::"]
+    if parsed.header_rows:
+        lines.append(f"{' ' * _LIST_TABLE_BODY_INDENT}:header-rows: {len(parsed.header_rows)}")
+    lines.append(f"{' ' * _LIST_TABLE_BODY_INDENT}:widths: {' '.join(str(width) for width in parsed.colspecs)}")
+    lines.append("")
+    for row in (*parsed.header_rows, *parsed.body_rows):
+        lines.extend(_render_list_table_row(row))
+    return "\n".join(lines) + "\n"
+
+
+def _canonical_doctree_model(node: docutils.nodes.Node) -> object:
+    """A structural fingerprint of *node*: class identity, frozen
+    attributes, and children, recursively — the same modeling technique
+    as _text_space_evidence's permitted-delta model. One permitted delta,
+    confirmed by direct probe: docutils marks a <table> node
+    'colwidths-given' whenever :widths: is given explicitly on
+    list-table, and never otherwise — a grid/simple table never carries
+    it regardless of its own widths, since there is no 'auto' alternative
+    for that syntax to distinguish it from. _render_list_table always
+    emits :widths: (to make colwidth match exactly), so this class is a
+    one-directional, deterministic syntax-provenance marker, not semantic
+    content — dropped from the comparison, on <table> nodes only."""
+    if isinstance(node, docutils.nodes.Text):
+        return ("Text", str(node))
+    attributes: object = ()
+    if isinstance(node, docutils.nodes.Element):
+        attributes = dict(node.attributes)
+        if isinstance(node, docutils.nodes.table) and "colwidths-given" in attributes.get("classes", ()):
+            attributes["classes"] = [c for c in attributes["classes"] if c != "colwidths-given"]
+        attributes = _freeze_node_attribute(attributes)
+    return (
+        node.__class__.__module__,
+        node.__class__.__qualname__,
+        attributes,
+        tuple(_canonical_doctree_model(child) for child in node.children),
+    )
+
+
+def _list_table_conversion_preserves_semantics(path: pathlib.Path, original_text: str, candidate_text: str) -> bool:
+    """Parse both whole-file variants and require exact canonical-tree
+    equality — the same all-or-nothing rule --fix already uses: a
+    changed subtree means the conversion is rejected outright, never
+    partially applied or guessed at."""
+    original_model = _canonical_doctree_model(_parse_rst(path, text=original_text))
+    candidate_model = _canonical_doctree_model(_parse_rst(path, text=candidate_text))
+    return original_model == candidate_model
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ListTableFileResult:
+    """One file's complete list-table run: which ordinals converted,
+    every in-scope refusal (with its reason — never silent), and whether
+    an unresolvable --only/--skip ordinal or a failed whole-file
+    semantic-validation safety net rejected the file outright."""
+
+    path: pathlib.Path
+    original: str
+    candidate: str
+    converted: list[int]
+    refusals: list[tuple[int, str]]
+    unknown_ordinals: list[int]
+    fatal: str | None
+
+    @property
+    def changed(self) -> bool:
+        return self.fatal is None and self.candidate != self.original
+
+
+def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) -> ListTableFileResult:
+    """Plan one file's conversion — read, resolve --only/--skip, evaluate
+    and render every in-scope table, splice approved conversions into
+    the whole-file text, then re-validate the whole result before it may
+    ever be written. An --only ordinal that turns out refused is fatal
+    (the user named that exact table); a refusal among the default,
+    unnamed 'every eligible table' scope is reported but does not block
+    converting the file's other eligible tables — the same
+    review-don't-block spirit as --skip-fixable, not a hard-error either
+    way rule."""
+    original = _read_source(path)
+    plain_lines = original.splitlines()
+    tables = find_tables(path)
+    targets, unknown = _resolve_list_table_selection(tables, only, skip)
+    if unknown:
+        bad = ", ".join(str(n) for n in unknown)
+        return ListTableFileResult(path, original, original, [], [], unknown, f"unknown table ordinal(s): {bad}")
+
+    ordinal_by_id = {id(table): ordinal for ordinal, table in enumerate(tables, start=1)}
+    replacements: list[tuple[int, int, str]] = []
+    converted: list[int] = []
+    refusals: list[tuple[int, str]] = []
+    for table in targets:
+        ordinal = ordinal_by_id[id(table)]
+        candidate = _evaluate_list_table_candidate(plain_lines, table)
+        if candidate.refusal is not None:
+            if only:
+                return ListTableFileResult(
+                    path, original, original, [], [], [], f"table {ordinal}: {candidate.refusal}"
+                )
+            refusals.append((ordinal, candidate.refusal))
+            continue
+        assert candidate.parsed is not None
+        rendered = _render_list_table(candidate.parsed, candidate.caption)
+        replacements.append((table.lineno - 1, table.end, rendered.rstrip("\n")))
+        converted.append(ordinal)
+
+    new_lines = list(plain_lines)
+    for start, end, text in sorted(replacements, key=lambda item: item[0], reverse=True):
+        new_lines[start:end] = text.splitlines()
+    candidate_text = "\n".join(new_lines)
+    if original.endswith("\n"):
+        candidate_text += "\n"
+
+    if candidate_text != original and not _list_table_conversion_preserves_semantics(path, original, candidate_text):
+        return ListTableFileResult(
+            path, original, original, [], [], [], "converted result failed semantic validation — file left untouched"
+        )
+    return ListTableFileResult(path, original, candidate_text, converted, refusals, [], None)
 
 
 # ---------------------------------------------------------------------------
@@ -5959,6 +6305,62 @@ def _run_fix_only(
     raise SystemExit(1 if errors else 0)
 
 
+def _run_list_table(
+    files: list[pathlib.Path], *, only: list[int], skip: list[int], apply: bool, quiet: bool
+) -> NoReturn:
+    """Plan every selected file's table conversions, print each file's
+    refusals (never silent) and diff or write outcome, then exit —
+    dry-run by default (1 when anything would change, matching diff's
+    own convention), 0 on a successful --apply or a clean run either
+    way. A file whose selection is unresolvable (unknown ordinal) or
+    whose converted result fails whole-file semantic validation is
+    reported and left untouched; it does not stop the other files."""
+    would_change = 0
+    fatal_files = 0
+    converted_files = 0
+    for path in files:
+        result = _plan_list_table_file(path, only, skip)
+        if result.fatal is not None:
+            print(f"check_rst: {path}: {result.fatal}")
+            fatal_files += 1
+            continue
+        for ordinal, reason in result.refusals:
+            print(f"check_rst: {path}: table {ordinal}: {reason}")
+        if not result.changed:
+            if not quiet:
+                print(f"check_rst: {path}: no eligible tables to convert")
+            continue
+        would_change += 1
+        if apply:
+            path.write_bytes(result.candidate.encode("utf-8"))
+            converted_files += 1
+            if not quiet:
+                converted = ", ".join(str(ordinal) for ordinal in result.converted)
+                print(f"check_rst: {path}: converted table(s) {converted}")
+        else:
+            print(
+                "".join(
+                    difflib.unified_diff(
+                        [line + "\n" for line in result.original.splitlines()],
+                        [line + "\n" for line in result.candidate.splitlines()],
+                        fromfile=str(path),
+                        tofile=str(path),
+                    )
+                ),
+                end="",
+            )
+    if not quiet:
+        if apply:
+            _emit_final_status(
+                f"check_rst: {len(files)} file(s) checked, {fatal_files} error(s), {converted_files} file(s) converted"
+            )
+        else:
+            _emit_final_status(
+                f"check_rst: {len(files)} file(s) checked, {fatal_files} error(s), {would_change} file(s) would change"
+            )
+    raise SystemExit(1 if fatal_files or (not apply and would_change) else 0)
+
+
 # ---------------------------------------------------------------------------
 # Subcommand CLI redesign (docs/roadmap.rst, "Subcommands: flag-soup
 # incompatibilities become verbs") — replaces the old flat-flag parser and
@@ -6268,6 +6670,64 @@ def _build_full_parent() -> argparse.ArgumentParser:
     _add_scope_flags(parent)
     _add_quiet_verbose_words(parent)
     _add_report_filters(parent)
+    return parent
+
+
+def _build_list_table_parent() -> argparse.ArgumentParser:
+    """Parent for list-table: files + scope flags (--recursive/--git-
+    scope/--exclude) + --quiet, but none of check/fix/diff/outline's
+    report-filter or --word-samples flags — this verb runs no Phase 1
+    lint pass of its own, only the table conversion itself."""
+    parent = argparse.ArgumentParser(add_help=False)
+    parent.add_argument(
+        "files",
+        nargs="*",
+        type=pathlib.Path,
+        help=(
+            "files to convert tables in, normally checked in full; --git-scope "
+            "instead treats them as a changed-file allowlist. Omit to "
+            "auto-detect changed/untracked *.rst files from git status in the "
+            "selected project instead (cwd normally, FILE's directory with "
+            "--config)"
+        ),
+    )
+    _add_scope_flags(parent)
+    parent.add_argument(
+        "--quiet",
+        action="store_true",
+        help="suppress progress output — per-file OK lines and refusal notices; the final summary line still prints",
+    )
+    parent.add_argument(
+        "--apply",
+        action="store_true",
+        help=(
+            "write the converted file(s); the default previews a unified diff "
+            "without modifying anything, same as diff's own convention. A "
+            "table that fails semantic validation leaves its file untouched "
+            "even when other tables in the same file convert successfully"
+        ),
+    )
+    parent.add_argument(
+        "--only",
+        type=int,
+        action="append",
+        default=[],
+        metavar="N",
+        help=(
+            "convert only the Nth table (1-based, document order) per selected "
+            "file; repeatable. Default: every mechanically-eligible table. "
+            "Combines with --skip by narrowing to --only's ordinals first, "
+            "then removing any --skip ordinals from that set"
+        ),
+    )
+    parent.add_argument(
+        "--skip",
+        type=int,
+        action="append",
+        default=[],
+        metavar="N",
+        help="exclude the Nth table (1-based, document order) per selected file from conversion; repeatable",
+    )
     return parent
 
 
@@ -6608,6 +7068,26 @@ checks entirely:
     _add_no_toctree_flag(context_p)
     context_p.set_defaults(**_CLI_ATTR_DEFAULTS)
 
+    list_table_p = sub.add_parser(
+        "list-table",
+        parents=[_build_list_table_parent()],
+        help="convert eligible grid/simple tables to list-table syntax",
+        description=(
+            "Convert eligible grid/simple tables (bare, or `.. table::`-wrapped "
+            "with an optional caption — :name:/:class:/:align: are not yet "
+            "supported and refused explicitly) to `.. list-table::` syntax. "
+            "Every cell's own source is preserved verbatim; :widths: carries "
+            "the original column geometry through unchanged. A table "
+            "containing a merged row or column is refused, never flattened "
+            "or guessed at. Every candidate is re-validated by parsing the "
+            "whole resulting file and requiring its doctree to match the "
+            "original exactly (aside from the one expected 'colwidths-given' "
+            "class list-table's own syntax adds) before it may be written. "
+            "Dry-run by default; --apply writes."
+        ),
+    )
+    list_table_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+
     return parser
 
 
@@ -6695,6 +7175,24 @@ def _validate_diff_json_args(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def _validate_list_table_args(args: argparse.Namespace) -> None:
+    """list-table never consults Sphinx — its own conversion and
+    validation are bare-docutils only (same as find_tables itself, "no
+    verified/heuristic split") — so --sphinx-src/--build-dir are
+    incompatible, the same fail-loudly precedent as diff-json rejecting
+    the whole project-flag family. --config stays valid: it still roots
+    project/Git-scope discovery for this verb's own --recursive/
+    --git-scope, unrelated to Sphinx verification."""
+    active = [
+        flag
+        for flag, value in (("--sphinx-src", args.sphinx_src), ("--build-dir", args.build_dir))
+        if value is not None
+    ]
+    if active:
+        print(f"check_rst: list-table does not use Sphinx — incompatible argument(s): {', '.join(active)}")
+        raise SystemExit(1)
+
+
 def _argument_is_set(value: object) -> bool:
     """Return whether an argparse value represents an explicitly active option."""
     if value is None or value is False:
@@ -6732,6 +7230,8 @@ def _main() -> None:
         _validate_context_args(args)
     elif args.command == "diff-json":
         _validate_diff_json_args(args)
+    elif args.command == "list-table":
+        _validate_list_table_args(args)
 
     if args.diff_json is not None:
         old_path, new_path = (pathlib.Path(p) for p in args.diff_json)
@@ -6976,6 +7476,9 @@ def _main() -> None:
         if args.fix_only:
             _print_fix_only_status(len(files), len(unmerged_files), 0)
         sys.exit(1)
+
+    if args.command == "list-table":
+        _run_list_table(files, only=args.only, skip=args.skip, apply=args.apply, quiet=args.quiet)
 
     if args.fix_only:
         if whole_file:
