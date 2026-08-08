@@ -30,10 +30,20 @@ any directory, and ``--no-config`` skips configuration entirely.  Both, like
 point once, then invoke ``check_rst`` from the documentation project being
 checked.
 
-The formatting rules themselves are documented in the tool
-(``check_rst --help``) and are deliberately *not* duplicated in repository
-instruction files: you do not need to know them, you need to invoke the tool
-that enforces them.
+``check_rst --help`` is deliberately concise: each flag's line names one
+action and its result in a single clause, using the same notions, actions,
+roles, and terms as this page and :doc:`rules` — a reminder for someone who
+already knows the shape, not the explanation itself.  That explanation
+lives here and in :doc:`rules`, once, so the two copies cannot drift apart
+the way a page and a terminal's own prose eventually would: read this page
+for the mechanics, :doc:`rules` for why a WARNING stays a human judgment
+call, and ``--help`` only to recall an exact flag name or default.  This
+choice is itself deliberate, not an oversight — earlier revisions of this
+tool kept ``--help`` as the single complete reference and left repository
+instruction files to point at it instead of restating it; the same
+non-duplication principle now points the other way, at these pages,
+because a long ``--help`` page defeats its own purpose the moment someone
+is scanning it for one flag rather than reading it end to end.
 
 .. important::
 
@@ -659,6 +669,23 @@ normalize, same as "Fixing foreign content needs one extra caution"
 above already recommends — this section is why that recommendation is
 safe to act on, not just cautious phrasing.
 
+Byte hygiene runs before anything parses the file, and specifically
+before Phase 1, for a concrete reason: Python and docutils split lines
+on FS/GS/RS, NEL, and U+2028/U+2029, and treat VT/FF as control
+whitespace; git does not split on any of them.  One such character
+anywhere in a file silently desynchronizes every line number docutils
+reports from the line number git — and a human — sees, for the rest of
+the file; normalizing them to LF first is what keeps every later
+phase's line numbers trustworthy.  The ordering paid for a real
+incident (2026-07-18): before hygiene ran first, a BOM or trailing
+space sitting on a title's own overline made ``fix`` insert a
+*duplicate* overline into an otherwise valid block, because the
+adornment fixer read the file before hygiene had a chance to normalize
+it.  Hygiene now always resolves and reports first, and every later
+phase reads the file through that one normalized pass, so a hygiene
+defect is diagnosed once, as its own root cause, instead of cascading
+into a false adornment finding.
+
 ``--normalize-blank-lines`` is a deliberately visible exception, never an
 implicit expansion of that promise.  It reaches meaningful source whitespace
 only after the user opts in, and accepts a candidate only when docutils' full
@@ -689,6 +716,10 @@ geometry — a computation, not a judgment call::
     check_rst list-table --apply doc.rst      # write
     check_rst list-table --only 2 doc.rst     # just the 2nd table, in document order
     check_rst list-table --skip 2 doc.rst     # every table except the 2nd
+
+Both repeat and combine: given together, ``--only`` narrows to its own
+ordinals first, then ``--skip`` removes any of its ordinals from that
+narrowed set — not the reverse, and not independent passes.
 
 Bare grid/simple tables and ``.. table::``-wrapped ones with an optional
 caption convert; a merged row or column is a hard, explanatory refusal —
@@ -1392,6 +1423,9 @@ filenames are safe) and always checks in full — which is exactly why an
 audit never runs ``fix`` automatically (see History protection).  The
 ``--exclude`` option is valid only with ``--recursive``; using it in any
 other mode is an argument error rather than a silently ignored filter.
+Matching is ``pathlib.PurePath.match()``, repeatable: a bare filename
+pattern (``coding-standards.rst``, no slash) matches that name at *any*
+depth under the recursive root, not only a full-path exact match.
 Likewise, ``--outline-depth`` must be at least 1, and it exists only on
 ``outline``'s own parser, so passing it elsewhere is an ordinary
 "unrecognized argument," not a runtime combination check.  Output modes
@@ -1441,6 +1475,13 @@ always explicit.  For this Journal the location is a stated project
 fact (the repo root); for any other repository it must be *confirmed* —
 ask the user when genuinely unknown — and each repo should get its own
 ``--build-dir`` (e.g. ``/tmp/<repo>-sphinx-build``).
+
+``--build-dir`` itself is optional even in verified mode: omit it and a
+unique temporary directory is created for the run and removed again
+once it finishes, at the cost of Sphinx recompiling every page fresh
+each time (see "The three-step loop" above on why a fixed
+``--build-dir`` is worth setting for repeat runs); pass it explicitly
+and you are responsible for its own cleanup instead.
 
 ==========================================
 Heuristic mode: without ``--sphinx-src``

@@ -37,7 +37,10 @@ promised public library API.
 | `.check_rst.toml` | This repository's explicit Sphinx facts |
 | `pyproject.toml` | Packaging, test, formatting, and type-check configuration |
 
-Normative behavior belongs in `check_rst --help` and `docs/guide.rst`.
+Normative behavior belongs in `docs/guide.rst` and `docs/rules.rst`.
+`check_rst --help` stays a concise summary, in the same vocabulary
+(notions, actions, roles, terms), pointing back at those pages rather than
+restating them — see `docs/guide.rst`'s own note on this choice.
 Design history and accepted or deferred work belong in `docs/roadmap.rst`.
 Journal-specific paths must not become runtime dependencies; retained
 Journal examples must be clearly identified as evidence or provenance.

@@ -225,8 +225,11 @@ def test_cli_help_covers_examples_and_self_contained_modes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Top-level help (the module docstring) is sufficient to discover the
-    self-contained report verbs and see worked examples of each, without
-    treating examples as exhaustive."""
+    self-contained report verbs and see one worked example of each, without
+    treating examples as exhaustive.  Reworded from the pre-2026-08 flat
+    reference (test_cli_verb_help_stays_concise_and_points_to_docs' own
+    docstring has the full context on why): the docstring itself now names
+    each verb's role explicitly instead of re-explaining it here."""
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--help"])
 
     with pytest.raises(SystemExit) as exc:
@@ -234,44 +237,57 @@ def test_cli_help_covers_examples_and_self_contained_modes(
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    assert "Common examples:" in out
+    assert "Common examples::" in out
     assert "check_rst refs doc.rst" in out
     assert "check_rst diff-json before.json after.json" in out
     assert "check_rst fix --fast" in out
-    assert "check_rst check --max-output-lines 40" in out
+    assert "check_rst list-table doc.rst" in out
+    # notions/actions/roles/terms vocabulary, shared with docs/rules.rst —
+    # this is the concise page's own consistency contract, not a duplicate
+    # explanation of it.
+    assert "reviewer/auditor" in out
+    assert "modifier" in out
+    assert "reader role" in out
+    assert ":doc:`guide`" in out
+    assert ":doc:`rules`" in out
 
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
     ("verb", "needle"),
     [
-        ("fix", "unresolved merge entry"),
-        ("fix", "configured Sphinx settings are reported inactive"),
-        ("check", "authoritative final status"),
+        ("fix", "unresolved Git merge entry"),
         ("check", "Phase 0 byte hygiene remains enabled"),
+        ("outline", "never affects the exit code"),
+        ("list-table", "gated by whole-file tree equality"),
     ],
 )
-def test_cli_verb_help_covers_write_safety_claims(
+def test_cli_verb_help_stays_concise_and_points_to_docs(
     check_rst: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     verb: str,
     needle: str,
 ) -> None:
-    """Under the subcommand redesign, each flag's safety-relevant detail
-    lives on its own verb's --help page rather than one combined top-level
-    page — progressive disclosure, not information loss (see
-    test_cli_help_covers_examples_and_self_contained_modes for the
-    top-level page's own remaining content)."""
+    """Reworded (2026-08-08) from a philosophy this project reversed:
+    --help used to BE the complete reference, so this test once asserted
+    long safety-explanation phrases stayed present verbatim.  Now --help
+    is deliberately concise (docs/guide.rst's own note on the change) and
+    points back at :doc:`guide`/:doc:`rules` for the explanation instead
+    of restating it — so this pins two different things: the safety-
+    relevant FACT is still named, in one short clause, and the page stays
+    genuinely concise (a fixed, generous line budget) rather than
+    creeping back toward the page this project deliberately moved away
+    from."""
     monkeypatch.setattr("sys.argv", ["check_rst.py", verb, "--help"])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
 
     assert exc.value.code == 0
-    out = " ".join(capsys.readouterr().out.split())
-    assert needle in out
-    assert "once-per-run rationale" in out
+    out = capsys.readouterr().out
+    assert needle in " ".join(out.split())
+    assert len(out.splitlines()) < 60
 
 
 @pytest.mark.integration
