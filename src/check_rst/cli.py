@@ -1130,7 +1130,7 @@ def check_single_top_level(path: pathlib.Path, doc: Document | None = None) -> l
     first-appearing adornment (via _title_char_events), not hardcoded to
     '#' — the same convention check_hierarchy itself uses.
     """
-    events = _title_char_events((doc if doc is not None else Document(path)).lines)
+    events = _title_char_events(_resolve_document(path, doc).lines)
     if not events:
         return []
     level1_char = events[0][1]
@@ -1165,7 +1165,7 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
     length is the canonical (stripped) title's display width + 2; see
     _canonical_title for why display width, not code points.
     """
-    doc = doc if doc is not None else Document(path)
+    doc = _resolve_document(path, doc)
     lines = doc.lines
     ranges: list[tuple[int, int]] | None = None if whole_file else doc.ranges
 
@@ -1336,7 +1336,7 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
     character at its first appearance — a style suggestion, independent
     of the ERROR-level order rule.
     """
-    lines = (doc if doc is not None else Document(path)).lines
+    lines = _resolve_document(path, doc).lines
     remap = _compute_hierarchy_remap(lines)
     findings: list[Finding] = []
 
@@ -2259,7 +2259,7 @@ def check_homoglyphs(path: pathlib.Path, doc: Document | None = None) -> list[Fi
     check_directives bothers to be, because a bold/rubric node is always
     short while a homoglyph can be anywhere in a long paragraph.
     """
-    document = doc if doc is not None else Document(path)
+    document = _resolve_document(path, doc)
     findings: list[Finding] = []
     for text_node in document.doctree.findall(docutils.nodes.Text):
         node: docutils.nodes.Node | None = text_node.parent
@@ -2381,7 +2381,7 @@ def check_nested_inline_markup(
     regardless of paragraph position.  Warnings are semantic: RST cannot
     preserve both roles, so choosing which one survives is not auto-fixable.
     """
-    document = doc if doc is not None else Document(path)
+    document = _resolve_document(path, doc)
     ranges: list[tuple[int, int]] | None = None if whole_file else document.ranges
     findings: list[Finding] = []
     for outer in _findall_node_types(document.doctree, _INLINE_CONTAINER_TYPES):
@@ -2425,7 +2425,7 @@ def check_directives(
     title of the nearest enclosing section — none of that detail is computed
     or shown by default.
     """
-    document = doc if doc is not None else Document(path)
+    document = _resolve_document(path, doc)
     ranges: list[tuple[int, int]] | None = None if whole_file else document.ranges
     doc_tree = document.doctree
     findings: list[Finding] = []
@@ -2664,7 +2664,7 @@ def build_outline(
     the title's underline. Always whole-document — outline context is never
     scoped to changed lines, unlike Finding-producing checks.
     """
-    document = doc if doc is not None else Document(path)
+    document = _resolve_document(path, doc)
     tree = doctree if doctree is not None else document.doctree
     lines = document.lines
     raw: list[tuple[int, int, str, str, int, int]] = []  # (+ block_start)
@@ -2819,7 +2819,7 @@ def find_admonitions(path: pathlib.Path, doc: Document | None = None) -> list[Ad
     check_rst.rst was entirely invisible to --outline — docutils parses
     it fine, check_rst simply had no entry kind for it.
     """
-    document = doc if doc is not None else Document(path)
+    document = _resolve_document(path, doc)
     lines = document.lines
     entries: list[AdmonitionEntry] = []
     for node in document.doctree.findall(docutils.nodes.Admonition):
@@ -2856,7 +2856,7 @@ def find_block_quotes(path: pathlib.Path, doc: Document | None = None) -> list[B
     subtree).  depth is _block_depth — enclosing sections AND enclosing
     list nesting, same as every other entry kind (2026-07-26).
     """
-    document = doc if doc is not None else Document(path)
+    document = _resolve_document(path, doc)
     entries: list[BlockQuoteEntry] = []
     for bq in document.doctree.findall(docutils.nodes.block_quote):
         n: docutils.nodes.Node | None = bq.parent
@@ -2919,7 +2919,7 @@ def find_comments(path: pathlib.Path, doc: Document | None = None) -> list[Comme
     Bare docutils, same as blockquotes/admonitions/tables — no verified/
     heuristic split.
     """
-    document = doc if doc is not None else Document(path)
+    document = _resolve_document(path, doc)
     lines = document.lines
     entries: list[CommentEntry] = []
     for node in document.doctree.findall(docutils.nodes.comment):
@@ -3097,7 +3097,7 @@ def find_lists(path: pathlib.Path, doc: Document | None = None) -> list[ListEntr
     """Return every bullet/enumerated/definition list in *path*, in
     document order — bare docutils, no verified/heuristic split, same as
     blockquotes/admonitions/tables/comments."""
-    document = doc if doc is not None else Document(path)
+    document = _resolve_document(path, doc)
     lines = document.lines
     entries: list[ListEntry] = []
 
@@ -3344,7 +3344,7 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
     list-table added inside a bullet item printed at the same depth as
     the bullet list container itself before this fix).
     """
-    document = doc if doc is not None else Document(path)
+    document = _resolve_document(path, doc)
     lines = document.lines
     entries: list[TableEntry] = []
     for table in document.doctree.findall(docutils.nodes.table):
@@ -4121,7 +4121,7 @@ def find_toctrees(
     """
     from sphinx.addnodes import toctree as toctree_node_cls
 
-    document = doc if doc is not None else Document(pathlib.Path(env.doc2path(docname)))
+    document = _resolve_document(pathlib.Path(env.doc2path(docname)), doc)
     # env.get_doctree(), never document.doctree: a toctree node's
     # includefiles/maxdepth attributes are populated by Sphinx's own
     # toctree-directive processing during the environment read, which a
@@ -4514,7 +4514,7 @@ def find_code_blocks_heuristic(path: pathlib.Path, doc: Document | None = None) 
     of dropping the AST cross-check to restore recall when no
     --sphinx-src is given.
     """
-    document = doc if doc is not None else Document(path)
+    document = _resolve_document(path, doc)
     lines = document.lines
     headings = document.outline
     entries: list[CodeBlockEntry] = []
@@ -4848,6 +4848,16 @@ class Document:
         return find_tables(self.path, doc=self)
 
 
+def _resolve_document(path: pathlib.Path, doc: Document | None) -> Document:
+    """Return *doc* if the caller already has one, else construct a fresh
+    Document for *path* — the one-liner every checker/reporter used to
+    duplicate inline (14 call sites, found by code review): a caller
+    chaining off another Document (e.g. via Document.tables/.outline)
+    passes it through and never re-reads or re-parses the file; a caller
+    with none still gets one lazily, on first touch."""
+    return doc if doc is not None else Document(path)
+
+
 # ---------------------------------------------------------------------------
 # Per-repo configuration — an explicit, versioned declaration of project
 # facts, NOT auto-detection: nothing is guessed, someone committed these
@@ -5066,11 +5076,6 @@ def _stopword_sets() -> dict[str, frozenset[str]]:
         "ru": _find_stopwords(sphinx.search.ru, ("RUSSIAN_STOPWORDS", "russian_stopwords")),
         "fr": _find_stopwords(sphinx.search.fr, ("FRENCH_STOPWORDS", "french_stopwords")),
     }
-
-
-def _prose_stopwords() -> frozenset[str]:
-    """Union of the per-language stopword sets."""
-    return frozenset().union(*_stopword_sets().values())
 
 
 @functools.cache
@@ -6813,6 +6818,17 @@ _FAST_ALLOWLIST: dict[str, frozenset[str]] = {
 }
 
 
+def _cli_fail(message: str) -> NoReturn:
+    """Report one CLI validation failure and exit 1 — the shared shape
+    every per-verb validator below used to hand-roll inline (found by
+    code review: ~12 duplicated print(f\"check_rst: ...\"); raise
+    SystemExit(1) pairs). Distinct from _config_error: that one labels
+    failures by config source (--config path or discovered file); this
+    one is for argparse-level argument validation, with no such label."""
+    print(f"check_rst: {message}")
+    raise SystemExit(1)
+
+
 def _validate_fast_allowlist(args: argparse.Namespace, verb: str) -> None:
     """--fast is self-contained, same as today's --fix-only/--diff-only:
     reject anything not on that verb's own allowlist (_FAST_ALLOWLIST)."""
@@ -6824,11 +6840,10 @@ def _validate_fast_allowlist(args: argparse.Namespace, verb: str) -> None:
         if name not in allowed and name not in _MODE_IDENTITY_ATTRS and _argument_is_set(value)
     ]
     if incompatible:
-        print(
-            f"check_rst: {verb} --fast is self-contained — incompatible "
+        _cli_fail(
+            f"{verb} --fast is self-contained — incompatible "
             f"argument(s): {', '.join('--' + name.replace('_', '-') for name in incompatible)}"
         )
-        raise SystemExit(1)
 
 
 def _validate_config_flags(args: argparse.Namespace) -> None:
@@ -6836,8 +6851,7 @@ def _validate_config_flags(args: argparse.Namespace) -> None:
     explicitly load a config file and skip config loading is a
     contradiction, not a request either flag alone could satisfy."""
     if args.no_config and args.config is not None:
-        print("check_rst: --no-config is incompatible with --config")
-        raise SystemExit(1)
+        _cli_fail("--no-config is incompatible with --config")
 
 
 def _validate_full_scope_args(args: argparse.Namespace) -> None:
@@ -6846,15 +6860,12 @@ def _validate_full_scope_args(args: argparse.Namespace) -> None:
     on one parser, not expressible in argparse itself. Preserves the exact
     checks and messages from the now-deleted _validate_cli_args."""
     if args.exclude and not args.recursive:
-        print("check_rst: --exclude requires --recursive")
-        raise SystemExit(1)
+        _cli_fail("--exclude requires --recursive")
     if args.git_scope:
         if args.recursive:
-            print("check_rst: --git-scope is incompatible with --recursive")
-            raise SystemExit(1)
+            _cli_fail("--git-scope is incompatible with --recursive")
         if not args.files:
-            print("check_rst: --git-scope requires at least one file")
-            raise SystemExit(1)
+            _cli_fail("--git-scope requires at least one file")
 
 
 def _build_cli_parser() -> argparse.ArgumentParser:
@@ -7122,11 +7133,9 @@ def _validate_context_args(args: argparse.Namespace) -> None:
     accepts ENTRY and FILE on its own parser.
     """
     if not args.context.strip():
-        print("check_rst: --context ENTRY must not be empty")
-        raise SystemExit(1)
+        _cli_fail("--context ENTRY must not be empty")
     if args.files[0].suffix != ".rst":
-        print("check_rst: --context requires exactly one positional .rst file")
-        raise SystemExit(1)
+        _cli_fail("--context requires exactly one positional .rst file")
 
 
 def _validate_outline_args(args: argparse.Namespace) -> None:
@@ -7135,8 +7144,7 @@ def _validate_outline_args(args: argparse.Namespace) -> None:
     "requires --outline/--outline-only" half is now structural — the flag
     only exists on outline's own parser."""
     if args.outline_depth is not None and args.outline_depth < 1:
-        print("check_rst: --outline-depth must be >= 1")
-        raise SystemExit(1)
+        _cli_fail("--outline-depth must be >= 1")
 
 
 def _validate_check_args(args: argparse.Namespace) -> None:
@@ -7148,14 +7156,11 @@ def _validate_check_args(args: argparse.Namespace) -> None:
     case of that rule now that diff/diff-only/diff-json/refs/context never
     carry --max-output-lines at all."""
     if args.no_toctree and not args.json:
-        print("check_rst: --no-toctree requires --format=json")
-        raise SystemExit(1)
+        _cli_fail("--no-toctree requires --format=json")
     if args.max_output_lines is not None and args.json:
-        print(
-            "check_rst: --max-output-lines is incompatible with "
-            "--format=json — structured or copyable output must remain complete"
+        _cli_fail(
+            "--max-output-lines is incompatible with --format=json — structured or copyable output must remain complete"
         )
-        raise SystemExit(1)
 
 
 def _validate_diff_json_args(args: argparse.Namespace) -> None:
@@ -7174,8 +7179,7 @@ def _validate_diff_json_args(args: argparse.Namespace) -> None:
         if value is not None
     ]
     if active:
-        print(f"check_rst: diff-json is self-contained — incompatible argument(s): {', '.join(active)}")
-        raise SystemExit(1)
+        _cli_fail(f"diff-json is self-contained — incompatible argument(s): {', '.join(active)}")
 
 
 def _validate_list_table_args(args: argparse.Namespace) -> None:
@@ -7192,8 +7196,7 @@ def _validate_list_table_args(args: argparse.Namespace) -> None:
         if value is not None
     ]
     if active:
-        print(f"check_rst: list-table does not use Sphinx — incompatible argument(s): {', '.join(active)}")
-        raise SystemExit(1)
+        _cli_fail(f"list-table does not use Sphinx — incompatible argument(s): {', '.join(active)}")
 
 
 def _argument_is_set(value: object) -> bool:
