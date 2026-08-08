@@ -228,6 +228,17 @@ def test_fix_fast_rejects_sphinx_src(check_rst: types.ModuleType) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("verb", ["fix", "diff"])
+def test_fast_allows_no_config(check_rst: types.ModuleType, verb: str) -> None:
+    """--no-config is --config's semantic sibling (same project-identity
+    category, same rooting-of-Git-selection rationale) — allowed in the
+    same allowlist --config is already in, not rejected as if it were an
+    unrelated, Sphinx-mode-only flag."""
+    args = _parse(check_rst, ["--no-config", verb, "--fast"])
+    check_rst._validate_fast_allowlist(args, verb)  # must not raise
+
+
+@pytest.mark.unit
 def test_fix_fast_rejects_editorial_flags(check_rst: types.ModuleType) -> None:
     """--normalize-blank-lines/--collapse-title-spaces/--single-space-prose
     all require full parsing, exactly like today's --fix-only rejection."""

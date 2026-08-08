@@ -11563,6 +11563,33 @@ def test_tables_end_extends_through_multiline_final_row(check_rst: types.ModuleT
     assert (entries[0].lineno, entries[0].end) == (4, 11)
 
 
+@pytest.mark.unit
+def test_table_end_stops_at_closing_border_not_past_it(check_rst: types.ModuleType) -> None:
+    """Found by code review of the fix above: extending through bare
+    '|'-led continuation lines with no stopping condition after the
+    closing border is found would absorb an unrelated '|'-led construct
+    immediately following the table into the table's own reported end
+    too. Exercised directly against _table_end rather than through a
+    full file parse: RST itself requires a blank line after a table, so
+    a real '|'-led line block genuinely adjacent to a table with no
+    separator is malformed input docutils itself flags with a system
+    message before find_tables' own logic ever matters (confirmed by
+    direct probe) — this is a pure-function robustness property of
+    _table_end's own two-phase extension (continuation lines, then the
+    border, never back to continuation lines afterward), not a
+    reachable-on-valid-input scenario, and is worth pinning as such."""
+    lines = [
+        "+-----+-----+",
+        "| A   | B   |",
+        "+=====+=====+",
+        "| 1   | 2   |",
+        "+-----+-----+",
+        "| Verse line one",
+        "| Verse line two",
+    ]
+    assert check_rst._table_end(lines, last_content_line=4) == 5
+
+
 @pytest.mark.integration
 def test_tables_depth_matches_enclosing_section(check_rst: types.ModuleType, tmp_path: Path) -> None:
     p = _rst(
@@ -12109,3 +12136,40 @@ def test_cli_list_table_rejects_sphinx_src(
         check_rst.main()
     assert exc.value.code == 1
     assert "does not use Sphinx" in capsys.readouterr().out
+
+
+@pytest.mark.integration
+def test_cli_list_table_ignores_configured_sphinx_for_foreign_files(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Found by code review: the config-fill block's inactive-vs-applied
+    branch only recognized --fast (fix_only/diff_only), so a configured
+    sphinx-src/build-dir was silently APPLIED for list-table too — even
+    though _validate_list_table_args already rejects those as *explicit*
+    flags for this verb, since list-table never consults Sphinx. The live
+    symptom: a file outside the configured sphinx-src tree failed with
+    'not part of --sphinx-src ...', a check that exists only to protect
+    Sphinx mode; --config itself must stay active (its docstring: it
+    still roots project/Git-scope discovery for this verb), so only the
+    Sphinx-specific settings should go inactive, the same as --fast."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    p = tmp_path / "doc.rst"
+    p.write_text("Title\n#####\n\n" + _LIST_TABLE_GRID, encoding="utf-8")
+    config = tmp_path / "check-rst.toml"
+    config.write_text('sphinx-src = "docs"\nbuild-dir = "build"\n', encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "--config", str(config), "list-table", str(p)],
+    )
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "not part of --sphinx-src" not in out
+    assert "sphinx-src=docs inactive (list-table)" in out
+    assert "build-dir=build inactive (list-table)" in out
+    assert "+.. list-table::" in out

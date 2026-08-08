@@ -3304,30 +3304,32 @@ def _table_end(lines: list[str], last_content_line: int) -> int:
     grid or simple table always ends on, which carries no line info of
     its own in the doctree (only cell paragraphs do).
 
-    Also extends through a grid table's own bare ``|``-led continuation
-    lines first, when the table's last row spans multiple physical
-    source lines: docutils' own .line tracking only reports a multi-line
-    cell's FIRST physical line, so *last_content_line* can land there
-    instead of on the row's real last line — found live building
-    list-table's own real-world acceptance fixture, where the previous,
-    border-only extension silently truncated a table whose last row was
-    multi-line, not just for that feature's own use of this function."""
+    First extends through a grid table's own bare ``|``-led continuation
+    lines, when the table's last row spans multiple physical source
+    lines: docutils' own .line tracking only reports a multi-line cell's
+    FIRST physical line, so *last_content_line* can land there instead
+    of on the row's real last line — found live building list-table's
+    own real-world acceptance fixture, where a border-only extension
+    silently truncated a table whose last row was multi-line, not just
+    for that feature's own use of this function. Deliberately two
+    SEPARATE, sequential passes rather than one merged loop: once a
+    border is found, scanning must stop there, never resume matching
+    '|'-led lines afterward — a border is only ever followed by more
+    table content when another full row (which last_content_line, being
+    the max already, would already have reached) is still to come, never
+    by an unrelated construct. Found by code review: a merged loop
+    covering both cases in either order would keep absorbing a
+    '|'-led construct immediately after the closing border into the
+    table's own reported end, on top of legitimately malformed input
+    where RST's own required blank line after a table is missing."""
     end = last_content_line
     i = last_content_line  # 0-based index of the line right after
-    while i < len(lines):
-        if _GRID_TABLE_BORDER_RE.match(lines[i]) or _SIMPLE_TABLE_RULE_RE.match(lines[i]):
-            end = i + 1
-            i += 1
-            continue
-        if lines[i].lstrip().startswith("|"):
-            # a grid row's own continuation line, not yet a border — no
-            # other RST construct produces a bare '|'-led line
-            # immediately following confirmed table content, so this is
-            # still part of the same table's last row.
-            end = i + 1
-            i += 1
-            continue
-        break
+    while i < len(lines) and lines[i].lstrip().startswith("|"):
+        end = i + 1
+        i += 1
+    while i < len(lines) and (_GRID_TABLE_BORDER_RE.match(lines[i]) or _SIMPLE_TABLE_RULE_RE.match(lines[i])):
+        end = i + 1
+        i += 1
     return end
 
 
@@ -6797,6 +6799,7 @@ _FAST_ALLOWLIST: dict[str, frozenset[str]] = {
         {
             "files",
             "config",
+            "no_config",
             "git_scope",
             "no_adornments",
             "recursive",
@@ -6806,7 +6809,7 @@ _FAST_ALLOWLIST: dict[str, frozenset[str]] = {
             "max_output_lines",
         }
     ),
-    "diff": frozenset({"files", "config", "git_scope", "no_adornments", "recursive", "exclude", "quiet"}),
+    "diff": frozenset({"files", "config", "no_config", "git_scope", "no_adornments", "recursive", "exclude", "quiet"}),
 }
 
 
@@ -7273,16 +7276,27 @@ def _main() -> None:
     project_root = loaded_config.root if args.config is not None else PROJECT_ROOT
     config_applied: list[str] = []
     config_inactive: list[str] = []
+    # list-table never consults Sphinx (_validate_list_table_args already
+    # rejects --sphinx-src/--build-dir as *explicit* flags for this verb,
+    # same rationale as --fast) — found by code review: this branch only
+    # checked --fast (fix_only/diff_only), so a configured sphinx-src/
+    # build-dir was silently APPLIED for list-table too, which then made
+    # the later foreign-files/conf.py checks (Sphinx-mode-only) reject an
+    # otherwise-valid list-table run. --config itself stays active either
+    # way — it still roots project/Git-scope discovery for this verb.
+    sphinx_inactive = args.fix_only or args.diff_only or args.command == "list-table"
     if args.sphinx_src is None and "sphinx-src" in config:
-        if args.fix_only or args.diff_only:
-            config_inactive.append(f"sphinx-src={config['sphinx-src']} inactive (--fast)")
+        if sphinx_inactive:
+            reason = "--fast" if (args.fix_only or args.diff_only) else "list-table"
+            config_inactive.append(f"sphinx-src={config['sphinx-src']} inactive ({reason})")
         else:
             configured = pathlib.Path(config["sphinx-src"]).expanduser()
             args.sphinx_src = configured if configured.is_absolute() else (loaded_config.root / configured).resolve()
             config_applied.append(f"sphinx-src={config['sphinx-src']}")
     if args.build_dir is None and "build-dir" in config:
-        if args.fix_only or args.diff_only:
-            config_inactive.append(f"build-dir={config['build-dir']} inactive (--fast)")
+        if sphinx_inactive:
+            reason = "--fast" if (args.fix_only or args.diff_only) else "list-table"
+            config_inactive.append(f"build-dir={config['build-dir']} inactive ({reason})")
         elif args.sphinx_src is None:
             config_inactive.append(f"build-dir={config['build-dir']} inactive (no sphinx-src)")
         else:
