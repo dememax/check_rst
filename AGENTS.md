@@ -136,6 +136,13 @@ Declare new RST sections with a nine-character placeholder underline and let
 the worktree `check_rst fix --fast` computation materialize adornment
 geometry. Do not count adornment characters manually.
 
+Navigate this repository's own `docs/` — finding a section, checking its
+range, following its cross-references — with the worktree `check_rst
+outline`/`check_rst context`, never `grep`/`sed` against raw markup. This
+project's own documentation repeatedly makes the case against scanning raw
+markup for structure; apply that discipline to this repository first, not
+only to what the tool checks for others.
+
 ## Commits
 
 Keep commits focused and explain the motivating context, findings, chosen
