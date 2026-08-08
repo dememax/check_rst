@@ -9378,6 +9378,48 @@ def test_call_counts_verified_run_builds_exactly_once(
     assert check_rst.CALL_COUNTS["run_sphinx"] == 1
 
 
+@pytest.mark.integration
+def test_call_counts_toctree_anomalies_computed_once_per_run(
+    check_rst: types.ModuleType,
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Found by code review: check_multiple_toctree_parents rebuilt the
+    whole project-wide parents_by_child/anomalies graph from
+    env.toctree_includes from scratch on every call, but Phase 2's own
+    loop called it once PER FILE with the same, unchanged env — O(files)
+    redundant rebuilds of one project-wide graph. _toctree_anomalies
+    (the split-out, cacheable half) must run exactly once per run, no
+    matter how many files are selected, the same one-computation
+    contract test_call_counts_verified_run_builds_exactly_once already
+    pins for _build_sphinx_env/run_sphinx."""
+    (rst_repo / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
+    a = rst_repo / "index.rst"
+    a.write_text(_GOOD_BLOCK, encoding="utf-8")
+    b = rst_repo / "other.rst"
+    b.write_text(_GOOD_BLOCK, encoding="utf-8")
+
+    check_rst.CALL_COUNTS.clear()
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "--build-dir",
+            str(rst_repo / "_build"),
+            "check",
+            str(a),
+            str(b),
+        ],
+    )
+    with pytest.raises(SystemExit):
+        check_rst.main()
+
+    assert check_rst.CALL_COUNTS["_toctree_anomalies"] == 1
+
+
 # ---------------------------------------------------------------------------
 # Stage 1 of the Document facade (roadmap item 1) — one read-only object per
 # file: normalized text, lines, hygiene, doctree, outline, quotes — computed

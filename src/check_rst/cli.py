@@ -3950,9 +3950,30 @@ def find_incoming_references(env: sphinx.environment.BuildEnvironment, target_do
     return incoming
 
 
+def _toctree_anomalies(env: sphinx.environment.BuildEnvironment) -> dict[str, list[str]]:
+    """The project-wide multiple-toctree-parent graph, derived once from
+    ``env.toctree_includes`` — split out of check_multiple_toctree_parents
+    (found by code review: that function rebuilt this same graph from
+    scratch on every call, but its one real per-file caller, Phase 2's
+    ``for path in files`` loop, invokes it once per file against the SAME,
+    already-built env — O(files) redundant rebuilds of one project-wide
+    graph). Callers that only ever check one file at a time (--context,
+    always exactly one document per invocation, with its own freshly
+    built env) can still let check_multiple_toctree_parents compute this
+    lazily; a caller processing many files against one shared env should
+    compute this once up front and pass it through instead."""
+    CALL_COUNTS["_toctree_anomalies"] += 1
+    parents_by_child: dict[str, list[str]] = {}
+    for parent, children in getattr(env, "toctree_includes", {}).items():
+        for child in children:
+            parents_by_child.setdefault(child, []).append(parent)
+    return {child: parents for child, parents in parents_by_child.items() if len(parents) > 1}
+
+
 def check_multiple_toctree_parents(
     env: sphinx.environment.BuildEnvironment,
     files: list[pathlib.Path],
+    anomalies: dict[str, list[str]] | None = None,
 ) -> list[Finding]:
     """Report selected documents implicated in repeated toctree inclusion.
 
@@ -3964,13 +3985,14 @@ def check_multiple_toctree_parents(
     child.  Repeating one child twice in the same parent and including it
     from two distinct parents are both represented by more than one parent
     occurrence and are intentionally treated alike.
-    """
-    parents_by_child: dict[str, list[str]] = {}
-    for parent, children in getattr(env, "toctree_includes", {}).items():
-        for child in children:
-            parents_by_child.setdefault(child, []).append(parent)
 
-    anomalies = {child: parents for child, parents in parents_by_child.items() if len(parents) > 1}
+    *anomalies*: pass the result of a single shared ``_toctree_anomalies(env)``
+    call when checking many files against the same env, so the project-wide
+    graph is derived once rather than once per file; omitted (None), it is
+    computed here, on this one call — correct for a single-file caller.
+    """
+    if anomalies is None:
+        anomalies = _toctree_anomalies(env)
     findings: list[Finding] = []
     for path in files:
         docname = _docname_for(env, path)
@@ -7904,6 +7926,11 @@ def _main() -> None:
             # together: same console-output shape, same "sphinx" prefix,
             # one combined print/count site.
             phase2_v = _findings_from_sphinx_output(phase2_warning_text, files, project_root)
+            # Computed once for the whole selection, not once per file below
+            # (found by code review: check_multiple_toctree_parents used to
+            # rebuild this same project-wide graph on every iteration of this
+            # very loop, against the one shared env it never changes for).
+            toctree_anomalies = _toctree_anomalies(env)
             for path in files:
                 bare_filename_doc = documents.get(path)
                 if bare_filename_doc is None:
@@ -7912,7 +7939,7 @@ def _main() -> None:
                 if bare_filename_docname is None:
                     continue
                 bare_filename_v = check_bare_filenames(env, bare_filename_docname, bare_filename_doc)
-                multiple_toctree_v = check_multiple_toctree_parents(env, [path])
+                multiple_toctree_v = check_multiple_toctree_parents(env, [path], anomalies=toctree_anomalies)
                 if args.json:
                     json_records[path]["findings"].extend(bare_filename_v)
                     json_records[path]["findings"].extend(multiple_toctree_v)
