@@ -2018,15 +2018,28 @@ def _render_list_table(parsed: ParsedTable, caption: str | None) -> str:
 def _canonical_doctree_model(node: docutils.nodes.Node) -> object:
     """A structural fingerprint of *node*: class identity, frozen
     attributes, and children, recursively — the same modeling technique
-    as _text_space_evidence's permitted-delta model. One permitted delta,
-    confirmed by direct probe: docutils marks a <table> node
-    'colwidths-given' whenever :widths: is given explicitly on
-    list-table, and never otherwise — a grid/simple table never carries
-    it regardless of its own widths, since there is no 'auto' alternative
-    for that syntax to distinguish it from. _render_list_table always
-    emits :widths: (to make colwidth match exactly), so this class is a
-    one-directional, deterministic syntax-provenance marker, not semantic
-    content — dropped from the comparison, on <table> nodes only."""
+    as _text_space_evidence's permitted-delta model. Two permitted
+    deltas, both confirmed by direct probe:
+
+    - docutils marks a <table> node 'colwidths-given' whenever :widths:
+      is given explicitly on list-table, and never otherwise — a grid/
+      simple table never carries it regardless of its own widths, since
+      there is no 'auto' alternative for that syntax to distinguish it
+      from. _render_list_table always emits :widths: (to make colwidth
+      match exactly), so this class is a one-directional, deterministic
+      syntax-provenance marker, not semantic content — dropped from the
+      comparison, on <table> nodes only.
+    - a <system_message> node's own 'line' attribute records the exact
+      physical source line docutils was parsing when it noticed
+      something ambiguous (found live: a lone '#' table-header cell
+      trips docutils' own title/transition heuristic — "Unexpected
+      possible title overline or transition... too short" — even
+      though it correctly resolves as ordinary text either way).
+      list-table syntax lays the same cell out on a different physical
+      line than a grid/simple table did, so this line number is
+      EXPECTED to shift on an otherwise fully correct conversion —
+      position bookkeeping, not semantic content, dropped from the
+      comparison, on <system_message> nodes only."""
     if isinstance(node, docutils.nodes.Text):
         return ("Text", str(node))
     attributes: object = ()
@@ -2034,6 +2047,8 @@ def _canonical_doctree_model(node: docutils.nodes.Node) -> object:
         attributes = dict(node.attributes)
         if isinstance(node, docutils.nodes.table) and "colwidths-given" in attributes.get("classes", ()):
             attributes["classes"] = [c for c in attributes["classes"] if c != "colwidths-given"]
+        if isinstance(node, docutils.nodes.system_message):
+            attributes.pop("line", None)
         attributes = _freeze_node_attribute(attributes)
     return (
         node.__class__.__module__,

@@ -477,6 +477,41 @@ def test_identical_text_has_no_divergence_reason(check_rst: types.ModuleType, tm
     assert check_rst._list_table_divergence_reason(p, original, original) == ""
 
 
+# A lone "#" cell trips docutils' own title/transition heuristic (a line
+# consisting entirely of one repeated punctuation character *might* be a
+# title overline or a transition marker) even inside a table cell; too
+# short to be one, so docutils resolves it as ordinary text but still
+# records an INFO system_message about the ambiguity — confirmed live,
+# a real downstream table used "#" as an ordinal-column header.
+_GRID_WITH_AMBIGUOUS_HEADER = "+---+-------+\n| # | Value |\n+===+=======+\n| 1 | x     |\n+---+-------+\n"
+
+
+@pytest.mark.integration
+def test_docutils_system_message_line_shift_does_not_fail_validation(
+    check_rst: types.ModuleType, tmp_path: Path
+) -> None:
+    """Found live: a table with a lone '#' header cell always failed
+    list-table conversion, even though the conversion itself was
+    correct. Root cause confirmed by direct probe: docutils attaches an
+    INFO system_message ('Unexpected possible title overline or
+    transition... too short') to that cell, and the message's own
+    'line' attribute necessarily shifts when the cell moves to a
+    different physical line under list-table syntax — position
+    bookkeeping, not semantic content, the same category of thing
+    _canonical_doctree_model's existing 'colwidths-given' exception
+    already carves out for a different docutils-internal artifact."""
+    original = "Title\n#####\n\n" + _GRID_WITH_AMBIGUOUS_HEADER
+    p = _rst(tmp_path, original)
+    entry = check_rst.find_tables(p)[0]
+    candidate = check_rst._evaluate_list_table_candidate(original.splitlines(), entry)
+    assert candidate.refusal is None
+    rendered = check_rst._render_list_table(candidate.parsed, candidate.caption)
+    lines = original.splitlines()
+    new_text = "\n".join((*lines[: entry.lineno - 1], rendered.rstrip(), *lines[entry.end :])) + "\n"
+    assert new_text != original  # the line genuinely moved, or this test proves nothing
+    assert check_rst._list_table_conversion_preserves_semantics(p, original, new_text)
+
+
 @pytest.mark.integration
 def test_identical_text_passes_validation(check_rst: types.ModuleType, tmp_path: Path) -> None:
     original = "Title\n#####\n\n" + _GRID
