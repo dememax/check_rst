@@ -2000,11 +2000,11 @@ def test_cli_materializes_required_docutils_model_before_sphinx(
         events.append("sphinx")
         return env, ""
 
-    monkeypatch.setattr(check_rst, "_parse_rst", recording_parse)
-    monkeypatch.setattr(check_rst, "_build_sphinx_env", recording_sphinx_build)
-    monkeypatch.setattr(check_rst, "run_sphinx", lambda *_args: [])
-    monkeypatch.setattr(check_rst, "_top_prose_words", lambda *_args: ([], 0))
-    monkeypatch.setattr(check_rst, "_rare_prose_words", lambda *_args: ([], 0))
+    monkeypatch.setattr(check_rst._helpers, "_parse_rst", recording_parse)
+    monkeypatch.setattr(check_rst._sphinx, "_build_sphinx_env", recording_sphinx_build)
+    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", lambda *_args: [])
+    monkeypatch.setattr(check_rst._reports, "_top_prose_words", lambda *_args: ([], 0))
+    monkeypatch.setattr(check_rst._reports, "_rare_prose_words", lambda *_args: ([], 0))
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "--sphinx-src", str(rst_repo), "check", "--no-directives", "--word-samples", "1", str(p)],
@@ -2075,11 +2075,11 @@ def test_cli_verified_mode_deduplicates_same_phase2_and_phase3_finding(
         text="test.rst: repeated Sphinx diagnostic [review.test]",
     )
     monkeypatch.setattr(
-        check_rst,
+        check_rst._sphinx,
         "_build_sphinx_env",
         lambda *_args, **_kwargs: (env, raw_warning),
     )
-    monkeypatch.setattr(check_rst, "run_sphinx", lambda *_args: [duplicate])
+    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", lambda *_args: [duplicate])
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "check", str(p)])
 
     with pytest.raises(SystemExit) as exc:
@@ -3954,7 +3954,7 @@ def _git(repo: Path, *args: str) -> None:
 @pytest.fixture
 def rst_repo(check_rst: types.ModuleType, tmp_git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point check_rst's PROJECT_ROOT at the temp git repo for git-scoped checks."""
-    monkeypatch.setattr(check_rst, "PROJECT_ROOT", tmp_git_repo)
+    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", tmp_git_repo)
     return tmp_git_repo
 
 
@@ -3994,7 +3994,7 @@ def test_changed_rst_files_from_nested_directory_uses_worktree_root(
     p.write_text(_GOOD_BLOCK + "\nChanged.\n", encoding="utf-8")
     nested = rst_repo / "nested"
     nested.mkdir()
-    monkeypatch.setattr(check_rst, "PROJECT_ROOT", nested)
+    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", nested)
 
     assert check_rst._changed_rst_files() == [p]
 
@@ -4023,7 +4023,7 @@ def test_changed_rst_files_preserves_non_repository_git_failure(
             subprocess.CompletedProcess(["git"], 128, stdout="", stderr="fatal: index file corrupt"),
         ]
     )
-    monkeypatch.setattr(check_rst, "_git", lambda *_args: next(responses))
+    monkeypatch.setattr(check_rst._helpers, "_git", lambda *_args: next(responses))
 
     with pytest.raises(SystemExit) as exc:
         check_rst._changed_rst_files()
@@ -4651,7 +4651,7 @@ def test_outline_with_sphinx_src_uses_sphinx_doctree_for_headings(
             """),
         encoding="utf-8",
     )
-    monkeypatch.setattr(check_rst, "run_sphinx", lambda *_args: [])
+    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", lambda *_args: [])
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", "--no-adornments", "--no-directives", str(p)],
@@ -4751,7 +4751,7 @@ def test_cli_selected_toctree_parent_surfaces_child_anchored_anomaly(
         encoding="utf-8",
     )
     (tmp_path / "child.rst").write_text("#######\nChild\n#######\n", encoding="utf-8")
-    monkeypatch.setattr(check_rst, "run_sphinx", lambda *_args: [])
+    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", lambda *_args: [])
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "--sphinx-src", str(tmp_path), "check", "--quiet", str(parent)],
@@ -5269,7 +5269,7 @@ def test_skip_fixable_suppresses_sphinx_structural_duplicate_only(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        check_rst,
+        check_rst._sphinx,
         "run_sphinx",
         lambda *_args: [
             check_rst.Finding(1, "WARNING", "index.rst: Title overline too short."),
@@ -5470,8 +5470,8 @@ def test_cli_missing_explicit_file_stops_before_all_check_phases(
     def unexpected_sphinx(*_args: object, **_kwargs: object) -> None:
         pytest.fail("Sphinx must not run when no input files exist")
 
-    monkeypatch.setattr(check_rst, "_build_sphinx_env", unexpected_sphinx)
-    monkeypatch.setattr(check_rst, "run_sphinx", unexpected_sphinx)
+    monkeypatch.setattr(check_rst._sphinx, "_build_sphinx_env", unexpected_sphinx)
+    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", unexpected_sphinx)
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "--sphinx-src", str(tmp_path), "check", str(missing)],
@@ -5767,7 +5767,7 @@ def test_cli_unmerged_file_stops_before_fix_and_preserves_markers(
     assert b"<<<<<<<" in original
     invocation_dir = rst_repo.parent / "outside-invocation"
     invocation_dir.mkdir(exist_ok=True)
-    monkeypatch.setattr(check_rst, "PROJECT_ROOT", invocation_dir)
+    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", invocation_dir)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", str(p)])
 
     with pytest.raises(SystemExit) as exc:
@@ -7079,7 +7079,7 @@ def test_cli_bare_invocation_outside_git_repo_clean_error(
     or a nonexistent --recursive directory.  Found by direct probing
     (2026-07-18): the 'project-agnostic, call from any project' tool
     crashed with a raw traceback when that project wasn't a git repo."""
-    monkeypatch.setattr(check_rst, "PROJECT_ROOT", tmp_path)  # no .git here
+    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", tmp_path)  # no .git here
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check"])
 
     with pytest.raises(SystemExit) as exc:
@@ -7275,8 +7275,8 @@ def test_cli_diff_only_prints_preview_without_checks_or_writes(
     def unexpected_check(*_args: object, **_kwargs: object) -> None:
         pytest.fail("--diff-only must not run Sphinx")
 
-    monkeypatch.setattr(check_rst, "_build_sphinx_env", unexpected_check)
-    monkeypatch.setattr(check_rst, "run_sphinx", unexpected_check)
+    monkeypatch.setattr(check_rst._sphinx, "_build_sphinx_env", unexpected_check)
+    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", unexpected_check)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "diff", "--fast", str(document)])
 
     with pytest.raises(SystemExit) as exc:
@@ -7414,9 +7414,9 @@ def test_cli_fix_only_ignores_configured_sphinx_and_never_parses(
     def unexpected_phase(*_args: object, **_kwargs: object) -> None:
         pytest.fail("--fix-only must not parse RST or construct/run Sphinx")
 
-    monkeypatch.setattr(check_rst, "_parse_rst", unexpected_phase)
-    monkeypatch.setattr(check_rst, "_build_sphinx_env", unexpected_phase)
-    monkeypatch.setattr(check_rst, "run_sphinx", unexpected_phase)
+    monkeypatch.setattr(check_rst._helpers, "_parse_rst", unexpected_phase)
+    monkeypatch.setattr(check_rst._sphinx, "_build_sphinx_env", unexpected_phase)
+    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", unexpected_phase)
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "--config", str(config), "fix", "--fast", str(document)],
@@ -7458,9 +7458,9 @@ def test_cli_diff_fast_ignores_configured_sphinx_and_never_parses(
     def unexpected_phase(*_args: object, **_kwargs: object) -> None:
         pytest.fail("diff --fast must not parse RST or construct/run Sphinx")
 
-    monkeypatch.setattr(check_rst, "_parse_rst", unexpected_phase)
-    monkeypatch.setattr(check_rst, "_build_sphinx_env", unexpected_phase)
-    monkeypatch.setattr(check_rst, "run_sphinx", unexpected_phase)
+    monkeypatch.setattr(check_rst._helpers, "_parse_rst", unexpected_phase)
+    monkeypatch.setattr(check_rst._sphinx, "_build_sphinx_env", unexpected_phase)
+    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", unexpected_phase)
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "--config", str(config), "diff", "--fast", str(document)],
@@ -7574,7 +7574,7 @@ def test_cli_fix_only_write_failure_is_nonzero_and_keeps_final_status(
     def fail_write(_plan: object) -> None:
         raise OSError("read-only filesystem")
 
-    monkeypatch.setattr(check_rst, "_apply_fix_plan", fail_write)
+    monkeypatch.setattr(check_rst._checks, "_apply_fix_plan", fail_write)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", str(document)])
 
     with pytest.raises(SystemExit) as exc:
@@ -8102,8 +8102,8 @@ def test_default_run_never_computes_word_frequency(
     def _must_not_run(*_a: object, **_k: object) -> None:
         raise AssertionError("word-frequency computation must be skipped")
 
-    monkeypatch.setattr(check_rst, "_top_prose_words", _must_not_run)
-    monkeypatch.setattr(check_rst, "_rare_prose_words", _must_not_run)
+    monkeypatch.setattr(check_rst._reports, "_top_prose_words", _must_not_run)
+    monkeypatch.setattr(check_rst._reports, "_rare_prose_words", _must_not_run)
     p = rst_repo / "test.rst"
     p.write_text("#######\nTitle\n#######\n\nSome real prose content here.\n", encoding="utf-8")
 
@@ -8126,8 +8126,8 @@ def test_word_samples_zero_disables_even_under_verbose(
     def _must_not_run(*_a: object, **_k: object) -> None:
         raise AssertionError("word-frequency computation must be skipped")
 
-    monkeypatch.setattr(check_rst, "_top_prose_words", _must_not_run)
-    monkeypatch.setattr(check_rst, "_rare_prose_words", _must_not_run)
+    monkeypatch.setattr(check_rst._reports, "_top_prose_words", _must_not_run)
+    monkeypatch.setattr(check_rst._reports, "_rare_prose_words", _must_not_run)
     p = rst_repo / "test.rst"
     p.write_text("#######\nTitle\n#######\n\nSome real prose content here.\n", encoding="utf-8")
 
@@ -9047,7 +9047,7 @@ def test_explicit_config_from_foreign_cwd_resolves_relative_values_from_config(
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     monkeypatch.chdir(foreign)
-    monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
+    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", foreign)
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "--config", str(config.relative_to(foreign, walk_up=True)), "check", str(document)],
@@ -9085,7 +9085,7 @@ def test_explicit_config_bare_run_discovers_git_changes_from_config_root(
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     monkeypatch.chdir(foreign)
-    monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
+    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", foreign)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), "check"])
 
     with pytest.raises(SystemExit) as exc:
@@ -9114,7 +9114,7 @@ def test_explicit_config_suppresses_cwd_config_discovery(
     foreign.mkdir()
     (foreign / ".check_rst.toml").write_text('sphix-src = "typo must not be loaded"\n', encoding="utf-8")
     monkeypatch.chdir(foreign)
-    monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
+    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", foreign)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), "check", str(document)])
 
     with pytest.raises(SystemExit) as exc:
@@ -9142,7 +9142,7 @@ def test_explicit_pyproject_config_uses_tool_table(
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     monkeypatch.chdir(foreign)
-    monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
+    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", foreign)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), "check", str(document)])
 
     with pytest.raises(SystemExit) as exc:
@@ -9169,7 +9169,7 @@ def test_explicit_config_json_uses_config_root_for_document_ids(
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     monkeypatch.chdir(foreign)
-    monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
+    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", foreign)
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "--config", str(config), "check", "--format=json", str(document)],
@@ -9213,9 +9213,9 @@ def test_explicit_config_errors_cleanly_before_actions(
     def unexpected_action(*_args: object, **_kwargs: object) -> None:
         pytest.fail("invalid explicit config must stop before Git or Sphinx")
 
-    monkeypatch.setattr(check_rst, "_changed_rst_files", unexpected_action)
-    monkeypatch.setattr(check_rst, "_build_sphinx_env", unexpected_action)
-    monkeypatch.setattr(check_rst, "run_sphinx", unexpected_action)
+    monkeypatch.setattr(check_rst._helpers, "_changed_rst_files", unexpected_action)
+    monkeypatch.setattr(check_rst._sphinx, "_build_sphinx_env", unexpected_action)
+    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", unexpected_action)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), "check"])
 
     with pytest.raises(SystemExit) as exc:
@@ -9309,7 +9309,7 @@ def _isolated_project_root(check_rst: types.ModuleType, tmp_path: Path, monkeypa
     fixtures run before explicitly requested ones, so rst_repo's own
     PROJECT_ROOT patch still wins for tests that use it.
     """
-    monkeypatch.setattr(check_rst, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", tmp_path)
     check_rst.CALL_COUNTS.clear()  # each test starts from zero — counts are assertable
 
 
@@ -10344,7 +10344,7 @@ def test_cli_footer_explicit_warning_when_stopwords_unavailable(
     def _boom() -> dict[str, set[str]]:
         raise check_rst.StopwordsUnavailable("sphinx.search.en has neither X nor Y")
 
-    monkeypatch.setattr(check_rst, "_stopword_sets", _boom)
+    monkeypatch.setattr(check_rst._reports, "_stopword_sets", _boom)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit) as exc_info:
         check_rst.main()
@@ -10372,7 +10372,7 @@ def test_cli_json_word_stats_error_when_stopwords_unavailable(
     def _boom() -> dict[str, set[str]]:
         raise check_rst.StopwordsUnavailable("sphinx.search.en has neither X nor Y")
 
-    monkeypatch.setattr(check_rst, "_stopword_sets", _boom)
+    monkeypatch.setattr(check_rst._reports, "_stopword_sets", _boom)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", "--word-samples", "10", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -10396,7 +10396,7 @@ def test_cli_no_warnings_suppresses_word_stats_failure_warning(
     def _boom() -> dict[str, set[str]]:
         raise check_rst.StopwordsUnavailable("unavailable for test")
 
-    monkeypatch.setattr(check_rst, "_stopword_sets", _boom)
+    monkeypatch.setattr(check_rst._reports, "_stopword_sets", _boom)
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "check", "--quiet", "--no-warnings", "--word-samples", "10", str(document)],
