@@ -63,9 +63,9 @@ you mean: 'x', 'y'?`` to the finding's own text, no suggestion when nothing is
 close enough.  Kills the guess-and-wait loop the contract otherwise leaves to a
 human/AI on a typo'd cross-reference target.
 
-------------------------------
-``--list-targets [PATTERN]``
-------------------------------
+----------------------------
+``list-targets [PATTERN]``
+----------------------------
 
 *Not yet implemented.*
 
@@ -75,7 +75,12 @@ A deterministic menu of valid ``:ref:``/``:doc:`` targets.  This repo alone has
 optional ``PATTERN`` (case-insensitive substring over id + title) and, when
 omitted, print up to a cap then report the suppressed count — the same "never
 silent truncation" contract ``--word-samples`` already uses for top/rare prose
-words.
+words. Under the subcommand CLI (below) this is a project-wide, read-only
+verb — ``--config``/``--sphinx-src``/``--build-dir`` apply as the global
+options they already are, but the shape is otherwise new: an optional
+positional ``PATTERN`` with no required file at all, unlike any of the
+shapes already built (``full``, ``fast``, ``single-file`` all need at least
+one file argument).
 
 -----------------
 ``--refs FILE``
@@ -185,7 +190,7 @@ expensive enough that Claude Code declined the edit as disproportionate work.
 This is exactly the deterministic burden ``check_rst`` should absorb.  The
 benefit is in source authoring and diff locality, not structural retrieval:
 docutils already normalizes grid, simple, and directive tables to the same
-two-dimensional ``table`` node, so ``--outline``, ``--context``, and the
+two-dimensional ``table`` node, so ``outline``, ``context``, and the
 planned column query see equivalent structures before and after conversion.
 
 ----------------------------
@@ -193,16 +198,17 @@ Scope and command contract
 ----------------------------
 
 The operation is opt-in and selector-targeted.  It is neither an ordinary
-``--fix`` mutation nor a warning merely because a grid or simple table exists:
+``fix`` mutation nor a warning merely because a grid or simple table exists:
 compact numeric matrices can be more readable precisely because their source
-retains visual column geometry.  A working interface is::
+retains visual column geometry.  A working interface is, in verb syntax (this
+entry predates the subcommand redesign above; translated, not re-decided)::
 
-    check_rst --transform DOC:table@LINE --to list-table FILE
-    check_rst --transform DOC:table@LINE --to list-table --apply FILE
+    check_rst transform DOC:table@LINE --to list-table FILE
+    check_rst transform DOC:table@LINE --to list-table --apply FILE
 
 The default produces a unified dry-run diff without modifying the file;
 ``--apply`` requests one atomic write.  Exactly one table must resolve through
-the same stable selector model as ``--context``.  This command should establish
+the same stable selector model as ``context``.  This command should establish
 the shared selector, preview, apply, and atomic-write machinery later reusable
 by "Structure-aware list-to-section refactoring" below.
 
@@ -362,151 +368,6 @@ build.  The command must retain explicit stage-labelled results, the final
 honest exit status, Git-scope enforcement, and the rule that fixes are always
 followed by validation; this is execution reuse, not a weaker workflow.  No
 cache may silently cross an input-state boundary.
-
-=======================================================
-Subcommands: flag-soup incompatibilities become verbs
-=======================================================
-
-*(brainstormed in a Claude Code session, agreed by Max, 2026-08-06; not yet
-implemented)*
-
-``_validate_cli_args`` is, today, a hand-written incompatibility matrix over
-roughly 30 flags: a mutually-exclusive mode group (``--fix``/``--fix-only``/
-``--diff``/``--diff-only``), three flags that are each individually
-self-contained and reject nearly everything else (``--diff-json``, ``--refs``,
-``--context``), and a scatter of narrower pairwise rules (``--normalize-blank-
-lines`` requires ``--fix``/``--diff``, ``--outline-depth`` requires
-``--outline``, ``--git-scope`` excludes ``--recursive``, and so on). None of
-that is incidental complexity to trim — every one of those checks exists
-because the underlying operations genuinely don't compose, the same way
-``--fix-only``'s own docstring already says so explicitly ("a fast mutation-
-only counterpart of ``--diff-only``"). The flags were never really peers on
-one flat surface; the incompatibility matrix is a hand-maintained proxy for a
-grouping ``argparse`` subparsers express directly, in the help text itself,
-enforced structurally rather than by a runtime rejection message.
-
-Four "shapes" cover the whole surface, each a candidate parent parser shared
-by the subcommands that need it:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 14 56 30
-
-   * - Shape
-     - Flags it carries
-     - Used by
-   * - full
-     - ``--config``, ``--sphinx-src``, ``--build-dir``,
-       ``--recursive``/``--git-scope``/``--exclude``,
-       ``--quiet``/``--verbose``/``--max-output-lines``/``--word-samples``,
-       ``--no-warnings``/``--skip-fixable``/``--no-adornments``/
-       ``--no-directives``
-     - ``check``, ``fix``, ``diff``, ``outline``, (``json``)
-   * - fast
-     - ``--config``, ``--recursive``/``--git-scope``/``--exclude``,
-       ``--quiet`` — deliberately no ``--sphinx-src``/``--build-dir`` at all,
-       matching what ``--fix-only``/``--diff-only`` already reject today
-     - ``fix-only``, ``diff-only``
-   * - single-file
-     - ``--config``, ``--sphinx-src``, ``--build-dir``, exactly one
-       positional file
-     - ``context``, ``refs``
-   * - none
-     - two positional JSON files, nothing else
-     - ``diff-json``
-
--------------------------------------------------------------
-Tier 1: the mode group becomes ``check``/``fix``/``diff``/…
--------------------------------------------------------------
-
-``check_rst check``, ``check_rst fix``, ``check_rst diff``, ``check_rst
-fix-only``, ``check_rst diff-only`` — a direct, high-confidence rename of the
-existing mutually-exclusive mode group, each on the *full* parent except
-``fix-only``/``diff-only`` on *fast*.  Making today's flagless default
-(``check``) an explicit verb is itself a small win — right now nothing in the
-invocation says what a bare ``check_rst file.rst`` actually does.  This tier
-alone deletes the mode-group mutex and both ``--fix-only``/``--diff-only``
-allow-lists: an editorial flag like ``--single-space-prose`` simply isn't
-*defined* on ``fix-only``'s parser, so passing it is an ordinary "unrecognized
-argument," not a bespoke rejection message.
-
-"A consolidated edit-validation cycle" above (working name ``--edit-cycle``)
-slots into this exact tier once built — one more *full*-parent verb
-(``check_rst cycle``, or whatever name it keeps) alongside ``fix``/``diff``,
-not a flag bolted onto one of them.
-
----------------------------------------------------------------
-Tier 2: the three self-contained flags become their own verbs
----------------------------------------------------------------
-
-``check_rst diff-json OLD.json NEW.json`` (*none* parent), ``check_rst refs
-FILE`` (*single-file*), ``check_rst context ENTRY FILE`` (*single-file*).
-These three are already, behaviorally, subcommands wearing a flag disguise —
-each currently hand-rejects the rest of the flag surface in its own
-``_validate_cli_args`` block.  Highest confidence of the whole set: nothing
-about the fork below touches this tier.
-
--------------------------------------------------------
-Tier 3: two genuine forks, not yet settled either way
--------------------------------------------------------
-
-``outline``: "A structure-only view" above already treats ``--outline-only``
-as a named macro for a flag stack ("one flag instead of the ``--quiet
---skip-fixable --no-warnings --outline`` stack").  A dedicated ``outline``
-verb could make that macro the default behavior — pure structure, no finding
-noise — with an opt-in ``--with-findings`` to layer today's plain
-``--outline`` (structure *and* findings together) on top.  That inverts
-today's default (bare ``--outline`` shows findings; ``--outline-only`` is the
-opt-in), which is worth stating plainly as a behavior change, not just a
-rename.
-
-``json``: less clear-cut, because ``--json`` today composes with most of the
-*full* tier (recursive, sphinx-src, skip-fixable, no-warnings) — it reads as a
-serialization format of the same run, not a different operation the way
-``outline`` genuinely is.  Two live options: its own verb (matching
-``diff-json``'s naming family, with room for future JSON-specific flags), or
-``check_rst check --format=json`` (unifying it with plain ``check``, since
-underneath it is the same run with a different writer).  Whichever way this
-goes decides whether ``_validate_cli_args``'s ``--max-output-lines`` vs.
-structured-output check (and the ``--outline-only``/``--sections-only``/
-``--outline-depth`` vs. ``--json`` checks) become structurally impossible too,
-or need to survive as one runtime check inside a shared ``check`` verb.
-
------------------------------------------------------
-What still needs a runtime check regardless of tier
------------------------------------------------------
-
-Subcommands remove *mode* conflicts, not *value* validation: ``--max-output-
-lines >= 2``, ``--outline-depth >= 1``, ``--context`` non-empty, ``--word-
-samples >= 0`` stay exactly as they are today, on whichever parser ends up
-owning each flag.
-
--------------------------------------
-Two decisions before implementation
--------------------------------------
-
-^^^^^^^^
-Naming
-^^^^^^^^
-
-``fix-only``/``diff-only`` as their own verbs (zero relearning, matches
-today's flag names) versus ``fix --fast``/``diff --fast`` as a flag scoped to
-one verb's own parser (arguably communicates *why* more clearly to a
-first-time reader).  Both delete the identical validation code either way —
-this is pure surface bikeshed, not a technical fork.
-
-^^^^^^^^^^^^^^^^^^^^^^^^
-Backward compatibility
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-``check_rst --fix file.rst`` is a live interface today (this project's own
-tooling, and at least one downstream project's build wrapper, invoke exactly
-this form).  A subcommand redesign is a breaking CLI change no matter how the
-two forks above resolve.  Options: a clean break now, recorded as a
-deliberate version bump while the consumer base is still small; or a
-deprecation window where the old flat flags keep working as aliases that
-print a "use ``check_rst fix`` instead" notice for one release before
-removal.  Not decided either way yet.
 
 ********************
 Accepted, deferred
@@ -1504,6 +1365,210 @@ passed after the model-level fix.  The issue remains recorded here next to the
 design and fixture that exposed it, per the report-friction contract in
 :doc:`development`.
 
+=======================================================
+Subcommands: flag-soup incompatibilities become verbs
+=======================================================
+
+*(implemented 2026-08-07; global project-identity options and --no-config
+added 2026-08-08)*
+
+``_validate_cli_args`` used to be a hand-written incompatibility matrix over
+roughly 30 flags: a mutually-exclusive mode group (``--fix``/``--fix-only``/
+``--diff``/``--diff-only``), three flags that were each individually
+self-contained and rejected nearly everything else (``--diff-json``, ``--refs``,
+``--context``), and a scatter of narrower pairwise rules (``--normalize-blank-
+lines`` required ``--fix``/``--diff``, ``--outline-depth`` required
+``--outline``, ``--git-scope`` excluded ``--recursive``, and so on). None of
+that was incidental complexity to trim — every one of those checks existed
+because the underlying operations genuinely don't compose, the same way
+``--fix-only``'s own docstring already said so explicitly ("a fast mutation-
+only counterpart of ``--diff-only``"). The flags were never really peers on
+one flat surface; the incompatibility matrix was a hand-maintained proxy for a
+grouping ``argparse`` subparsers express directly, in the help text itself,
+enforced structurally rather than by a runtime rejection message. Replaced by
+``check``/``fix``/``diff``/``outline``/``context``/``refs``/``diff-json``
+verbs (``_build_cli_parser()``); ``_validate_cli_args`` and the flat parser
+are deleted.
+
+Three "shapes" cover the mutating/reporting flag surface, each a parent
+parser shared by the subcommands that need it. ``--config``/``--no-config``/
+``--sphinx-src``/``--build-dir`` sit outside this table entirely: they are
+global options on the main parser (extension below, 2026-08-08 — git-style,
+before the verb: ``check_rst --sphinx-src docs check file.rst``, not
+``check_rst check --sphinx-src docs file.rst``), not part of any one shape,
+because every verb except ``diff-json`` can read them identically.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 56 30
+
+   * - Shape
+     - Flags it carries
+     - Used by
+   * - full
+     - ``--recursive``/``--git-scope``/``--exclude``,
+       ``--quiet``/``--verbose``/``--max-output-lines``/``--word-samples``,
+       ``--no-warnings``/``--skip-fixable``/``--no-adornments``/
+       ``--no-directives``
+     - ``check``, ``fix``, ``diff``, ``outline``
+   * - fast (``mutating`` parent)
+     - ``--recursive``/``--git-scope``/``--exclude``, ``--quiet`` —
+       deliberately no ``--sphinx-src``/``--build-dir`` at all: explicit
+       use of either is rejected by ``_validate_fast_allowlist``, and a
+       *configured* one is reported inactive rather than applied
+     - ``fix --fast``, ``diff --fast``
+   * - single-file
+     - exactly one positional file, no shared parent left — see the
+       2026-08-08 extension below
+     - ``context``, ``refs``
+   * - none
+     - two positional JSON files, nothing else
+     - ``diff-json``
+
+------------------------------------------------------
+Tier 1: the mode group became check/fix/diff/outline
+------------------------------------------------------
+
+``check_rst check``, ``check_rst fix``, ``check_rst diff``, ``check_rst fix
+--fast``, ``check_rst diff --fast`` — the existing mutually-exclusive mode
+group, renamed and restructured onto the *full* parent (plus *fast* for
+fix/diff's own editorial flags), with ``--fast`` resolved as a flag scoped to
+each verb's own parser rather than separate ``fix-only``/``diff-only`` verbs
+(see "Naming," below). Making the old flagless default (``check``) an
+explicit verb was itself a small win — a bare invocation now says what it
+does. This tier deleted the mode-group mutex and both old
+``--fix-only``/``--diff-only`` allow-lists (replaced by ``_FAST_ALLOWLIST``,
+scoped per verb): an editorial flag like ``--single-space-prose`` simply
+isn't *defined* on ``check``'s parser, so passing it there is an ordinary
+"unrecognized argument," not a bespoke rejection message.
+
+"A consolidated edit-validation cycle" above (working name ``--edit-cycle``)
+still slots into this exact tier once built — one more *full*-parent verb
+(``check_rst cycle``, or whatever name it keeps) alongside ``fix``/``diff``,
+not a flag bolted onto one of them.
+
+---------------------------------------------------------------
+Tier 2: the three self-contained flags became their own verbs
+---------------------------------------------------------------
+
+``check_rst diff-json OLD.json NEW.json`` (*none* parent), ``check_rst refs
+FILE``, ``check_rst context ENTRY FILE`` (each on its own dedicated parser).
+These three were already, behaviorally, subcommands wearing a flag disguise
+before this redesign — each used to hand-reject the rest of the flag surface
+in its own ``_validate_cli_args`` block; now each simply never defines a
+flag it doesn't need. ``diff-json`` additionally rejects the global project
+flags explicitly (``_validate_diff_json_args``) rather than silently
+ignoring them, since it reads no RST project at all — the same
+fail-loudly precedent as every other verb-incompatible combination.
+
+---------------------------------
+Tier 3: the two forks, resolved
+---------------------------------
+
+``outline``: resolved as inverting the old default. "A structure-only view"
+above already treated ``--outline-only`` as a named macro for a flag stack
+("one flag instead of the ``--quiet --skip-fixable --no-warnings --outline``
+stack"). The dedicated ``outline`` verb makes that macro the default
+behavior — pure structure, no finding noise — with an opt-in
+``--with-findings`` to layer the old plain ``--outline`` (structure *and*
+findings together) on top. Stated plainly, as agreed: this is a real
+behavior change, not just a rename.
+
+``json``: resolved as ``check_rst check --format=json``, unifying it with
+plain ``check`` rather than giving it its own verb, since underneath it is
+the same run with a different writer. ``--no-toctree``'s old "requires one
+of outline/outline-only/json/context" rule and ``--max-output-lines``'
+json-incompatibility both became narrower, verb-scoped checks
+(``_validate_check_args``) instead of surviving as the old five-way
+incompatible-mode tuple.
+
+-----------------------------------------------------
+What still needs a runtime check regardless of tier
+-----------------------------------------------------
+
+Subcommands removed *mode* conflicts, not *value* validation:
+``--max-output-lines >= 2``, ``--outline-depth >= 1``, ``--context``
+non-empty, ``--word-samples >= 0`` stayed exactly as they were, now on
+whichever parser owns each flag (``_validate_check_args``,
+``_validate_outline_args``, ``_validate_context_args``).
+
+-------------------------
+Two decisions, resolved
+-------------------------
+
+^^^^^^^^
+Naming
+^^^^^^^^
+
+Resolved: ``fix --fast``/``diff --fast`` — a flag scoped to each verb's own
+parser, not separate ``fix-only``/``diff-only`` verbs. Both would have
+deleted the identical validation code; the runtime status text was renamed
+to match either way (``check_rst: N file(s)... fixed [fast]``, ``fast
+scope — ...``, and the config-echo's ``inactive (--fast)`` marker).
+
+^^^^^^^^^^^^^^^^^^^^^^^^
+Backward compatibility
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Resolved: a clean break, recorded as the 0.2.0 version bump, no deprecation
+shim. ``check_rst --fix file.rst`` (this project's own tooling, and at
+least one downstream project's build wrapper) stopped working the moment
+``d64ce2e`` landed; every known caller had to migrate to ``check_rst fix
+file.rst`` in the same release.
+
+------------------------------------------------------
+Extended 2026-08-08: global project-identity options
+------------------------------------------------------
+
+``--config``/``--sphinx-src``/``--build-dir`` initially landed on each
+verb's own parser (the *full* and *single-file* shapes above), matching
+where they lived on the old flat CLI — each subparser called the same
+``_add_project_flags`` helper. Reviewed the same day (Max, prompted by
+noticing ``--sphinx-src`` "is rather global option," by analogy with
+``git``'s own ``-C``/``--git-dir``): these three identify *which project* to
+operate on, orthogonal to *which operation* (check/fix/diff/…) runs.
+Moved to the main parser, once, before the verb — git-style, never
+repeated per subcommand: ``check_rst --sphinx-src docs check file.rst``, not
+``check_rst check --sphinx-src docs file.rst``. ``diff-json`` alone rejects
+them (Tier 2, above); every other verb reads them identically.
+
+A new ``--no-config`` joined them the same day. Previously there was no way
+to skip ``.check_rst.toml``/``pyproject.toml`` auto-discovery at all — a
+malformed or unknown-key committed config would fail loudly on discovery
+alone, before any CLI flag got a say, even for a run that wanted to ignore
+it entirely. ``--no-config`` opts out of discovery completely (as if the
+working directory declared no project facts); ``_validate_config_flags``
+rejects it alongside an explicit ``--config``, a direct contradiction
+neither flag alone could satisfy.
+
+Found live during the move, before either flag shipped: argparse's
+``_SubParsersAction.__call__`` parses each subparser into a *fresh*
+``Namespace``, then unconditionally copies every one of its keys back onto
+the parent — no ``hasattr`` guard at that merge step, unlike the
+single-parser default-fill loop every other name in ``_CLI_ATTR_DEFAULTS``
+relies on. Confirmed by direct reproduction: ``check_rst --no-config check
+file.rst`` measured ``args.no_config`` as ``False``, and a configured
+``sphinx-src`` survived under a global ``--sphinx-src`` only by coincidence
+(this repo's own test fixture happened to declare the same path in
+``.check_rst.toml``). Fixed by removing ``build_dir``/``config``/
+``no_config``/``sphinx_src`` from ``_CLI_ATTR_DEFAULTS`` entirely — every
+subparser's own ``set_defaults()`` call had been silently resetting them to
+``None``/``False`` after the merge, clobbering whatever the user passed
+before the verb. Pinned by
+``test_cli_attr_defaults_excludes_global_project_flags`` and a
+six-verb-parametrized ``test_global_sphinx_src_survives_verb_dispatch``,
+both in ``tests/test_cli_subcommands.py``.
+
+A second, independent bug surfaced fixing the config-echo's "inactive"
+label for the move: the branch marking a *configured* (not
+explicitly-flagged) ``sphinx-src``/``build-dir`` inactive under ``--fast``
+checked only ``args.fix_only``, never ``args.diff_only`` — so ``fix --fast``
+correctly reported ``inactive (--fast)`` while ``diff --fast`` silently
+applied the configured value instead, on the identical config (confirmed by
+direct reproduction against the same ``.check_rst.toml`` before the fix).
+Fixed (``args.fix_only or args.diff_only``, both branches); pinned by
+``test_cli_diff_fast_ignores_configured_sphinx_and_never_parses``, the
+``diff --fast`` sibling of the pre-existing ``fix --fast`` regression test.
 
 ***************************************************
 Declined, with reasons — counter-evidence welcome

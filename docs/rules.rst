@@ -26,7 +26,7 @@ WARNINGs are the tool's refusal to guess at semantics:
 These require reasoning about *meaning*, which is your half of the
 contract.  Review them in step 1 of the loop; never suppress them with
 ``--no-warnings`` in the validation loop (a pure structure query is a
-different activity — ``--outline-only`` exists precisely for it), and
+different activity — ``outline`` exists precisely for it), and
 never skip the pre-fix pass.  When promoting a
 bold line to a section, strip the markers and use the placeholder
 workflow — the judgment is yours, the adornment mechanics still are not.
@@ -38,7 +38,7 @@ The five lists the original single-page guide converted to real subsections
 (2026-07-20 — the worked demonstration's commentary, the feedback loop's report
 categories, how-to-treat-the-two-modes, the per-repo config
 conditions, and this project's integration notes) were judged and
-converted *before* the reversal, on ``--outline``-visibility grounds
+converted *before* the reversal, on ``outline``-visibility grounds
 alone — ``check_rst`` never flagged any of them at the time.  The old
 exemption could not tell a short ``* **term**: definition`` label
 apart from a full ``* **Heading-ish sentence.**  More prose…`` opener
@@ -120,8 +120,8 @@ not a supposedly less intelligent reader.
 When the audience is unspecified, test at least these three consumers:
 
 * an unfamiliar human reviewer scanning source or rendered navigation;
-* a fresh-context AI beginning with ``--outline-only --sections-only`` and
-  ``--context``;
+* a fresh-context AI beginning with ``outline --sections-only`` and
+  ``context``;
 * automation that can act only on the document grammar it parsed.
 
 =======================
@@ -135,7 +135,7 @@ Use these scenarios before choosing a bold opener, list item, or real section:
    Scenario: An independently meaningful concept survives a cold read
      Given a concept may be reviewed or modified independently
      And the next consumer may be an unfamiliar human or a fresh-context AI
-     When that consumer starts with a visual scan, the section view, or --context
+     When that consumer starts with a visual scan, the section view, or context
      Then the concept is discoverable as a named section with its own range
      And no complete linear read or raw-markup grep is required
 
@@ -172,8 +172,8 @@ Consider a standalone bold opener:
 
    **Author filter.** Keep only commits made by the configured author.
 
-``--outline-only --sections-only`` has no ``Author filter`` entry, and
-``--context 'Author filter'`` has no structural entry to resolve.  A
+``outline --sections-only`` has no ``Author filter`` entry, and
+``context 'Author filter'`` has no structural entry to resolve.  A
 full-text reader may understand the sentence, but the document model cannot
 return it as an independently named range.
 
@@ -187,14 +187,14 @@ Encode the same intent as a section:
    Keep only commits made by the configured author.
 
 After the placeholder workflow materializes the adornment,
-``--outline-only --sections-only`` lists ``Author filter``, and
-``--context 'Author filter'`` returns its section kind, verified range,
+``outline --sections-only`` lists ``Author filter``, and
+``context 'Author filter'`` returns its section kind, verified range,
 parent path, siblings, children, findings, and — when Sphinx verification is
 active — references.
 
 A bold-led list item is a useful intermediate case: the complete outline and
-``--context`` can expose it as a list item, while
-``--outline-only --sections-only`` correctly omits it and it has no stable,
+``context`` can expose it as a list item, while
+``outline --sections-only`` correctly omits it and it has no stable,
 title-based section identity.  That visibility supplies evidence for the
 semantic decision; it neither forces
 promotion nor makes a pseudo-section harmless.
@@ -253,7 +253,7 @@ accurate to call the semantic review complete.
    line or a list item that begins with bold text: “Would an unfamiliar human
    reviewer want this concept to stand out while scanning, and would a
    fresh-context AI want to request it as a named section through
-   ``--outline-only --sections-only`` and ``--context``, with its own verified
+   ``outline --sections-only`` and ``context``, with its own verified
    range?”
    If yes, create a real section with the placeholder workflow now.  If no
    because its meaning depends on membership in a sequence, retain that shape
@@ -264,7 +264,7 @@ accurate to call the semantic review complete.
 ``ListEntry`` makes list items visible, as described in `Finding one item
 among many: the two-level list contract`_ below; visibility alone does not
 make a full outline a good targeted query.  Use the implemented
-``--context <entry>`` briefing to resolve one section or leaf entry and
+``context <entry>`` briefing to resolve one section or leaf entry and
 obtain its range, parent path, siblings, children, findings, and references
 when Sphinx verification is active.
 If exact text is ambiguous, choose one of the generated selectors rather than
@@ -381,12 +381,12 @@ ones.
 
 This WARNING is a net, not a guarantee (Max, 2026-07-22: "we cannot
 cover all cases... they could be more complex cases") — it only fires
-for a name in ``--outline``'s own known-directive registry, matched on
+for a name in ``outline``'s own known-directive registry, matched on
 the comment's first line.  A typo of a name outside that registry, or
 one buried past the first line, produces no WARNING at all and stays
 just as silently dropped as before.  That is why every comment, not
 only the ones this heuristic recognizes, is its own entry kind in
-``--outline`` (see "Block previews" in :doc:`guide`):
+``outline`` (see "Block previews" in :doc:`guide`):
 ``comment "code: bash"
 [suspicious — looks like a mistyped directive]`` when the heuristic
 matches, a plain ``comment "..."`` preview when it doesn't — general
@@ -417,8 +417,8 @@ different page than the one with the problem.
 
 This is a WARNING, not an ERROR, for a different reason than the
 mistyped-directive lint above: not because the call is close, but
-because ``--fix`` cannot resolve it.  Adornment/hierarchy ERRORs are
-ERRORs specifically because ``--fix`` fixes them mechanically and
+because ``fix`` cannot resolve it.  Adornment/hierarchy ERRORs are
+ERRORs specifically because ``fix`` fixes them mechanically and
 completely; deciding which of two top-level sections should be demoted
 — and to what level — is a real content decision no deterministic pass
 can make.  So this follows ``check_directives``' severity convention
@@ -484,7 +484,7 @@ splicing it into a host that already has its own established
 characters (:doc:`guide`, "Insert a subtree into an *existing*,
 already-populated document") — placeholders cannot collide with
 anything, because they have not yet been assigned a character to
-collide with.  Diffing ``--outline`` before and after any subtree
+collide with.  Diffing ``outline`` before and after any subtree
 splice is the only way to notice a silent misplacement after the fact;
 nothing in a clean ``check_rst`` run distinguishes it from a correctly
 nested document.
@@ -628,12 +628,12 @@ Finding one item among many: the two-level list contract
 
 The friction that motivated this (Max, 2026-07-22): hunting for one
 specific item inside what were then :doc:`roadmap`'s numbered
-"Agreed direction" and bulleted "Accepted, deferred" lists, ``--outline``
+"Agreed direction" and bulleted "Accepted, deferred" lists, ``outline``
 answered nothing — it reported the enclosing section's line range and stopped,
 telling you a ~400-line list existed somewhere inside without saying
 what was in it, so the fallback was a raw ``grep`` against the file's
 own markup for ``^\* ``/``^\d+\.`` — exactly the fragile
-"scanning raw markup" pattern ``--outline`` exists to replace for
+"scanning raw markup" pattern ``outline`` exists to replace for
 every other block kind.  The roadmap has since promoted those items to
 sections; this remains the historical motivation and the contract for lists
 that are semantically appropriate.
@@ -672,7 +672,7 @@ confirmed against a real corpus scan that only arabic digits and
 ``#.`` auto-numbering are ever actually used in this project; alpha
 and roman support exists for completeness, not local demand.
 
-The two-level representation also makes ``--context`` the escape hatch from
+The two-level representation also makes ``context`` the escape hatch from
 the feedback loop that motivated list entries in the first place.  Use an
 exact item preview when it is unique; when repeated text is ambiguous, use
 the candidate's generated ``docname:enumerated-item@line`` or

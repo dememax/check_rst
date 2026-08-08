@@ -21,9 +21,12 @@ contract: what to delegate, how, and why.
 Concretely, it is a four-phase checker and fixer: byte hygiene
 (Phase 0), RST formatting rules (Phase 1), Sphinx-aware structure
 resolution (Phase 2), and a real ``sphinx-build`` integrity check
-(Phase 3).  It is project-agnostic — automatic configuration treats the
-current working directory as the project root, while ``--config FILE``
-selects a project explicitly from any directory.  Install the console entry
+(Phase 3).  Automatic configuration treats the current working directory
+as the project root; ``--config FILE`` selects a project explicitly from
+any directory, and ``--no-config`` skips configuration entirely.  Both, like
+``--sphinx-src``/``--build-dir``, are global options given before the verb
+(``check_rst --config FILE check file.rst``, git-style, not
+``check_rst check --config FILE file.rst``).  Install the console entry
 point once, then invoke ``check_rst`` from the documentation project being
 checked.
 
@@ -693,7 +696,7 @@ bold prose.
 
 ::
 
-    check_rst outline --with-findings --sphinx-src . --build-dir /tmp/journal-sphinx-build <file>
+    check_rst --sphinx-src . --build-dir /tmp/repo-sphinx-build outline --with-findings <file>
 
 prints a ``levels:`` legend — each depth with its adornment character
 and section count, plus the document's total section count, stated
@@ -1247,8 +1250,8 @@ Explicit selection works from any directory
 Pass either supported file explicitly to select its project from an
 unrelated working directory::
 
-    check_rst check --config /repo/.check_rst.toml /repo/docs/page.rst
-    check_rst check --config /repo/pyproject.toml /repo/docs/page.rst
+    check_rst --config /repo/.check_rst.toml check /repo/docs/page.rst
+    check_rst --config /repo/pyproject.toml check /repo/docs/page.rst
 
 The dedicated file's whole document remains the table; an explicitly
 selected ``pyproject.toml`` uses ``[tool.check_rst]``.  ``--config``
@@ -1259,7 +1262,7 @@ Relative ``sphinx-src`` and ``build-dir`` values resolve from the
 selected config's directory.  With no positional files, bare Git
 selection and diff scoping also run from that directory::
 
-    check_rst check --config /repo/.check_rst.toml
+    check_rst --config /repo/.check_rst.toml check
 
 Positional files and ``--recursive`` directories retain normal CLI
 semantics: their relative paths resolve from the invocation directory,

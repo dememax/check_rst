@@ -9,7 +9,7 @@ Worked demonstration: one file, both halves of the contract
 Everything below is real, captured output — one invented 38-line file
 exercising the writing workflow and the reading oracle, extended
 2026-07-20 with a ``list-table`` to also demonstrate that same day's
-``--outline`` enrichment.  The draft is written the way this page
+``outline`` enrichment.  The draft is written the way this page
 prescribes: placeholder underlines, no computed syntax — and with two
 typos planted the way real drafts plant them accidentally (``sensro``,
 ``batery``).
@@ -78,7 +78,7 @@ per finding, above the first finding it applies to (see "De-facto
 compiler output" in :doc:`guide`).
 
 The judgment is yours: here ``**Note:**`` is a legitimate note marker,
-not a heading substitute — leave it.  Step 2 (``--fix``; explicit
+not a heading substitute — leave it.  Step 2 (``fix``; explicit
 filename only because this file is freshly invented and entirely ours
 to normalize) materializes the syntax the placeholders declared::
 
@@ -93,11 +93,11 @@ counted by hand.
 Analysis: the structure oracle
 ********************************
 
-``check_rst --outline-only --verbose station.rst`` — ``--verbose``
-because ``--outline-only`` implies ``--quiet``, and ``blocks:``/
-``lines:``/``words:``/top-and-rare-prose-words are the level-2 lines
-the main guide's "Verbosity levels" section describes; ``levels:`` and the
-entries themselves would already be there without it.  This transcript was
+``check_rst outline --verbose station.rst`` — structure-only is
+``outline``'s own default now, still implying ``--quiet``; ``--verbose``
+adds the ``blocks:``/``lines:``/``words:``/top-and-rare-prose-words level-2
+lines the main guide's "Verbosity levels" section describes; ``levels:`` and
+the entries themselves would already be there without it.  This transcript was
 regenerated on 2026-07-30 with Python 3.14.6, Sphinx 9.1.0, docutils 0.23, and
 snowballstemmer 3.1.1.  The top/rare-word tail depends on Sphinx's stopword
 tables and snowballstemmer and must be regenerated, not copied as a stable
@@ -121,11 +121,11 @@ golden value, when that runtime changes::
       colleague @16, drops @13, interval @18, itself @19, lasts @11, low @14 (yet 28 suppressed)
 
 What an AI reads off this, line by line — as its own subsections, not a
-bullet list: this whole page argues for ``--outline`` because a
+bullet list: this whole page argues for ``outline`` because a
 compressed structure beats opening a file to find things, and a
 bulleted list of eight points would be invisible to exactly that
 oracle, undermining the argument on its own page.  As sections, each
-point is independently visible in ``--outline``, addressable at a
+point is independently visible in ``outline``, addressable at a
 specific range, and a candidate ``:ref:`` target — a live instance of
 the value this page sells rather than an assertion of it.
 
@@ -224,8 +224,9 @@ good word that simply occurs once.  Judgment stays yours — at these
 jump targets, it takes seconds.
 
 And the same model as machine-readable data —
-``check_rst --json --outline --verbose station.rst`` (``--verbose``
-again, for the same reason as above: ``rare_words``/``top_words`` are
+``check_rst check --format=json --verbose station.rst`` (outline data is
+always part of the JSON model, so there is no separate outline flag to add;
+``--verbose`` again, for the same reason as above: ``rare_words``/``top_words`` are
 ``null`` without it or an explicit ``--word-samples``; stable ids,
 extents, every entry's own preview/kind/dims fields, the rare pairs)::
 
