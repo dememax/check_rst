@@ -7,7 +7,7 @@ from __future__ import annotations
 import difflib
 import re
 import unicodedata
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import docutils.nodes
 import docutils.parsers.rst
@@ -21,6 +21,7 @@ import docutils.utils
 if TYPE_CHECKING:
     import pathlib
     from collections.abc import Iterator
+    from typing import TypeGuard
 
 
 from . import _helpers
@@ -2052,6 +2053,67 @@ def _list_table_conversion_preserves_semantics(path: pathlib.Path, original_text
     return original_model == candidate_model
 
 
+def _canonical_model_label(model: object) -> str:
+    """Short, readable name for one _canonical_doctree_model() node —
+    'Text' for a text node, its docutils tag name otherwise."""
+    if isinstance(model, tuple) and len(model) == 2 and model[0] == "Text":
+        return "Text"
+    if isinstance(model, tuple) and len(model) == 4:
+        return str(model[1])
+    return "?"
+
+
+def _is_text_model(model: object) -> TypeGuard[tuple[str, str]]:
+    """True for a _canonical_doctree_model() Text-node tuple specifically
+    — distinguished from an Element tuple by length alone (2 vs 4), the
+    same shape _canonical_doctree_model itself constructs."""
+    return isinstance(model, tuple) and len(model) == 2 and model[0] == "Text"
+
+
+def _describe_doctree_divergence(original: object, candidate: object, path: tuple[str, ...] = ()) -> str:
+    """Human-readable description of the FIRST structural difference
+    between two _canonical_doctree_model() trees, walked in parallel,
+    depth-first — found live: 'converted result failed semantic
+    validation' named that the trees differed but never where or how,
+    forcing a manual bisection of the whole file to isolate the actual
+    cause. First divergence wins deliberately, not exhaustively: a
+    dropped or retyped node cascades into every attribute/child-count/
+    text comparison below it too, and those are consequences, not the
+    cause — reporting all of them would bury the one fact that matters
+    in noise the size of the whole subtree."""
+    if original == candidate:
+        return ""
+    where = "/".join(path) if path else "document root"
+    if _is_text_model(original) or _is_text_model(candidate):
+        if _is_text_model(original) and _is_text_model(candidate):
+            return f"{where}: text changed from {original[1]!r} to {candidate[1]!r}"
+        return f"{where}: was {_canonical_model_label(original)!r}, became {_canonical_model_label(candidate)!r}"
+    o_mod, o_name, o_attrs, o_children = cast("tuple[str, str, object, tuple[object, ...]]", original)
+    c_mod, c_name, c_attrs, c_children = cast("tuple[str, str, object, tuple[object, ...]]", candidate)
+    if (o_mod, o_name) != (c_mod, c_name):
+        return f"{where}: node type changed from {o_name!r} to {c_name!r}"
+    if o_attrs != c_attrs:
+        return f"{where} <{o_name}>: attributes changed from {o_attrs!r} to {c_attrs!r}"
+    if len(o_children) != len(c_children):
+        return f"{where} <{o_name}>: child count changed from {len(o_children)} to {len(c_children)}"
+    for index, (o_child, c_child) in enumerate(zip(o_children, c_children, strict=True)):
+        sub = _describe_doctree_divergence(o_child, c_child, (*path, f"{o_name}[{index}]"))
+        if sub:
+            return sub
+    return ""  # unreachable given the caller's own inequality check above
+
+
+def _list_table_divergence_reason(path: pathlib.Path, original_text: str, candidate_text: str) -> str:
+    """The diagnostic counterpart to _list_table_conversion_preserves_
+    semantics' plain bool: re-parses both variants and names the first
+    structural difference between them. Paid for only once validation
+    has already failed — the common, passing-validation path never
+    re-parses or walks the trees a second time for this."""
+    original_model = _canonical_doctree_model(_helpers._parse_rst(path, text=original_text))
+    candidate_model = _canonical_doctree_model(_helpers._parse_rst(path, text=candidate_text))
+    return _describe_doctree_divergence(original_model, candidate_model)
+
+
 def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) -> ListTableFileResult:
     """Plan one file's conversion — read, resolve --only/--skip, evaluate
     and render every in-scope table, splice approved conversions into
@@ -2097,8 +2159,16 @@ def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) 
         candidate_text += "\n"
 
     if candidate_text != original and not _list_table_conversion_preserves_semantics(path, original, candidate_text):
+        reason = _list_table_divergence_reason(path, original, candidate_text)
+        detail = f" ({reason})" if reason else ""
         return ListTableFileResult(
-            path, original, original, [], [], [], "converted result failed semantic validation — file left untouched"
+            path,
+            original,
+            original,
+            [],
+            [],
+            [],
+            f"converted result failed semantic validation — file left untouched{detail}",
         )
     return ListTableFileResult(path, original, candidate_text, converted, refusals, [], None)
 

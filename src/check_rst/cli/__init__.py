@@ -165,6 +165,9 @@ from ._checks import (
     _canonical_doctree_model as _canonical_doctree_model,
 )
 from ._checks import (
+    _canonical_model_label as _canonical_model_label,
+)
+from ._checks import (
     _changed_line_count as _changed_line_count,
 )
 from ._checks import (
@@ -178,6 +181,9 @@ from ._checks import (
 )
 from ._checks import (
     _compute_structure_fixes as _compute_structure_fixes,
+)
+from ._checks import (
+    _describe_doctree_divergence as _describe_doctree_divergence,
 )
 from ._checks import (
     _doctree_fingerprint as _doctree_fingerprint,
@@ -213,7 +219,13 @@ from ._checks import (
     _is_permitted_text_space_delta as _is_permitted_text_space_delta,
 )
 from ._checks import (
+    _is_text_model as _is_text_model,
+)
+from ._checks import (
     _list_table_conversion_preserves_semantics as _list_table_conversion_preserves_semantics,
+)
+from ._checks import (
+    _list_table_divergence_reason as _list_table_divergence_reason,
 )
 from ._checks import (
     _nested_inline_nodes as _nested_inline_nodes,

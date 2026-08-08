@@ -430,6 +430,54 @@ def test_corrupted_conversion_fails_validation(check_rst: types.ModuleType, tmp_
 
 
 @pytest.mark.integration
+def test_divergence_reason_names_the_changed_text(check_rst: types.ModuleType, tmp_path: Path) -> None:
+    """Found live (a real --apply run failed with only 'converted result
+    failed semantic validation — file left untouched', no way to tell
+    where or why without a manual bisection of the whole file).  The
+    plain bool _list_table_conversion_preserves_semantics stays cheap for
+    the common, passing case; this is the diagnostic counterpart, paid
+    for only once validation has already failed.
+
+    Same-length substitution deliberately, confirmed by direct probe:
+    replacing "two" with the longer "WRONG" shifts a fixed-width grid
+    table's own column alignment, so docutils no longer parses a table
+    there at all (a 'table' node becomes a 'system_message' node) — a
+    real, useful divergence reason in its own right, but a structural
+    one, not the plain text-substitution case this test isolates."""
+    original = "Title\n#####\n\n" + _GRID
+    p = _rst(tmp_path, original)
+    corrupted = original.replace("two", "TWO")
+    reason = check_rst._list_table_divergence_reason(p, original, corrupted)
+    assert "two" in reason
+    assert "TWO" in reason
+
+
+@pytest.mark.integration
+def test_divergence_reason_names_a_dropped_node(check_rst: types.ModuleType, tmp_path: Path) -> None:
+    """A structural difference (not just changed text) must be described
+    too — a dropped table row changes child COUNT, not any one text
+    value, so the divergence report must not assume every mismatch is a
+    text substitution."""
+    original = "Title\n#####\n\n" + _GRID
+    p = _rst(tmp_path, original)
+    # Corrupt by removing the whole second column from every row, forcing
+    # a structural rather than purely textual mismatch.
+    corrupted = "Title\n#####\n\n+-----+\n| A   |\n+=====+\n| 1   |\n+-----+\n"
+    reason = check_rst._list_table_divergence_reason(p, original, corrupted)
+    assert reason
+    assert "converted result failed semantic validation" not in reason
+
+
+@pytest.mark.integration
+def test_identical_text_has_no_divergence_reason(check_rst: types.ModuleType, tmp_path: Path) -> None:
+    """Two identical trees have nothing to report — confirms the function
+    does not manufacture a spurious reason on the passing path."""
+    original = "Title\n#####\n\n" + _GRID
+    p = _rst(tmp_path, original)
+    assert check_rst._list_table_divergence_reason(p, original, original) == ""
+
+
+@pytest.mark.integration
 def test_identical_text_passes_validation(check_rst: types.ModuleType, tmp_path: Path) -> None:
     original = "Title\n#####\n\n" + _GRID
     p = _rst(tmp_path, original)
