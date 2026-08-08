@@ -209,6 +209,7 @@ import collections
 import contextlib
 import dataclasses
 import difflib
+import enum
 import functools
 import importlib.metadata
 import json
@@ -430,12 +431,27 @@ _FIXABLE_SPHINX_MESSAGES = (
 # ---------------------------------------------------------------------------
 
 
+class Severity(enum.StrEnum):
+    """Finding.severity's two levels. A StrEnum (not a plain Enum): members
+    compare equal to and format identically to the plain "ERROR"/"WARNING"
+    strings the CLI output, JSON schema, and _WARNING_RE regex group all
+    already commit to — found by code review: a bare str field compared
+    via ~8 scattered string literals had no type-checker signal to catch
+    a mistyped literal like "Warning" (silently failing every downstream
+    == comparison). str(Severity.ERROR) == "ERROR", not "Severity.ERROR"
+    (confirmed by direct probe) — dataclasses.asdict()+json.dumps() and
+    every f"{finding.severity}" call site keep their exact prior output."""
+
+    ERROR = "ERROR"
+    WARNING = "WARNING"
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class Finding:
     """A lint finding with a severity level (ERROR or WARNING)."""
 
     lineno: int
-    severity: str  # "ERROR" or "WARNING"
+    severity: Severity
     text: str
 
     def __str__(self) -> str:
@@ -785,7 +801,7 @@ def _normalize_source_detailed(
     trailing_whitespace = 0
 
     def err(lineno: int, msg: str) -> None:
-        findings.append(Finding(lineno=lineno, severity="ERROR", text=msg))
+        findings.append(Finding(lineno=lineno, severity=Severity.ERROR, text=msg))
 
     if text.startswith("\ufeff"):
         text = text[1:]
@@ -1138,7 +1154,7 @@ def check_single_top_level(path: pathlib.Path, doc: Document | None = None) -> l
     return [
         Finding(
             idx + 1,
-            "WARNING",
+            Severity.WARNING,
             f"second top-level {char!r} title — a document may have "
             "only one: it is the document's own title, and a second "
             "one leaves neither promoted (confirmed: the file's "
@@ -1170,7 +1186,7 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
     ranges: list[tuple[int, int]] | None = None if whole_file else doc.ranges
 
     def err(lineno: int, text: str) -> Finding:
-        return Finding(lineno=lineno, severity="ERROR", text=text)
+        return Finding(lineno=lineno, severity=Severity.ERROR, text=text)
 
     findings: list[Finding] = []
 
@@ -1345,7 +1361,7 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
             findings.append(
                 Finding(
                     lineno,
-                    "WARNING",
+                    Severity.WARNING,
                     f"adornment {char!r} is valid but outside the tool's preferred hierarchy {PREFERRED_HIERARCHY!r}",
                 )
             )
@@ -1353,7 +1369,7 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
             findings.append(
                 Finding(
                     lineno,
-                    "ERROR",
+                    Severity.ERROR,
                     f"adornment {char!r} is this document's level {level}, but "
                     f"hierarchy level {level} is {remap[char]!r} — first-appearance "
                     f"order must follow the hierarchy from '#' down "
@@ -2278,7 +2294,7 @@ def check_homoglyphs(path: pathlib.Path, doc: Document | None = None) -> list[Fi
             findings.append(
                 Finding(
                     lineno,
-                    "WARNING",
+                    Severity.WARNING,
                     f"{word!r} mixes Cyrillic and Latin letters that look "
                     "identical — probably a keyboard-layout slip, not "
                     "intentional",
@@ -2398,7 +2414,7 @@ def check_nested_inline_markup(
         findings.append(
             Finding(
                 lineno=lineno,
-                severity="WARNING",
+                severity=Severity.WARNING,
                 text=(f"nested inline markup in {_inline_kind(outer)} span {source!r} (contains {inner_kinds})"),
             )
         )
@@ -2438,7 +2454,7 @@ def check_directives(
     def warn(node: docutils.nodes.Node, text: str) -> None:
         lineno = _node_line(node)
         if _in_scope(ranges, lineno, lineno):
-            findings.append(Finding(lineno=lineno, severity="WARNING", text=text))
+            findings.append(Finding(lineno=lineno, severity=Severity.WARNING, text=text))
 
     def section_clause(node: docutils.nodes.Node) -> str:
         title = _enclosing_section_title(node)
@@ -3980,7 +3996,7 @@ def check_multiple_toctree_parents(
             findings.append(
                 Finding(
                     lineno,
-                    "WARNING",
+                    Severity.WARNING,
                     f"document {child!r} is referenced by multiple toctree entries: {parent_list}",
                 )
             )
@@ -4365,7 +4381,7 @@ def check_bare_filenames(
             findings.append(
                 Finding(
                     lineno,
-                    "WARNING",
+                    Severity.WARNING,
                     f"{name}.rst mentioned as plain text — did you mean a "
                     f":doc:/:ref: cross-reference? possible target(s): {targets}",
                 )
@@ -4599,7 +4615,7 @@ def _findings_from_sphinx_output(
                 findings.append(
                     Finding(
                         lineno=int(line) if line is not None else 0,
-                        severity=m.group("level"),
+                        severity=Severity(m.group("level")),
                         text=f"{rel}: {m.group('msg')}",
                     )
                 )
@@ -4693,11 +4709,11 @@ def run_sphinx(
         text=True,
     )
     findings = _findings_from_sphinx_output(result.stdout + result.stderr, files, project_root)
-    if result.returncode != 0 and not any(finding.severity == "ERROR" for finding in findings):
+    if result.returncode != 0 and not any(finding.severity == Severity.ERROR for finding in findings):
         findings.append(
             Finding(
                 lineno=0,
-                severity="ERROR",
+                severity=Severity.ERROR,
                 text=(
                     f"sphinx-build exited {result.returncode} "
                     "(failure may be outside the checked files — run without file filter)"
@@ -6210,7 +6226,7 @@ def _print_findings(
     n_errors = 0
     n_warnings = 0
     for f in findings:
-        if f.severity == "WARNING":
+        if f.severity == Severity.WARNING:
             if no_warnings:
                 continue
             n_warnings += 1
@@ -7705,8 +7721,8 @@ def _main() -> None:
                 # char WARNING (check_hierarchy) and the single-top-level-title
                 # WARNING (check_single_top_level) need human judgment same as
                 # bold/rubric warnings, so unlike ERRORs they still show through.
-                errors_v = [f for f in all_v if f.severity == "ERROR"]
-                warnings_v = [f for f in all_v if f.severity == "WARNING"]
+                errors_v = [f for f in all_v if f.severity == Severity.ERROR]
+                warnings_v = [f for f in all_v if f.severity == Severity.WARNING]
                 suppressed_fixable[path] += len(errors_v)
                 if args.json:
                     json_records[path]["findings"].extend(warnings_v)
@@ -8016,7 +8032,7 @@ def _main() -> None:
                 ]
             if args.json:
                 sphinx_findings_json = [
-                    dataclasses.asdict(f) for f in sphinx_v if not args.no_warnings or f.severity != "WARNING"
+                    dataclasses.asdict(f) for f in sphinx_v if not args.no_warnings or f.severity != Severity.WARNING
                 ]
             e, w = _print_findings(sphinx_v, "sphinx", args.no_warnings, suppress_findings)
             if not e and not w and not args.quiet:
@@ -8034,7 +8050,7 @@ def _main() -> None:
             rec["findings"] = [
                 dataclasses.asdict(f)
                 for f in rec.get("findings", [])
-                if not args.no_warnings or f.severity != "WARNING"
+                if not args.no_warnings or f.severity != Severity.WARNING
             ]
         data: dict[str, Any] = {
             "schema_version": _JSON_SCHEMA_VERSION,
