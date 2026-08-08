@@ -99,6 +99,8 @@ The task split follows directly:
      - ``check_rst fix --collapse-title-spaces`` (opt-in, permitted delta)
    * - Enforcing single-space style in eligible paragraph text
      - ``check_rst fix --single-space-prose`` (opt-in, permitted delta)
+   * - Converting an aligned grid/simple table to list-table syntax
+     - ``check_rst list-table`` (opt-in, whole-file canonical-tree equality)
    * - Tracking the 32-character adornment hierarchy
      - ``check_rst`` (deterministic)
    * - Line endings, BOM, byte hygiene
@@ -670,6 +672,47 @@ allows only the exact eligible visible Text-node space reductions described
 above while holding structure, attributes, targets, and ids constant.  This is
 strictly narrower than arbitrary prose rewriting but deliberately broader than
 tree identity.  Omitting the modifiers preserves the default guarantee.
+
+=========================================================
+list-table: convert without hand-reconstructing a table
+=========================================================
+
+A real prose-heavy table was clearer as a ``.. list-table::`` than as its
+original aligned grid, but the manual conversion (recompute column
+geometry, re-flow every multi-line cell by hand, re-check every inline
+role survived) was expensive enough that an AI session doing the edit
+declined it as disproportionate work.  ``list-table`` is that mechanical
+burden absorbed into the tool, the same principle as fix's own adornment
+geometry — a computation, not a judgment call::
+
+    check_rst list-table doc.rst              # dry-run diff, every eligible table
+    check_rst list-table --apply doc.rst      # write
+    check_rst list-table --only 2 doc.rst     # just the 2nd table, in document order
+    check_rst list-table --skip 2 doc.rst     # every table except the 2nd
+
+Bare grid/simple tables and ``.. table::``-wrapped ones with an optional
+caption convert; a merged row or column is a hard, explanatory refusal —
+list-table syntax cannot express a span, so one is never flattened,
+duplicated, or guessed at.  ``:name:``/``:class:``/``:align:`` are not yet
+supported and are refused the same way, not silently dropped.  Every
+cell's own source — inline markup, references, nested blocks — is reused
+verbatim; only the container syntax and indentation change.
+
+The guarantee mirrors "Why you can trust fix" above: a whole-file
+canonical-tree comparison (not ``astext()``, not a visual diff) gates every
+write, converted content included.  Confirmed by direct probe rather than
+assumed: deriving the generated ``:widths:`` from the original table's own
+column geometry makes the resulting doctree match the original's exactly —
+same node classes, same attributes, same column widths — with one
+deliberate, one-directional exception (a ``'colwidths-given'`` class
+docutils itself adds whenever ``:widths:`` is explicit on list-table syntax,
+never on a grid/simple table regardless of its own widths).  A candidate
+that fails this comparison, in any one table, is rejected outright — the
+file is left untouched, the same all-or-nothing rule as every other fixer
+here; a refusal among the default "every eligible table" scope is reported
+but does not block the file's other conversions, while an ``--only``-named
+table that turns out refused is fatal for that file, since it was asked
+for specifically.
 
 ******************************************************
 Reading RST: verified structure instead of inference

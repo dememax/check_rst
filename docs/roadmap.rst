@@ -176,87 +176,6 @@ ship independently of stages 1–3.  **Table identification itself landed
 (``kind``/dims/caption/preview in ``--outline``) — the column-extraction query
 proper is still open.
 
-=====================================================
-Targeted aligned-table to list-table transformation
-=====================================================
-
-*(accepted 2026-08-02; not yet implemented)*
-
-The role/instance/context-state table distilled from the Claude feedback case
-provides the motivating example: its prose-heavy cells are clearer and cheaper
-to maintain in the ``.. list-table::`` form now present in
-:doc:`rules`, while manually reconstructing the aligned source was
-expensive enough that Claude Code declined the edit as disproportionate work.
-This is exactly the deterministic burden ``check_rst`` should absorb.  The
-benefit is in source authoring and diff locality, not structural retrieval:
-docutils already normalizes grid, simple, and directive tables to the same
-two-dimensional ``table`` node, so ``outline``, ``context``, and the
-planned column query see equivalent structures before and after conversion.
-
-----------------------------
-Scope and command contract
-----------------------------
-
-The operation is opt-in and selector-targeted.  It is neither an ordinary
-``fix`` mutation nor a warning merely because a grid or simple table exists:
-compact numeric matrices can be more readable precisely because their source
-retains visual column geometry.  A working interface is, in verb syntax (this
-entry predates the subcommand redesign above; translated, not re-decided)::
-
-    check_rst transform DOC:table@LINE --to list-table FILE
-    check_rst transform DOC:table@LINE --to list-table --apply FILE
-
-The default produces a unified dry-run diff without modifying the file;
-``--apply`` requests one atomic write.  Exactly one table must resolve through
-the same stable selector model as ``context``.  This command should establish
-the shared selector, preview, apply, and atomic-write machinery later reusable
-by "Structure-aware list-to-section refactoring" below.
-
-----------------------------------
-Mechanical conversion predicates
-----------------------------------
-
-Accept bare grid and simple tables and the same syntaxes nested under
-``.. table::``.  Preserve the caption, name, classes, alignment, overall width,
-and proportional column widths; derive ``:header-rows:`` from the aligned
-table's head/body separator.  Preserve each cell's RST block source, including
-inline markup, references, paragraphs, lists, directives, literal blocks, and
-empty cells, while changing only the table container syntax and indentation.
-
-Use docutils' existing ``GridTableParser`` and ``SimpleTableParser`` rather
-than reimplementing the alignment grammar.  They expose column widths,
-header/body rows, original cell blocks, and span metadata.  Because
-``list-table`` cannot express merged rows or columns, any non-zero row or
-column span is a hard, explanatory refusal; the operation must never flatten,
-duplicate, or guess at a spanned cell.
-
----------------------
-Semantic validation
----------------------
-
-Parse the candidate document again before displaying or applying it.  Compare
-canonical table subtrees rather than ``astext()`` alone so that inline roles,
-references, block kinds, row order, header membership, and table-level options
-remain equivalent; ignore only syntax-specific source locations and the
-expected column-width representation.  A successful apply still finishes with
-the ordinary ``check_rst`` validation pipeline, including Sphinx when the
-project configuration enables it.  A failed parse, changed semantic subtree,
-ambiguous selector, or stale range leaves the source untouched.
-
---------------------------------------
-Acceptance evidence and TDD boundary
---------------------------------------
-
-The principal regression fixture reconstructs the aligned form of the
-role/instance/context-state table and expects the current ``list-table`` source
-as its result.  It must prove local preservation of the three prose-heavy data
-rows, their multiline cells, header status, and width proportions.  Further
-focused cases cover grid and simple syntax, wrapped captions and options,
-inline markup and nested block content, empty cells, dry-run non-mutation,
-single-target scope, atomic application, and rejection of row or column spans.
-An already-converted ``list-table`` is reported as inapplicable rather than
-silently rewritten, making repeated use stable and observable.
-
 =======================
 A structure-only view
 =======================
@@ -1569,6 +1488,145 @@ direct reproduction against the same ``.check_rst.toml`` before the fix).
 Fixed (``args.fix_only or args.diff_only``, both branches); pinned by
 ``test_cli_diff_fast_ignores_configured_sphinx_and_never_parses``, the
 ``diff --fast`` sibling of the pre-existing ``fix --fast`` regression test.
+
+=====================================================
+Targeted aligned-table to list-table transformation
+=====================================================
+
+*(accepted 2026-08-02; implemented 2026-08-08 as the* ``list-table`` *verb)*
+
+The role/instance/context-state table distilled from the Claude feedback case
+provided the motivating example: its prose-heavy cells are clearer and cheaper
+to maintain in the ``.. list-table::`` form now present in
+:doc:`rules`, while manually reconstructing the aligned source was
+expensive enough that Claude Code declined the edit as disproportionate work.
+The benefit is in source authoring and diff locality, not structural
+retrieval: docutils already normalizes grid, simple, and directive tables to
+the same two-dimensional ``table`` node, so ``outline``, ``context``, and the
+planned column query see equivalent structures before and after conversion.
+
+---------------------------------------
+Settled shape, resolved from the fork
+---------------------------------------
+
+Two forks this entry originally left open were resolved during
+implementation, both by explicit decision (Max) rather than by default:
+
+* **A bulk-by-default verb, not a mandatory single-selector one.** The
+  original sketch (``check_rst transform DOC:table@LINE --to list-table
+  FILE``) required naming exactly one table per invocation. Reconsidered:
+  every mechanically-eligible table in the selected file(s) converts by
+  default — the same scope model ``fix``/``diff`` already use
+  (``--recursive``/``--git-scope``/``--exclude``) — with ``--only``/``--skip``
+  (both repeatable, ordinal-indexed in document order) as the opt-in
+  narrowing mechanism instead of a mandatory selector. The combination rule:
+  the eligible set starts as every table, narrows to ``--only``'s ordinals if
+  any were given, then ``--skip`` removes ordinals from whatever that is.
+* **A dedicated, self-explanatory verb name, not a flag.** ``--to
+  list-table`` implied other destination formats were possible; there is
+  only one. Renamed to the bare verb ``list-table`` (dropping ``--to``
+  entirely) — the verb name states the destination on its own, the same
+  way ``diff-json``/``refs``/``context`` already do, discoverable without
+  reading a flag's own description.
+
+Resulting contract::
+
+    check_rst list-table FILE                       # dry-run diff, every eligible table
+    check_rst list-table --apply FILE                # write
+    check_rst list-table --only 2 FILE               # allowlist: only the 2nd table
+    check_rst list-table --skip 2 --skip 5 FILE      # denylist: everything except #2 and #5
+
+An ``--only``-named table that turns out refused (a span, an unsupported
+option, an ineligible kind) is fatal for that file — the user asked for that
+exact table. A refusal among the default, unnamed "every eligible table"
+scope is reported but does not block converting the file's other eligible
+tables — the same review-don't-block spirit as ``--skip-fixable``, not a
+hard-error-either-way rule. ``--sphinx-src``/``--build-dir`` are rejected
+(this verb is bare-docutils only, the same as ``find_tables`` itself);
+``--config`` stays valid, since it still roots this verb's own
+``--recursive``/``--git-scope`` discovery.
+
+-------------------------------------------
+Mechanical conversion, confirmed by probe
+-------------------------------------------
+
+Scope for the first version, decided deliberately rather than discovered
+late: bare tables and ``.. table::``-wrapped tables with an optional caption
+only. ``:name:``/``:class:``/``:align:`` (or any other ``.. table::`` option)
+is an explicit, reported refusal — "not yet supported" — never a silent
+mishandling; extending to them is a later, independent increment.
+
+Docutils' own ``GridTableParser``/``SimpleTableParser`` are used directly
+rather than reimplementing the alignment grammar — confirmed by direct probe
+that each cell arrives as ``(morerows, morecols, line_offset, StringList)``,
+where the ``StringList`` is the cell's own **raw source text**, already
+dedented, not a rendered tree. That makes verbatim preservation of inline
+markup, references, and nested block content mostly copy-and-reindent rather
+than re-serialization. A non-zero ``morerows``/``morecols`` on any real
+(non-``None``) cell is list-table's hard, explanatory refusal — merged cells
+are never flattened, duplicated, or guessed at.
+
+--------------------------------------------
+Semantic validation: simpler than expected
+--------------------------------------------
+
+The original entry expected the validation predicate to need a documented
+exception for column-width representation. Confirmed by direct probe: it
+does not. Emitting ``:widths:`` on the generated ``list-table``, derived
+directly from the original table's own ``colspecs``, makes docutils compute
+the *exact same* ``colwidth`` per column — not merely a proportional
+equivalent. The only genuine, one-directional delta is a
+``'colwidths-given'`` class docutils adds to any ``<table>`` node whose
+``:widths:`` was given explicitly on ``list-table`` syntax specifically — a
+grid/simple table never carries it, having no "auto" alternative to
+distinguish itself from. With that one class excluded from the comparison,
+canonical-tree equality (the same modeling technique as
+``_text_space_evidence``'s permitted-delta model, reused verbatim, but with
+no permitted delta of its own here) is the complete predicate — parse both
+whole-file variants, compare, reject the entire file's conversion outright on
+any mismatch, the same all-or-nothing rule ``fix`` already uses.
+
+-----------------------------------------------------
+A pre-existing bug, found building the real fixture
+-----------------------------------------------------
+
+Building the acceptance fixture from a real table (below) surfaced a defect
+in ``find_tables`` itself, unrelated to ``list-table``'s own logic:
+``_table_end`` extended a table's reported end only through a trailing
+grid border/simple-table rule, assuming docutils' own ``.line`` tracking
+already located the table's true last content line. For a table whose
+*last row* spans multiple physical source lines, that assumption breaks —
+docutils only reports the multi-line cell's first physical line, so the old
+approach stopped there, one or more lines short of the real trailing border.
+This silently truncated the reported range for **any** table with a
+multi-line final row, in ``--outline``/``--context`` too, not only for this
+feature's own use of it. Fixed by also extending through a grid table's own
+bare ``|``-led continuation lines before looking for the border (no other
+RST construct produces one immediately following confirmed table content);
+pinned by ``test_tables_end_extends_through_multiline_final_row`` in
+``tests/test_check_rst.py``, independent of the ``list-table`` test suite.
+
+--------------------------------------------------
+Acceptance evidence: a real table, not synthetic
+--------------------------------------------------
+
+The principal regression fixture is a real grid table — three formatting
+styles (inline bold-in-literal, a real heading, a definition list) compared
+by line cost, multi-line final cell included — matching this project's own
+"real evidence over invented examples" convention rather than a hand-built
+synthetic case.
+``test_acceptance_real_world_table_converts_and_preserves_content``
+(``tests/test_list_table.py``) converts it, asserts every inline-literal
+span and the multi-line cell's own indentation survive verbatim, confirms
+canonical-tree equivalence, and runs the converted result back through
+``check_rst check`` itself for a clean exit. Further focused coverage (also
+in ``tests/test_list_table.py`` and the ``list-table``-specific tests in
+``tests/test_cli_subcommands.py``/``tests/test_check_rst.py``): the
+``--only``/``--skip`` ordinal resolver and their combination rule, span
+rejection for both row and column merges, unsupported-option refusal,
+already-``list-table``/``csv-table`` rejection, dry-run non-mutation,
+multiple tables per file converting independently, and the CLI-level exit
+codes and ``--quiet``/``--sphinx-src`` behavior.
 
 ***************************************************
 Declined, with reasons — counter-evidence welcome
