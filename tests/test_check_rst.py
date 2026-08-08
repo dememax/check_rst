@@ -1733,7 +1733,7 @@ def test_cli_verified_mode_accepts_orphan_inside_sphinx_source(
     orphan.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--quiet", "--sphinx-src", str(tmp_path), str(orphan)],
+        ["check_rst.py", "--sphinx-src", str(tmp_path), "check", "--quiet", str(orphan)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -1760,7 +1760,7 @@ def test_cli_verified_mode_rejects_file_excluded_by_sphinx_environment(
     excluded.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--quiet", "--sphinx-src", str(tmp_path), str(excluded)],
+        ["check_rst.py", "--sphinx-src", str(tmp_path), "check", "--quiet", str(excluded)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -2007,7 +2007,7 @@ def test_cli_materializes_required_docutils_model_before_sphinx(
     monkeypatch.setattr(check_rst, "_rare_prose_words", lambda *_args: ([], 0))
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--no-directives", "--word-samples", "1", "--sphinx-src", str(rst_repo), str(p)],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "check", "--no-directives", "--word-samples", "1", str(p)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -2036,12 +2036,12 @@ def test_cli_verified_mode_surfaces_phase2_inconsistent_title_style(
         "sys.argv",
         [
             "check_rst.py",
-            "outline",
-            "--with-findings",
             "--sphinx-src",
             str(rst_repo),
             "--build-dir",
             str(rst_repo / "_build"),
+            "outline",
+            "--with-findings",
             str(p),
         ],
     )
@@ -2080,7 +2080,7 @@ def test_cli_verified_mode_deduplicates_same_phase2_and_phase3_finding(
         lambda *_args, **_kwargs: (env, raw_warning),
     )
     monkeypatch.setattr(check_rst, "run_sphinx", lambda *_args: [duplicate])
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--sphinx-src", str(rst_repo), str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "check", str(p)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -2193,7 +2193,7 @@ def test_cli_did_you_mean_suggested_for_broken_doc_reference(
     p = rst_repo / "index.rst"
     p.write_text("Title\n=====\n\n:doc:`other-pge`\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--sphinx-src", str(rst_repo), str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "check", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -2351,7 +2351,7 @@ def test_cli_refs_shows_outgoing_and_incoming(
     b = rst_repo / "b.rst"
     b.write_text("B\n=\n\n:doc:`a`\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "refs", "--sphinx-src", str(rst_repo), str(b)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "refs", str(b)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 0
@@ -2390,7 +2390,7 @@ def test_cli_refs_includes_parent_and_globbed_child_toctree_edges(
     (organs / "beta" / "index.rst").write_text("Beta\n====\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "refs", "--sphinx-src", str(rst_repo), str(target)],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "refs", str(target)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -2436,7 +2436,7 @@ def test_cli_refs_file_not_part_of_project(
     # test_docname_for_unreachable_file_returns_none.
     outside = tmp_path.parent / "not_in_this_project.rst"
     outside.write_text("Title\n=====\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "refs", "--sphinx-src", str(rst_repo), str(outside)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "refs", str(outside)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -2452,7 +2452,7 @@ def test_cli_refs_missing_file_errors_cleanly(
 ) -> None:
     (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
     missing = rst_repo / "missing.rst"
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "refs", "--sphinx-src", str(rst_repo), str(missing)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "refs", str(missing)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -2612,7 +2612,7 @@ def test_cli_bare_filenames_warning_shown(
     (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\nroot_doc = "a"\n', encoding="utf-8")
     (rst_repo / "a.rst").write_text("A\n=\n\nSee guide.rst for details.\n", encoding="utf-8")
     (rst_repo / "guide.rst").write_text("Guide\n=====\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--sphinx-src", str(rst_repo), str(rst_repo / "a.rst")])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "check", str(rst_repo / "a.rst")])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -2632,7 +2632,7 @@ def test_cli_json_bare_filenames_included(
     (rst_repo / "guide.rst").write_text("Guide\n=====\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--format=json", "--sphinx-src", str(rst_repo), str(rst_repo / "a.rst")],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "check", "--format=json", str(rst_repo / "a.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -3730,7 +3730,7 @@ def test_cli_fix_short_titles_converge_with_no_inconsistent_style(
     p.write_text("Doc\n###\n\nSub\n***\n\nDeep\n====\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "fix", "--sphinx-src", str(rst_repo), "--build-dir", str(rst_repo / "_build"), str(p)],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "--build-dir", str(rst_repo / "_build"), "fix", str(p)],
     )
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -4494,7 +4494,7 @@ def test_sphinx_src_missing_conf_py_errors_before_phase1(
     empty_dir = rst_repo / "not_sphinx"
     empty_dir.mkdir()
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--sphinx-src", str(empty_dir), str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(empty_dir), "check", str(p)])
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
     assert exc.value.code == 1
@@ -4516,7 +4516,7 @@ def test_sphinx_src_valid_dir_runs_phase2_and_phase3(
     p.write_text(_GOOD_BLOCK + "\n.. toctree::\n", encoding="utf-8")
     (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--sphinx-src", str(rst_repo), str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "check", str(p)])
     with pytest.raises(SystemExit):
         check_rst.main()
     out = capsys.readouterr().out
@@ -4540,7 +4540,7 @@ def test_cli_invalid_sphinx_configuration_is_clean_error_not_traceback(
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--sphinx-src", str(rst_repo), str(document)],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "check", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -4602,7 +4602,7 @@ def test_outline_with_sphinx_src_merges_headings_and_code_blocks(
     (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
 
     monkeypatch.setattr(
-        "sys.argv", ["check_rst.py", "outline", "--with-findings", "--sphinx-src", str(rst_repo), str(p)]
+        "sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", "--with-findings", str(p)]
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -4654,7 +4654,7 @@ def test_outline_with_sphinx_src_uses_sphinx_doctree_for_headings(
     monkeypatch.setattr(check_rst, "run_sphinx", lambda *_args: [])
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--no-adornments", "--no-directives", "--sphinx-src", str(rst_repo), str(p)],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", "--no-adornments", "--no-directives", str(p)],
     )
 
     with pytest.raises(SystemExit):
@@ -4754,7 +4754,7 @@ def test_cli_selected_toctree_parent_surfaces_child_anchored_anomaly(
     monkeypatch.setattr(check_rst, "run_sphinx", lambda *_args: [])
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--quiet", "--sphinx-src", str(tmp_path), str(parent)],
+        ["check_rst.py", "--sphinx-src", str(tmp_path), "check", "--quiet", str(parent)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -4813,7 +4813,7 @@ def test_toctree_recurses_into_included_documents(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -4848,7 +4848,7 @@ def test_toctree_recurses_across_multiple_levels(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -4882,7 +4882,7 @@ def test_toctree_cycle_is_reported_and_does_not_hang(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -4912,7 +4912,7 @@ def test_toctree_diamond_shows_heading_again_without_reexpanding(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -4936,7 +4936,7 @@ def test_toctree_sections_only_hides_container_keeps_cross_file_headings(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--sections-only", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", "--sections-only", str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -4961,7 +4961,7 @@ def test_toctree_outline_depth_bounds_across_file_boundary(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--outline-depth", "2", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", "--outline-depth", "2", str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -4990,7 +4990,7 @@ def test_no_toctree_flag_suppresses_recursion(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--no-toctree", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", "--no-toctree", str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -5022,7 +5022,7 @@ def test_toctree_json_shape_includes_toctrees_and_cross_file_ids(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--format=json", "--sphinx-src", str(rst_repo), str(rst_repo / "index.rst")],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "check", "--format=json", str(rst_repo / "index.rst")],
     )
     with pytest.raises(SystemExit):
         check_rst.main()
@@ -5284,12 +5284,12 @@ def test_skip_fixable_suppresses_sphinx_structural_duplicate_only(
         "sys.argv",
         [
             "check_rst.py",
-            "check",
-            "--skip-fixable",
             "--sphinx-src",
             str(tmp_path),
             "--build-dir",
             str(tmp_path / "_build"),
+            "check",
+            "--skip-fixable",
             str(document),
         ],
     )
@@ -5474,7 +5474,7 @@ def test_cli_missing_explicit_file_stops_before_all_check_phases(
     monkeypatch.setattr(check_rst, "run_sphinx", unexpected_sphinx)
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--sphinx-src", str(tmp_path), str(missing)],
+        ["check_rst.py", "--sphinx-src", str(tmp_path), "check", str(missing)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -5620,7 +5620,7 @@ def test_cli_file_valued_build_dir_stops_before_fix_or_phases(
     build_file.write_text("occupied", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "fix", "--sphinx-src", str(tmp_path), "--build-dir", str(build_file), str(p)],
+        ["check_rst.py", "--sphinx-src", str(tmp_path), "--build-dir", str(build_file), "fix", str(p)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -5644,7 +5644,7 @@ def test_cli_explicit_build_dir_requires_resolved_sphinx_source(
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--build-dir", str(tmp_path / "_build"), str(document)],
+        ["check_rst.py", "--build-dir", str(tmp_path / "_build"), "check", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -5695,7 +5695,7 @@ def test_cli_no_toctree_requires_format_json(
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--sphinx-src", str(tmp_path), "--no-toctree", str(document)],
+        ["check_rst.py", "--sphinx-src", str(tmp_path), "check", "--no-toctree", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -5724,7 +5724,7 @@ def test_cli_foreign_sphinx_file_stops_before_fix_or_phases(
     foreign.write_text(original, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "fix", "--sphinx-src", str(sphinx_src), str(foreign)],
+        ["check_rst.py", "--sphinx-src", str(sphinx_src), "fix", str(foreign)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7329,11 +7329,11 @@ def test_cli_fix_only_composes_hygiene_and_structure_with_structured_output(
     assert exc.value.code == 0
     assert document.read_bytes() == b"#########\nTitle A\n#########\n\nText.\n"
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0] == ("check_rst: fix-only scope — explicit/whole-file; hygiene and hierarchy are whole-file")
+    assert lines[0] == ("check_rst: fast scope — explicit/whole-file; hygiene and hierarchy are whole-file")
     assert lines[1] == (
         f"{document}: fixed — BOM 1, CRLF line endings 5, trailing whitespace lines 1, structural lines 2"
     )
-    assert lines[-1] == ("check_rst: 1 file(s) processed, 0 error(s), 1 file(s) fixed [fix-only]")
+    assert lines[-1] == ("check_rst: 1 file(s) processed, 0 error(s), 1 file(s) fixed [fast]")
     assert "Phase 1" not in "\n".join(lines)
     assert "Phase 2" not in "\n".join(lines)
     assert "Phase 3" not in "\n".join(lines)
@@ -7365,7 +7365,7 @@ def test_cli_fix_only_plans_all_inputs_before_writing_invalid_utf8(
     lines = capsys.readouterr().out.splitlines()
     assert any(f"{invalid}:2: ERROR: not valid UTF-8" in line for line in lines)
     assert not any(": fixed —" in line for line in lines)
-    assert lines[-1] == ("check_rst: 2 file(s) processed, 1 error(s), 0 file(s) fixed [fix-only]")
+    assert lines[-1] == ("check_rst: 2 file(s) processed, 1 error(s), 0 file(s) fixed [fast]")
 
 
 @pytest.mark.integration
@@ -7392,7 +7392,7 @@ def test_cli_fix_only_missing_sibling_aborts_before_writing(
     assert fixable.read_bytes() == original
     lines = capsys.readouterr().out.splitlines()
     assert f"check_rst: {missing}: file not found" in lines
-    assert lines[-1] == ("check_rst: 2 file(s) processed, 1 error(s), 0 file(s) fixed [fix-only]")
+    assert lines[-1] == ("check_rst: 2 file(s) processed, 1 error(s), 0 file(s) fixed [fast]")
 
 
 @pytest.mark.integration
@@ -7419,7 +7419,7 @@ def test_cli_fix_only_ignores_configured_sphinx_and_never_parses(
     monkeypatch.setattr(check_rst, "run_sphinx", unexpected_phase)
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "fix", "--fast", "--config", str(config), str(document)],
+        ["check_rst.py", "--config", str(config), "fix", "--fast", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -7427,8 +7427,51 @@ def test_cli_fix_only_ignores_configured_sphinx_and_never_parses(
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    assert "sphinx-src=missing-docs inactive (--fix-only)" in out
-    assert "build-dir=missing-build inactive (--fix-only)" in out
+    assert "sphinx-src=missing-docs inactive (--fast)" in out
+    assert "build-dir=missing-build inactive (--fast)" in out
+    assert check_rst.CALL_COUNTS["_parse_rst"] == 0
+    assert check_rst.CALL_COUNTS["_build_sphinx_env"] == 0
+    assert check_rst.CALL_COUNTS["run_sphinx"] == 0
+
+
+@pytest.mark.integration
+def test_cli_diff_fast_ignores_configured_sphinx_and_never_parses(
+    check_rst: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """diff --fast's sibling of the fix --fast case above — found live: the
+    config-inactive branch checked only args.fix_only, so diff --fast
+    silently applied a configured sphinx-src/build-dir instead of reporting
+    them inactive (confirmed by direct reproduction before the fix: fix
+    --fast printed 'inactive (--fast)' on this exact config, diff --fast
+    printed the values as if active, with no inactive marker at all)."""
+    document = tmp_path / "test.rst"
+    document.write_text(_BAD_BLOCK, encoding="utf-8")
+    config = tmp_path / "check-rst.toml"
+    config.write_text(
+        'sphinx-src = "missing-docs"\nbuild-dir = "missing-build"\n',
+        encoding="utf-8",
+    )
+
+    def unexpected_phase(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("diff --fast must not parse RST or construct/run Sphinx")
+
+    monkeypatch.setattr(check_rst, "_parse_rst", unexpected_phase)
+    monkeypatch.setattr(check_rst, "_build_sphinx_env", unexpected_phase)
+    monkeypatch.setattr(check_rst, "run_sphinx", unexpected_phase)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "--config", str(config), "diff", "--fast", str(document)],
+    )
+
+    with pytest.raises(SystemExit):
+        check_rst.main()
+
+    out = capsys.readouterr().out
+    assert "sphinx-src=missing-docs inactive (--fast)" in out
+    assert "build-dir=missing-build inactive (--fast)" in out
     assert check_rst.CALL_COUNTS["_parse_rst"] == 0
     assert check_rst.CALL_COUNTS["_build_sphinx_env"] == 0
     assert check_rst.CALL_COUNTS["run_sphinx"] == 0
@@ -7454,7 +7497,16 @@ def test_cli_fix_only_rejects_meaningless_options_before_actions(
     document = tmp_path / "test.rst"
     original = _BAD_BLOCK
     document.write_text(original, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", *extra, str(document)])
+    # --sphinx-src/--build-dir are global now (before the verb); --skip-fixable
+    # stays on fix's own parser (after the verb) — each extra goes wherever its
+    # own flag actually parses, exercising the same _validate_fast_allowlist
+    # rejection either way.
+    global_flags = {"--sphinx-src", "--build-dir"}
+    if extra and extra[0] in global_flags:
+        argv = ["check_rst.py", *extra, "fix", "--fast", str(document)]
+    else:
+        argv = ["check_rst.py", "fix", "--fast", *extra, str(document)]
+    monkeypatch.setattr("sys.argv", argv)
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -7504,7 +7556,7 @@ def test_cli_fix_only_quiet_emits_only_the_status_footer(
 
     assert exc.value.code == 0
     assert capsys.readouterr().out.splitlines() == [
-        "check_rst: 1 file(s) processed, 0 error(s), 1 file(s) fixed [fix-only]"
+        "check_rst: 1 file(s) processed, 0 error(s), 1 file(s) fixed [fast]"
     ]
 
 
@@ -7532,7 +7584,7 @@ def test_cli_fix_only_write_failure_is_nonzero_and_keeps_final_status(
     assert document.read_text(encoding="utf-8") == original
     lines = capsys.readouterr().out.splitlines()
     assert any("ERROR: cannot write fix: read-only filesystem" in line for line in lines)
-    assert lines[-1] == ("check_rst: 1 file(s) processed, 1 error(s), 0 file(s) fixed [fix-only]")
+    assert lines[-1] == ("check_rst: 1 file(s) processed, 1 error(s), 0 file(s) fixed [fast]")
 
 
 @pytest.mark.integration
@@ -7557,7 +7609,7 @@ def test_cli_fix_only_is_convergent_and_verbose_names_clean_files(
     assert second.value.code == 0
     lines = capsys.readouterr().out.splitlines()
     assert f"{document}: no fixable changes" in lines
-    assert lines[-1] == ("check_rst: 1 file(s) processed, 0 error(s), 0 file(s) fixed [fix-only]")
+    assert lines[-1] == ("check_rst: 1 file(s) processed, 0 error(s), 0 file(s) fixed [fast]")
 
 
 # ---------------------------------------------------------------------------
@@ -7783,7 +7835,7 @@ def test_cli_max_output_lines_supports_fix_only_without_masking_mutation(
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 2
     assert "0 of 2 detail line(s) shown, 2 skipped" in lines[0]
-    assert lines[1] == ("check_rst: 1 file(s) processed, 0 error(s), 1 file(s) fixed [fix-only]")
+    assert lines[1] == ("check_rst: 1 file(s) processed, 0 error(s), 1 file(s) fixed [fast]")
 
 
 @pytest.mark.integration
@@ -8822,7 +8874,7 @@ def test_config_cli_flags_override(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--sphinx-src", str(rst_repo), "--build-dir", str(rst_repo / "_build"), str(p)],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "--build-dir", str(rst_repo / "_build"), "check", str(p)],
     )
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -8851,6 +8903,79 @@ def test_config_unknown_key_fails_loudly(
     out = capsys.readouterr().out
     assert "sphix-src" in out
     assert "unknown key" in out
+
+
+@pytest.mark.integration
+def test_no_config_skips_auto_discovery(
+    check_rst: types.ModuleType,
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--no-config runs as if the working directory declared no project
+    facts at all — a valid, discoverable .check_rst.toml is never applied
+    (no "config: ..." echo, no verified Sphinx mode from its sphinx-src)."""
+    (rst_repo / ".check_rst.toml").write_text('sphinx-src = "."\n', encoding="utf-8")
+    p = rst_repo / "test.rst"
+    p.write_text(_GOOD_BLOCK, encoding="utf-8")
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "check", str(p)])
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "config:" not in out
+    assert "Sphinx" not in out.split("\n")[0]  # runtime line carries no Sphinx version
+
+
+@pytest.mark.integration
+def test_no_config_skips_even_a_malformed_config(
+    check_rst: types.ModuleType,
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The strongest evidence discovery is truly skipped, not just
+    deprioritized: a committed .check_rst.toml with an unknown key would
+    normally fail loudly on discovery alone (test_config_unknown_key_fails_
+    loudly above) — --no-config must never even read it, let alone validate
+    it, so the same file causes no error at all here."""
+    (rst_repo / ".check_rst.toml").write_text('sphix-src = "."\n', encoding="utf-8")
+    p = rst_repo / "test.rst"
+    p.write_text(_GOOD_BLOCK, encoding="utf-8")
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "check", str(p)])
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "unknown key" not in out
+
+
+@pytest.mark.integration
+def test_no_config_rejects_explicit_config(
+    check_rst: types.ModuleType,
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--no-config and --config are a direct contradiction — one says skip
+    config loading, the other explicitly requests it; neither can silently
+    win over the other."""
+    config = rst_repo / "check-rst.toml"
+    config.write_text('sphinx-src = "."\n', encoding="utf-8")
+    p = rst_repo / "test.rst"
+    p.write_text(_GOOD_BLOCK, encoding="utf-8")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "--no-config", "--config", str(config), "check", str(p)],
+    )
+    with pytest.raises(SystemExit) as exc:
+        check_rst.main()
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "--no-config is incompatible with --config" in out
 
 
 @pytest.mark.integration
@@ -8925,7 +9050,7 @@ def test_explicit_config_from_foreign_cwd_resolves_relative_values_from_config(
     monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--config", str(config.relative_to(foreign, walk_up=True)), str(document)],
+        ["check_rst.py", "--config", str(config.relative_to(foreign, walk_up=True)), "check", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -8961,7 +9086,7 @@ def test_explicit_config_bare_run_discovers_git_changes_from_config_root(
     foreign.mkdir()
     monkeypatch.chdir(foreign)
     monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--config", str(config)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), "check"])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -8990,7 +9115,7 @@ def test_explicit_config_suppresses_cwd_config_discovery(
     (foreign / ".check_rst.toml").write_text('sphix-src = "typo must not be loaded"\n', encoding="utf-8")
     monkeypatch.chdir(foreign)
     monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--config", str(config), str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), "check", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -9018,7 +9143,7 @@ def test_explicit_pyproject_config_uses_tool_table(
     foreign.mkdir()
     monkeypatch.chdir(foreign)
     monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--config", str(config), str(document)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), "check", str(document)])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -9047,7 +9172,7 @@ def test_explicit_config_json_uses_config_root_for_document_ids(
     monkeypatch.setattr(check_rst, "PROJECT_ROOT", foreign)
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--format=json", "--config", str(config), str(document)],
+        ["check_rst.py", "--config", str(config), "check", "--format=json", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -9091,7 +9216,7 @@ def test_explicit_config_errors_cleanly_before_actions(
     monkeypatch.setattr(check_rst, "_changed_rst_files", unexpected_action)
     monkeypatch.setattr(check_rst, "_build_sphinx_env", unexpected_action)
     monkeypatch.setattr(check_rst, "run_sphinx", unexpected_action)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--config", str(config)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), "check"])
 
     with pytest.raises(SystemExit) as exc:
         check_rst.main()
@@ -9126,13 +9251,13 @@ def test_explicit_config_values_are_overridden_by_cli_paths(
         "sys.argv",
         [
             "check_rst.py",
-            "check",
             "--config",
             str(config),
             "--sphinx-src",
             str(rst_repo),
             "--build-dir",
             str(build_dir),
+            "check",
             str(document),
         ],
     )
@@ -9160,7 +9285,7 @@ def test_refs_accepts_explicit_config(
     config.write_text('sphinx-src = "."\nbuild-dir = "_build"\n', encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "refs", "--config", str(config), str(document)],
+        ["check_rst.py", "--config", str(config), "refs", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -9237,11 +9362,11 @@ def test_call_counts_verified_run_builds_exactly_once(
         "sys.argv",
         [
             "check_rst.py",
-            "check",
             "--sphinx-src",
             str(rst_repo),
             "--build-dir",
             str(rst_repo / "_build"),
+            "check",
             str(a),
             str(b),
         ],
@@ -9391,7 +9516,7 @@ def test_cli_json_no_warnings_filters_sphinx_findings(
     document.write_text("#######\nTitle\n#######\n\nSee :doc:`missing`.\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--format=json", "--no-warnings", "--sphinx-src", str(rst_repo), str(document)],
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "check", "--format=json", "--no-warnings", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -11777,7 +11902,7 @@ def test_cli_context_verified_references_are_scoped_to_selected_entry(
     (tmp_path / "outside.rst").write_text("Outside\n=======\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "context", "target:Details", "--sphinx-src", str(tmp_path), str(target)],
+        ["check_rst.py", "--sphinx-src", str(tmp_path), "context", "target:Details", str(target)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -11815,7 +11940,7 @@ def test_cli_context_resolves_nested_cross_file_toctree_in_its_source_document(
     grandchild.write_text("Grandchild\n==========\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "context", "child:toctree@4", "--sphinx-src", str(tmp_path), str(index)],
+        ["check_rst.py", "--sphinx-src", str(tmp_path), "context", "child:toctree@4", str(index)],
     )
 
     with pytest.raises(SystemExit) as exc:

@@ -48,6 +48,7 @@ _FULL_ATTR_CONTRACT = frozenset(
         "json",
         "max_output_lines",
         "no_adornments",
+        "no_config",
         "no_directives",
         "no_toctree",
         "no_warnings",
@@ -102,7 +103,7 @@ def test_diff_json_verb_requires_exactly_two_positionals(check_rst: types.Module
 
 @pytest.mark.unit
 def test_refs_verb_populates_full_attribute_contract(check_rst: types.ModuleType) -> None:
-    args = _parse(check_rst, ["refs", "--sphinx-src", "docs", "file.rst"])
+    args = _parse(check_rst, ["--sphinx-src", "docs", "refs", "file.rst"])
     assert args.command == "refs"
     assert vars(args).keys() >= _FULL_ATTR_CONTRACT
     assert args.refs == pathlib.Path("file.rst")
@@ -220,7 +221,7 @@ def test_fix_fast_allows_verbose_and_max_output_lines(check_rst: types.ModuleTyp
 
 @pytest.mark.unit
 def test_fix_fast_rejects_sphinx_src(check_rst: types.ModuleType) -> None:
-    args = _parse(check_rst, ["fix", "--fast", "--sphinx-src", "docs"])
+    args = _parse(check_rst, ["--sphinx-src", "docs", "fix", "--fast"])
     with pytest.raises(SystemExit) as exc:
         check_rst._validate_fast_allowlist(args, "fix")
     assert exc.value.code == 1
@@ -383,3 +384,91 @@ def test_check_max_output_lines_incompatible_with_format_json(check_rst: types.M
 def test_check_max_output_lines_allowed_in_text_format(check_rst: types.ModuleType) -> None:
     args = _parse(check_rst, ["check", "--max-output-lines", "5", "file.rst"])
     check_rst._validate_check_args(args)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Global options: --config/--no-config/--sphinx-src/--build-dir moved to the
+# main parser (git-style: before the verb), stage 6 of the approved plan —
+# see docs/roadmap.rst, "Subcommands: flag-soup incompatibilities become
+# verbs". RED motivation: argparse's _SubParsersAction.__call__ parses each
+# subparser into a *fresh* Namespace, then unconditionally copies every one
+# of its keys back onto the parent — no hasattr guard at that merge step.
+# Leaving these four names in _CLI_ATTR_DEFAULTS (so every subparser's own
+# set_defaults() call still defines them) silently resets them to their
+# None/False defaults after the merge, clobbering whatever the main parser
+# already parsed. These tests pin the fix: the four names must be absent
+# from _CLI_ATTR_DEFAULTS, and a global flag's value must survive an
+# arbitrary verb dispatch.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_cli_attr_defaults_excludes_global_project_flags(check_rst: types.ModuleType) -> None:
+    """The clobber precondition: if any of these four reappear in
+    _CLI_ATTR_DEFAULTS, every subparser's set_defaults() call defines them
+    again, and _SubParsersAction's unconditional merge resets them after
+    the main parser already parsed the user's global value."""
+    assert not ({"config", "no_config", "sphinx_src", "build_dir"} & check_rst._CLI_ATTR_DEFAULTS.keys())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("verb", ["check", "fix", "diff", "outline", "refs", "context"])
+def test_global_sphinx_src_survives_verb_dispatch(check_rst: types.ModuleType, verb: str) -> None:
+    """Direct regression for the clobber bug: --sphinx-src, placed before
+    the verb, must still be set after the subparser merge, for every verb
+    that can read it."""
+    tail = {
+        "refs": ["file.rst"],
+        "context": ["entry", "file.rst"],
+    }.get(verb, ["file.rst"])
+    args = _parse(check_rst, ["--sphinx-src", "docs", verb, *tail])
+    assert args.sphinx_src == pathlib.Path("docs")
+
+
+@pytest.mark.unit
+def test_global_project_flags_rejected_after_verb(check_rst: types.ModuleType) -> None:
+    """--sphinx-src no longer has a home on any subparser — placed after
+    the verb, argparse must reject it as unrecognized, not silently accept
+    a now-orphaned flag."""
+    parser = check_rst._build_cli_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["check", "--sphinx-src", "docs", "file.rst"])
+    assert exc.value.code == 2
+
+
+@pytest.mark.unit
+def test_no_config_survives_verb_dispatch(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["--no-config", "check", "file.rst"])
+    assert args.no_config is True
+
+
+@pytest.mark.unit
+def test_no_config_rejects_explicit_config(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["--no-config", "--config", "x.toml", "check", "file.rst"])
+    with pytest.raises(SystemExit) as exc:
+        check_rst._validate_config_flags(args)
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_config_alone_passes_config_flags_validation(check_rst: types.ModuleType) -> None:
+    args = _parse(check_rst, ["--config", "x.toml", "check", "file.rst"])
+    check_rst._validate_config_flags(args)  # must not raise
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("flag", ["--config", "--sphinx-src", "--build-dir"])
+def test_diff_json_rejects_each_global_project_flag(check_rst: types.ModuleType, flag: str) -> None:
+    args = _parse(check_rst, [flag, "x", "diff-json", "old.json", "new.json"])
+    with pytest.raises(SystemExit) as exc:
+        check_rst._validate_diff_json_args(args)
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_diff_json_allows_no_config(check_rst: types.ModuleType) -> None:
+    """--no-config asks the tool NOT to do something diff-json was never
+    going to do anyway (read a project config) — a harmless no-op, not an
+    incompatible combination worth rejecting."""
+    args = _parse(check_rst, ["--no-config", "diff-json", "old.json", "new.json"])
+    check_rst._validate_diff_json_args(args)  # must not raise

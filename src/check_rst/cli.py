@@ -5,12 +5,15 @@
 """
 Check .rst files against a project's reStructuredText formatting rules.
 
-The script is project-agnostic: by default it uses the current working
-directory as the project root; --config FILE explicitly selects another
-project from anywhere.  It accepts --sphinx-src to name the Sphinx source
-directory for Phase 2 (e.g. the repo root, or docs/ when the source is a
-subdir).  Install its ``check_rst`` console entry point once and call it from
-any project without maintaining per-project copies.
+--config/--no-config/--sphinx-src/--build-dir are global options, given
+before the verb (e.g. ``check_rst --sphinx-src docs check file.rst``), same
+as ``git``'s own ``-C``/``--git-dir``: by default the working directory is
+the project root; --config FILE explicitly selects another project from
+anywhere, --no-config skips .check_rst.toml/pyproject.toml discovery
+entirely, and --sphinx-src DIR names the Sphinx source directory for Phase 2
+(e.g. the repo root, or docs/ when the source is a subdir). Install its
+``check_rst`` console entry point once and call it from any project without
+maintaining per-project copies.
 
 Four phases:
 
@@ -169,13 +172,14 @@ Exit codes:
 Common examples::
 
     check_rst check                         # changed *.rst (git), diff-scoped; Phase 2 heuristic, Phase 3 skipped
-    check_rst check --sphinx-src .          # Phase 2/3 verified via real Sphinx (conf.py at repo root)
-    check_rst check --config /repo/.check_rst.toml /repo/doc.rst  # select a project config from any cwd
-    check_rst check --config /repo/.check_rst.toml  # changed *.rst in that config's Git project
+    check_rst --sphinx-src . check          # Phase 2/3 verified via real Sphinx (conf.py at repo root)
+    check_rst --config /repo/.check_rst.toml check /repo/doc.rst  # select a project config from any cwd
+    check_rst --config /repo/.check_rst.toml check  # changed *.rst in that config's Git project
+    check_rst --no-config check             # skip .check_rst.toml/pyproject.toml discovery entirely
     check_rst check --git-scope doc.rst     # allowlisted changed file, still diff-scoped
     check_rst check calendar/.../Notes.rst  # explicit file(s), full check, Phase 2 heuristic, Phase 3 skipped
     check_rst check --no-warnings calendar/...  # errors only, suppress warnings
-    check_rst check --sphinx-src docs/ docs/ota.rst  # Phase 2/3 verified when Sphinx src is a subdir
+    check_rst --sphinx-src docs/ check docs/ota.rst  # Phase 2/3 verified when Sphinx src is a subdir
     check_rst check -- $(git diff --name-only HEAD)  # explicit list, full check; non-.rst skipped
     check_rst fix --git-scope doc.rst       # fix only an allowlisted changed file
     check_rst fix --fast                    # fast mutation pass; run a full check afterwards
@@ -5372,10 +5376,7 @@ def _run_context_query(
         candidates = _context_candidates(entries, local_docname)
         matches = _resolve_context_matches(entries, query, local_docname)
         if not matches:
-            print(
-                f"check_rst: {path}: no exact entry match for {query!r}\n"
-                f"hint: inspect selectors with --outline-only {path}"
-            )
+            print(f"check_rst: {path}: no exact entry match for {query!r}\nhint: inspect selectors with outline {path}")
             return 1
         if len(matches) > 1:
             print(_format_context_candidates(path, query, candidates, matches))
@@ -5888,8 +5889,8 @@ def _print_findings(
 
 
 def _print_fix_only_status(processed: int, errors: int, fixed: int) -> None:
-    """Print the mandatory final status line for ``--fix-only``."""
-    _emit_final_status(f"check_rst: {processed} file(s) processed, {errors} error(s), {fixed} file(s) fixed [fix-only]")
+    """Print the mandatory final status line for ``fix --fast`` (was ``--fix-only``)."""
+    _emit_final_status(f"check_rst: {processed} file(s) processed, {errors} error(s), {fixed} file(s) fixed [fast]")
 
 
 def _run_fix_only(
@@ -5904,7 +5905,7 @@ def _run_fix_only(
 ) -> NoReturn:
     """Plan every selected mutation, then write and report structured results."""
     if not quiet:
-        print(f"check_rst: fix-only scope — {scope}")
+        print(f"check_rst: fast scope — {scope}")
 
     plans: list[FixPlan] = []
     errors = 0
@@ -5972,12 +5973,26 @@ def _run_fix_only(
 # regardless of which verb reached it — parser-level defaults always win over
 # an omitted flag, and are always overridden by a flag the verb's own parser
 # actually defines and the user passed.
+#
+# build_dir/config/no_config/sphinx_src are deliberately ABSENT from this
+# dict, unlike every other name the pipeline reads — they are the global
+# options (_add_project_flags, defined once on the main parser, before the
+# verb). argparse's _SubParsersAction.__call__ parses each subparser into a
+# *fresh* Namespace, then unconditionally copies every one of its keys back
+# onto the parent (`for key, value in vars(subnamespace).items():
+# setattr(namespace, key, value)` — no hasattr guard at that step, unlike
+# the single-parser default-fill loop). If these four names stayed in
+# _CLI_ATTR_DEFAULTS, every subparser's own set_defaults() call would
+# silently reset them to None/False on the shared namespace, clobbering
+# whatever the user passed before the verb — confirmed by direct
+# reproduction: --no-config check file.rst measured args.no_config as
+# False. Keep this dict's four project-flag names removed, not "safe to
+# re-add" — the clobber is a property of the merge step, not of any
+# ordering trick played here.
 # ---------------------------------------------------------------------------
 
 _CLI_ATTR_DEFAULTS: dict[str, object] = {
-    "build_dir": None,
     "collapse_title_spaces": False,
-    "config": None,
     "context": None,
     "diff": False,
     "diff_json": None,
@@ -6003,14 +6018,18 @@ _CLI_ATTR_DEFAULTS: dict[str, object] = {
     "sections_only": False,
     "single_space_prose": False,
     "skip_fixable": False,
-    "sphinx_src": None,
     "verbose": False,
     "word_samples": None,
 }
 
 
 def _add_project_flags(parser: argparse.ArgumentParser) -> None:
-    """--config/--sphinx-src/--build-dir — shared by every verb that can run verified Sphinx."""
+    """--config/--no-config/--sphinx-src/--build-dir — global options
+    identifying which project/repo to operate on, added once to the main
+    parser (before the verb, git-style: ``check_rst --sphinx-src DIR check
+    file.rst``, not ``check_rst check --sphinx-src DIR file.rst``). Every
+    verb except diff-json can read them; diff-json is fully self-contained
+    and rejects them explicitly (see _validate_diff_json_args)."""
     parser.add_argument(
         "--config",
         type=pathlib.Path,
@@ -6021,6 +6040,18 @@ def _add_project_flags(parser: argparse.ArgumentParser) -> None:
             ".check_rst.toml or pyproject.toml in cwd. Relative sphinx-src "
             "and build-dir values, and bare Git file discovery, are rooted "
             "at FILE's directory; positional CLI paths remain cwd-relative"
+        ),
+    )
+    parser.add_argument(
+        "--no-config",
+        action="store_true",
+        help=(
+            "skip .check_rst.toml/pyproject.toml auto-discovery entirely — run "
+            "with CLI-only defaults, as if the working directory declared no "
+            "project facts. A malformed or unknown-key config would otherwise "
+            "fail loudly on discovery alone, before CLI flags get a say; this "
+            "opts fully out instead of requiring the file to be valid first. "
+            "Incompatible with --config, which explicitly requests a config"
         ),
     )
     parser.add_argument(
@@ -6070,13 +6101,6 @@ def _add_no_toctree_flag(parser: argparse.ArgumentParser) -> None:
             "toctree's own maxdepth"
         ),
     )
-
-
-def _build_single_file_parent() -> argparse.ArgumentParser:
-    """Shared parent for verbs scoped to exactly one file: context, refs."""
-    parent = argparse.ArgumentParser(add_help=False)
-    _add_project_flags(parent)
-    return parent
 
 
 def _add_scope_flags(parser: argparse.ArgumentParser) -> None:
@@ -6199,12 +6223,12 @@ def _add_report_filters(parser: argparse.ArgumentParser) -> None:
         "--skip-fixable",
         action="store_true",
         help=(
-            "suppress ERROR-level findings that --fix resolves automatically "
+            "suppress ERROR-level findings that fix resolves automatically "
             "(byte hygiene: BOM/line endings/trailing whitespace; wrong "
             "adornment length, underline-only titles, hierarchy char order); "
             "human-review WARNINGs remain visible; unrelated non-fixable input, "
             "UTF-8, or Sphinx ERRORs still fail the run. Use on the pre-fix pass "
-            "to focus on what needs human attention before running --fix"
+            "to focus on what needs human attention before running fix"
         ),
     )
     parser.add_argument(
@@ -6241,7 +6265,6 @@ def _build_full_parent() -> argparse.ArgumentParser:
             "aborts the complete check/fix before a phase or write starts"
         ),
     )
-    _add_project_flags(parent)
     _add_scope_flags(parent)
     _add_quiet_verbose_words(parent)
     _add_report_filters(parent)
@@ -6345,6 +6368,15 @@ def _validate_fast_allowlist(args: argparse.Namespace, verb: str) -> None:
         raise SystemExit(1)
 
 
+def _validate_config_flags(args: argparse.Namespace) -> None:
+    """--no-config and --config are mutually exclusive — asking to both
+    explicitly load a config file and skip config loading is a
+    contradiction, not a request either flag alone could satisfy."""
+    if args.no_config and args.config is not None:
+        print("check_rst: --no-config is incompatible with --config")
+        raise SystemExit(1)
+
+
 def _validate_full_scope_args(args: argparse.Namespace) -> None:
     """--exclude/--git-scope/--recursive peer-flag rules shared by every verb
     built on _build_full_parent (check/fix/diff/outline) — legitimate peers
@@ -6391,9 +6423,9 @@ checks entirely:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    _add_project_flags(parser)
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
-    single_file = _build_single_file_parent()
     full = _build_full_parent()
     mutating = _build_mutating_parent()
 
@@ -6478,9 +6510,8 @@ checks entirely:
             "shown alongside so the HIERARCHY rank stays inferable. Always "
             "whole-document, never diff-scoped. Purely informational — "
             "never affects the exit code. Structure-only by default (no "
-            "finding lines, same as today's --outline-only) — pass "
-            "--with-findings to layer bold/rubric WARNING findings on top, "
-            "today's plain --outline behavior. Always prints once, during "
+            "finding lines) — pass --with-findings to layer bold/rubric "
+            "WARNING findings on top of the structure view. Always prints once, during "
             "Phase 2, never Phase 1: with --sphinx-src, headings + "
             "code-blocks from a real Sphinx env, verified; without it, the "
             "same shape from a heuristic text-search code-block detector "
@@ -6547,7 +6578,6 @@ checks entirely:
 
     refs_p = sub.add_parser(
         "refs",
-        parents=[single_file],
         help="per-file :doc:/:ref: reference report",
         description=(
             "Per-file :doc:/:ref: reference report: this file's own OUTGOING "
@@ -6562,7 +6592,6 @@ checks entirely:
 
     context_p = sub.add_parser(
         "context",
-        parents=[single_file],
         help="targeted pre-edit briefing for one entry",
         description=(
             "Targeted pre-edit briefing for one exact entry in the same "
@@ -6646,6 +6675,26 @@ def _validate_check_args(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def _validate_diff_json_args(args: argparse.Namespace) -> None:
+    """diff-json is fully self-contained — no RST project is ever read, so
+    the global project-identity options (--config/--sphinx-src/--build-dir,
+    _add_project_flags) never apply to it. Reject rather than silently
+    ignore, the same fail-loudly precedent as every other verb-incompatible
+    combination (_validate_fast_allowlist, _validate_check_args)."""
+    active = [
+        flag
+        for flag, value in (
+            ("--config", args.config),
+            ("--sphinx-src", args.sphinx_src),
+            ("--build-dir", args.build_dir),
+        )
+        if value is not None
+    ]
+    if active:
+        print(f"check_rst: diff-json is self-contained — incompatible argument(s): {', '.join(active)}")
+        raise SystemExit(1)
+
+
 def _argument_is_set(value: object) -> bool:
     """Return whether an argparse value represents an explicitly active option."""
     if value is None or value is False:
@@ -6661,6 +6710,7 @@ def _main() -> None:
     _backfill_post_parse(args)
     explicit_build_dir = args.build_dir is not None
     _hints_shown.clear()  # once per RUN, not carried over between main() calls
+    _validate_config_flags(args)
     if args.max_output_lines is not None and args.max_output_lines < 2:
         print("check_rst: --max-output-lines must be >= 2")
         raise SystemExit(1)
@@ -6680,6 +6730,8 @@ def _main() -> None:
         _validate_outline_args(args)
     elif args.command == "context":
         _validate_context_args(args)
+    elif args.command == "diff-json":
+        _validate_diff_json_args(args)
 
     if args.diff_json is not None:
         old_path, new_path = (pathlib.Path(p) for p in args.diff_json)
@@ -6712,23 +6764,25 @@ def _main() -> None:
 
     # Per-repo config fills only what the CLI left unset — CLI always wins.
     # The TOML and schema are always validated; an overridden path value is
-    # never applied or checked for conf.py/directory existence.
-    loaded_config = _load_config(args.config)
+    # never applied or checked for conf.py/directory existence. --no-config
+    # skips discovery entirely — even a malformed committed file never gets
+    # read, let alone validated, when the run explicitly opts out.
+    loaded_config = LoadedConfig("", PROJECT_ROOT.resolve(), {}) if args.no_config else _load_config(args.config)
     config_source = loaded_config.source
     config = loaded_config.values
     project_root = loaded_config.root if args.config is not None else PROJECT_ROOT
     config_applied: list[str] = []
     config_inactive: list[str] = []
     if args.sphinx_src is None and "sphinx-src" in config:
-        if args.fix_only:
-            config_inactive.append(f"sphinx-src={config['sphinx-src']} inactive (--fix-only)")
+        if args.fix_only or args.diff_only:
+            config_inactive.append(f"sphinx-src={config['sphinx-src']} inactive (--fast)")
         else:
             configured = pathlib.Path(config["sphinx-src"]).expanduser()
             args.sphinx_src = configured if configured.is_absolute() else (loaded_config.root / configured).resolve()
             config_applied.append(f"sphinx-src={config['sphinx-src']}")
     if args.build_dir is None and "build-dir" in config:
-        if args.fix_only:
-            config_inactive.append(f"build-dir={config['build-dir']} inactive (--fix-only)")
+        if args.fix_only or args.diff_only:
+            config_inactive.append(f"build-dir={config['build-dir']} inactive (--fast)")
         elif args.sphinx_src is None:
             config_inactive.append(f"build-dir={config['build-dir']} inactive (no sphinx-src)")
         else:
