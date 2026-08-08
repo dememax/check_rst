@@ -7246,180 +7246,109 @@ def _argument_is_set(value: object) -> bool:
     return True
 
 
-def _main() -> None:
-    parser = _build_cli_parser()
-    args = parser.parse_args()
-    _backfill_post_parse(args)
-    explicit_build_dir = args.build_dir is not None
-    _hints_shown.clear()  # once per RUN, not carried over between main() calls
-    _validate_config_flags(args)
-    if args.max_output_lines is not None and args.max_output_lines < 2:
-        print("check_rst: --max-output-lines must be >= 2")
-        raise SystemExit(1)
-    # Per-verb validation replacing the old flat-CLI's hand-written
-    # incompatibility matrix (docs/roadmap.rst, "Subcommands: flag-soup
-    # incompatibilities become verbs") — _validate_full_scope_args is safe
-    # unconditionally: --recursive/--git-scope/--exclude default to
-    # False/False/[] on every verb that doesn't define them, so it no-ops
-    # there. The rest are scoped to the one verb whose parser can actually
-    # make them non-default.
-    _validate_full_scope_args(args)
-    if args.command == "check":
-        _validate_check_args(args)
-    elif args.command in ("fix", "diff") and args.fast:
-        _validate_fast_allowlist(args, args.command)
-    elif args.command == "outline":
-        _validate_outline_args(args)
-    elif args.command == "context":
-        _validate_context_args(args)
-    elif args.command == "diff-json":
-        _validate_diff_json_args(args)
-    elif args.command == "list-table":
-        _validate_list_table_args(args)
-
-    if args.diff_json is not None:
-        old_path, new_path = (pathlib.Path(p) for p in args.diff_json)
-        old_data = _load_json_dump(old_path)
-        new_data = _load_json_dump(new_path)
-        print(_format_json_diff(_diff_json_dumps(old_data, new_data)))
-        sys.exit(0)
-
-    if args.word_samples is not None and args.word_samples < 0:
-        print("check_rst: --word-samples must be >= 0")
-        sys.exit(1)
-    # Resolved sample count for top/rare prose words, footer and JSON alike
-    # (Max, 2026-07-20): explicit --word-samples always wins and promotes
-    # the lines at any verbosity level; otherwise --verbose defaults to 10;
-    # otherwise 0 — meaning the stopword/stemmer computation is skipped
-    # entirely, not merely hidden.
-    word_samples = args.word_samples if args.word_samples is not None else (10 if args.verbose else 0)
-
-    if args.outline_only:
-        args.outline = True
-        args.quiet = True
-
-    if args.json:
-        args.quiet = True
-
-    if args.context is not None:
-        args.quiet = True
-
-    suppress_findings = args.outline_only or args.json
-
-    # Per-repo config fills only what the CLI left unset — CLI always wins.
-    # The TOML and schema are always validated; an overridden path value is
-    # never applied or checked for conf.py/directory existence. --no-config
-    # skips discovery entirely — even a malformed committed file never gets
-    # read, let alone validated, when the run explicitly opts out.
-    loaded_config = LoadedConfig("", PROJECT_ROOT.resolve(), {}) if args.no_config else _load_config(args.config)
-    config_source = loaded_config.source
-    config = loaded_config.values
-    project_root = loaded_config.root if args.config is not None else PROJECT_ROOT
-    config_applied: list[str] = []
-    config_inactive: list[str] = []
-    # list-table never consults Sphinx (_validate_list_table_args already
-    # rejects --sphinx-src/--build-dir as *explicit* flags for this verb,
-    # same rationale as --fast) — found by code review: this branch only
-    # checked --fast (fix_only/diff_only), so a configured sphinx-src/
-    # build-dir was silently APPLIED for list-table too, which then made
-    # the later foreign-files/conf.py checks (Sphinx-mode-only) reject an
-    # otherwise-valid list-table run. --config itself stays active either
-    # way — it still roots project/Git-scope discovery for this verb.
-    sphinx_inactive = args.fix_only or args.diff_only or args.command == "list-table"
-    if args.sphinx_src is None and "sphinx-src" in config:
-        if sphinx_inactive:
-            reason = "--fast" if (args.fix_only or args.diff_only) else "list-table"
-            config_inactive.append(f"sphinx-src={config['sphinx-src']} inactive ({reason})")
-        else:
-            configured = pathlib.Path(config["sphinx-src"]).expanduser()
-            args.sphinx_src = configured if configured.is_absolute() else (loaded_config.root / configured).resolve()
-            config_applied.append(f"sphinx-src={config['sphinx-src']}")
-    if args.build_dir is None and "build-dir" in config:
-        if sphinx_inactive:
-            reason = "--fast" if (args.fix_only or args.diff_only) else "list-table"
-            config_inactive.append(f"build-dir={config['build-dir']} inactive ({reason})")
-        elif args.sphinx_src is None:
-            config_inactive.append(f"build-dir={config['build-dir']} inactive (no sphinx-src)")
-        else:
-            configured = pathlib.Path(config["build-dir"]).expanduser()
-            args.build_dir = configured if configured.is_absolute() else (loaded_config.root / configured).resolve()
-            config_applied.append(f"build-dir={config['build-dir']}")
-    if config_source and not args.quiet:
-        config_details = [*config_applied, *config_inactive]
-        print(
-            f"config: {config_source} — "
-            + (", ".join(config_details) if config_details else "no Sphinx settings applied")
-        )
-
-    runtime_metadata = _runtime_metadata(
-        verified=args.sphinx_src is not None,
-        word_samples=bool(word_samples),
-    )
-
-    def require_verified_sphinx(option: str) -> NoReturn:
-        print(
-            f"check_rst: {option} requires verified Sphinx mode — "
-            "pass --sphinx-src DIR or --config FILE whose check_rst "
-            "settings declare sphinx-src"
-        )
-        raise SystemExit(1)
-
-    if explicit_build_dir and args.sphinx_src is None and not args.diff_only:
-        require_verified_sphinx("--build-dir")
-
-    if args.no_toctree and args.sphinx_src is None:
-        require_verified_sphinx("--no-toctree")
-    # The old "--no-toctree requires one of outline/outline-only/json/
-    # context" half is now structurally impossible: --no-toctree only
-    # exists on check/outline/context's own parsers, and each of those
-    # already guarantees the condition on its own (check via
-    # _validate_check_args requiring --format=json; outline's own
-    # set_defaults(outline=True); context's own args.context backfill) —
-    # see docs/roadmap.rst, "Subcommands: flag-soup incompatibilities
-    # become verbs".
-
-    # --sphinx-src is a deliberate opt-in to Phase 2; a path given without a
-    # conf.py in it is a mistake worth failing on immediately, not silently
-    # skipping (see module docstring, "Phase 2 — Sphinx build integrity check").
-    if not args.diff_only and args.sphinx_src is not None and not (args.sphinx_src / "conf.py").is_file():
-        print(f"check_rst: no conf.py found in --sphinx-src {args.sphinx_src}")
-        sys.exit(1)
-
-    if not args.diff_only and args.build_dir is not None:
-        existing = args.build_dir
-        while not existing.exists() and existing.parent != existing:
-            existing = existing.parent
-        if not existing.is_dir():
-            print(f"check_rst: --build-dir {args.build_dir}: {existing} is not a directory")
-            sys.exit(1)
-
-    if args.refs is not None:
-        if args.sphinx_src is None:
-            require_verified_sphinx("--refs")
-        if not args.refs.is_file():
-            problem = "No such file or directory" if not args.refs.exists() else "not a regular file"
-            print(f"check_rst: {args.refs}: {problem}")
-            sys.exit(1)
-        if not args.refs.resolve().is_relative_to(args.sphinx_src.resolve()):
-            print(f"check_rst: {args.refs}: not part of --sphinx-src {args.sphinx_src}")
-            sys.exit(1)
-        print(_format_runtime(runtime_metadata))
-        keep_build = args.build_dir is not None
-        build_dir = args.build_dir if keep_build else pathlib.Path(tempfile.mkdtemp(prefix="check_rst_"))
+def _run_diff_only(
+    files: list[pathlib.Path],
+    whole_file: bool,
+    project_root: pathlib.Path,
+    *,
+    no_adornments: bool,
+) -> NoReturn:
+    """diff's own non-fast, read-only preview: byte-hygiene + adornment/
+    hierarchy diff only, no lint/statistics/Sphinx (that's Phase 1-3, the
+    check/fix pipeline's own job). Split out of _main() alongside the
+    other _run_* handlers — self-contained given files/whole_file/
+    project_root, which _discover_and_validate_files already resolved."""
+    preview_changes = 0
+    errors = 0
+    for path in files:
         try:
-            env, _warning_text = _build_sphinx_env_checked(args.sphinx_src, build_dir, files=[args.refs])
-            docname = _docname_for(env, args.refs)
-            if docname is None:
-                print(f"check_rst: {args.refs}: not part of the --sphinx-src project")
-                sys.exit(1)
-            outgoing = find_references(env, docname)
-            incoming = find_incoming_references(env, docname)
-            print(_format_references(args.refs, outgoing, incoming))
-        finally:
-            if not keep_build:
-                shutil.rmtree(build_dir, ignore_errors=True)
-        sys.exit(0)
+            preview = diff_fixes(
+                path,
+                whole_file,
+                include_structure=not no_adornments,
+                include_blank_lines=False,
+                collapse_title_spaces=False,
+                single_space_prose=False,
+                project_root=project_root,
+            )
+        except UnicodeDecodeError as exc:
+            err_line = exc.object.count(b"\n", 0, exc.start) + 1
+            _emit_report_line(
+                f"{path}:{err_line}: ERROR: not valid UTF-8 ({exc.reason} at byte offset {exc.start})",
+                "ERROR",
+            )
+            errors += 1
+            continue
+        if preview:
+            print(preview, end="")
+            preview_changes += 1
+    _emit_final_status(
+        f"check_rst: {len(files)} file(s) checked, {errors} error(s), {preview_changes} file(s) would change"
+    )
+    sys.exit(1 if errors or preview_changes else 0)
 
+
+def _run_diff_json(args: argparse.Namespace) -> NoReturn:
+    """diff-json's own fully self-contained verb body — no RST project is
+    ever read (_validate_diff_json_args already rejects every project-
+    identity flag), so this needs nothing from _main() beyond args itself.
+    Split out of _main() (found by code review: _main was a single
+    ~1000-line function with no seams) as the first, easiest-to-isolate
+    piece — every other branch below this one in _main needs project_root/
+    config/runtime_metadata that diff-json never touches."""
+    old_path, new_path = (pathlib.Path(p) for p in args.diff_json)
+    old_data = _load_json_dump(old_path)
+    new_data = _load_json_dump(new_path)
+    print(_format_json_diff(_diff_json_dumps(old_data, new_data)))
+    sys.exit(0)
+
+
+def _run_refs(args: argparse.Namespace, runtime_metadata: dict[str, Any]) -> NoReturn:
+    """--refs' own self-contained verb body: one file's outgoing/incoming
+    cross-references, always exactly one document, always its own
+    throwaway Sphinx build unless --build-dir asks to keep it. Split out
+    of _main() alongside _run_diff_json — same rationale, a clean,
+    already fully self-contained branch."""
+    if args.sphinx_src is None:
+        _require_verified_sphinx("--refs")
+    if not args.refs.is_file():
+        problem = "No such file or directory" if not args.refs.exists() else "not a regular file"
+        print(f"check_rst: {args.refs}: {problem}")
+        sys.exit(1)
+    if not args.refs.resolve().is_relative_to(args.sphinx_src.resolve()):
+        print(f"check_rst: {args.refs}: not part of --sphinx-src {args.sphinx_src}")
+        sys.exit(1)
+    print(_format_runtime(runtime_metadata))
+    keep_build = args.build_dir is not None
+    build_dir = args.build_dir if keep_build else pathlib.Path(tempfile.mkdtemp(prefix="check_rst_"))
+    try:
+        env, _warning_text = _build_sphinx_env_checked(args.sphinx_src, build_dir, files=[args.refs])
+        docname = _docname_for(env, args.refs)
+        if docname is None:
+            print(f"check_rst: {args.refs}: not part of the --sphinx-src project")
+            sys.exit(1)
+        outgoing = find_references(env, docname)
+        incoming = find_incoming_references(env, docname)
+        print(_format_references(args.refs, outgoing, incoming))
+    finally:
+        if not keep_build:
+            shutil.rmtree(build_dir, ignore_errors=True)
+    sys.exit(0)
+
+
+def _discover_and_validate_files(
+    args: argparse.Namespace, project_root: pathlib.Path
+) -> tuple[list[pathlib.Path], bool]:
+    """Resolve which files this run operates on, then validate the complete
+    selection before any check or fixer touches disk. Split out of _main()
+    (found by code review: _main was a single ~1000-line function with no
+    seams) — recursive/git-scope/explicit-file selection, then de-dup by
+    resolved path, then the invalid-file/foreign-file(--sphinx-src)/
+    unresolved-merge checks every verb past this point depends on having
+    already passed. Returns (files, whole_file); every early-exit path
+    here calls sys.exit itself — a typo or unresolved conflict must abort
+    atomically, never report partial progress (--fix-only's own
+    precedent, preserved via the _print_fix_only_status calls below)."""
     if args.recursive:
         # A directory scope is just as deliberate as naming files — always
         # checked in full. Validate every directory up front (fail loudly on
@@ -7532,67 +7461,47 @@ def _main() -> None:
             _print_fix_only_status(len(files), len(unmerged_files), 0)
         sys.exit(1)
 
-    if args.command == "list-table":
-        _run_list_table(files, only=args.only, skip=args.skip, apply=args.apply, quiet=args.quiet)
+    return files, whole_file
 
-    if args.fix_only:
-        if whole_file:
-            selection = "recursive" if args.recursive else "explicit"
-            scope = f"{selection}/whole-file; hygiene and hierarchy are whole-file"
-        else:
-            scope = "Git-selected/diff-scoped adornment geometry; hygiene and hierarchy are whole-file"
-        _run_fix_only(
-            files,
-            whole_file,
-            include_structure=not args.no_adornments,
-            project_root=project_root,
-            scope=scope,
-            quiet=args.quiet,
-            verbose=args.verbose,
-        )
 
-    if args.context is not None:
-        sys.exit(
-            _run_context_query(
-                args.context,
-                files[0],
-                project_root,
-                args.sphinx_src,
-                args.build_dir,
-                args.no_toctree,
-            )
-        )
+def _require_verified_sphinx(option: str) -> NoReturn:
+    """Shared failure for any option that needs verified Sphinx mode but
+    --sphinx-src (directly or via --config) was never supplied."""
+    print(
+        f"check_rst: {option} requires verified Sphinx mode — "
+        "pass --sphinx-src DIR or --config FILE whose check_rst "
+        "settings declare sphinx-src"
+    )
+    raise SystemExit(1)
 
-    if args.diff_only:
-        preview_changes = 0
-        errors = 0
-        for path in files:
-            try:
-                preview = diff_fixes(
-                    path,
-                    whole_file,
-                    include_structure=not args.no_adornments,
-                    include_blank_lines=False,
-                    collapse_title_spaces=False,
-                    single_space_prose=False,
-                    project_root=project_root,
-                )
-            except UnicodeDecodeError as exc:
-                err_line = exc.object.count(b"\n", 0, exc.start) + 1
-                _emit_report_line(
-                    f"{path}:{err_line}: ERROR: not valid UTF-8 ({exc.reason} at byte offset {exc.start})",
-                    "ERROR",
-                )
-                errors += 1
-                continue
-            if preview:
-                print(preview, end="")
-                preview_changes += 1
-        _emit_final_status(
-            f"check_rst: {len(files)} file(s) checked, {errors} error(s), {preview_changes} file(s) would change"
-        )
-        sys.exit(1 if errors or preview_changes else 0)
 
+def _run_check_pipeline(
+    args: argparse.Namespace,
+    files: list[pathlib.Path],
+    whole_file: bool,
+    project_root: pathlib.Path,
+    runtime_metadata: dict[str, Any],
+    word_samples: int,
+    suppress_findings: bool,
+    config_source: str,
+    config_applied: list[str],
+    config_inactive: list[str],
+) -> NoReturn:
+    """The check/fix/diff Phase 1-3 pipeline shared by all three verbs
+    (they're one algorithm parameterized by args.fix/args.diff/args.json/
+    args.outline, not three separate ones — check_single_top_level's own
+    Phase 1 loop, Phase 2/3 Sphinx integration, JSON assembly, word-stats,
+    and the final summary line, all sharing one pass over *files*).
+
+    Split out of _main() (found by code review: _main was a single
+    ~1000-line function with no seams) as the one piece left after the
+    already-self-contained early verb branches (diff-json, --refs,
+    list-table, --context, --fix-only, diff --fast/non-fast) are each
+    their own function — this is _main()'s true remaining body, not a
+    per-verb split, because check/fix/diff genuinely share this walk.
+    Always exits: JSON output exits directly; every other path falls
+    through to the final summary line's sys.exit.
+    """
     if not args.quiet:
         print(_format_runtime(runtime_metadata))
 
@@ -8254,6 +8163,194 @@ def _main() -> None:
                 print(f"rare prose words: {listing}{note}")
 
     sys.exit(1 if total_errors else 0)
+
+
+def _main() -> None:
+    parser = _build_cli_parser()
+    args = parser.parse_args()
+    _backfill_post_parse(args)
+    explicit_build_dir = args.build_dir is not None
+    _hints_shown.clear()  # once per RUN, not carried over between main() calls
+    _validate_config_flags(args)
+    if args.max_output_lines is not None and args.max_output_lines < 2:
+        print("check_rst: --max-output-lines must be >= 2")
+        raise SystemExit(1)
+    # Per-verb validation replacing the old flat-CLI's hand-written
+    # incompatibility matrix (docs/roadmap.rst, "Subcommands: flag-soup
+    # incompatibilities become verbs") — _validate_full_scope_args is safe
+    # unconditionally: --recursive/--git-scope/--exclude default to
+    # False/False/[] on every verb that doesn't define them, so it no-ops
+    # there. The rest are scoped to the one verb whose parser can actually
+    # make them non-default.
+    _validate_full_scope_args(args)
+    if args.command == "check":
+        _validate_check_args(args)
+    elif args.command in ("fix", "diff") and args.fast:
+        _validate_fast_allowlist(args, args.command)
+    elif args.command == "outline":
+        _validate_outline_args(args)
+    elif args.command == "context":
+        _validate_context_args(args)
+    elif args.command == "diff-json":
+        _validate_diff_json_args(args)
+    elif args.command == "list-table":
+        _validate_list_table_args(args)
+
+    if args.diff_json is not None:
+        _run_diff_json(args)
+
+    if args.word_samples is not None and args.word_samples < 0:
+        print("check_rst: --word-samples must be >= 0")
+        sys.exit(1)
+    # Resolved sample count for top/rare prose words, footer and JSON alike
+    # (Max, 2026-07-20): explicit --word-samples always wins and promotes
+    # the lines at any verbosity level; otherwise --verbose defaults to 10;
+    # otherwise 0 — meaning the stopword/stemmer computation is skipped
+    # entirely, not merely hidden.
+    word_samples = args.word_samples if args.word_samples is not None else (10 if args.verbose else 0)
+
+    if args.outline_only:
+        args.outline = True
+        args.quiet = True
+
+    if args.json:
+        args.quiet = True
+
+    if args.context is not None:
+        args.quiet = True
+
+    suppress_findings = args.outline_only or args.json
+
+    # Per-repo config fills only what the CLI left unset — CLI always wins.
+    # The TOML and schema are always validated; an overridden path value is
+    # never applied or checked for conf.py/directory existence. --no-config
+    # skips discovery entirely — even a malformed committed file never gets
+    # read, let alone validated, when the run explicitly opts out.
+    loaded_config = LoadedConfig("", PROJECT_ROOT.resolve(), {}) if args.no_config else _load_config(args.config)
+    config_source = loaded_config.source
+    config = loaded_config.values
+    project_root = loaded_config.root if args.config is not None else PROJECT_ROOT
+    config_applied: list[str] = []
+    config_inactive: list[str] = []
+    # list-table never consults Sphinx (_validate_list_table_args already
+    # rejects --sphinx-src/--build-dir as *explicit* flags for this verb,
+    # same rationale as --fast) — found by code review: this branch only
+    # checked --fast (fix_only/diff_only), so a configured sphinx-src/
+    # build-dir was silently APPLIED for list-table too, which then made
+    # the later foreign-files/conf.py checks (Sphinx-mode-only) reject an
+    # otherwise-valid list-table run. --config itself stays active either
+    # way — it still roots project/Git-scope discovery for this verb.
+    sphinx_inactive = args.fix_only or args.diff_only or args.command == "list-table"
+    if args.sphinx_src is None and "sphinx-src" in config:
+        if sphinx_inactive:
+            reason = "--fast" if (args.fix_only or args.diff_only) else "list-table"
+            config_inactive.append(f"sphinx-src={config['sphinx-src']} inactive ({reason})")
+        else:
+            configured = pathlib.Path(config["sphinx-src"]).expanduser()
+            args.sphinx_src = configured if configured.is_absolute() else (loaded_config.root / configured).resolve()
+            config_applied.append(f"sphinx-src={config['sphinx-src']}")
+    if args.build_dir is None and "build-dir" in config:
+        if sphinx_inactive:
+            reason = "--fast" if (args.fix_only or args.diff_only) else "list-table"
+            config_inactive.append(f"build-dir={config['build-dir']} inactive ({reason})")
+        elif args.sphinx_src is None:
+            config_inactive.append(f"build-dir={config['build-dir']} inactive (no sphinx-src)")
+        else:
+            configured = pathlib.Path(config["build-dir"]).expanduser()
+            args.build_dir = configured if configured.is_absolute() else (loaded_config.root / configured).resolve()
+            config_applied.append(f"build-dir={config['build-dir']}")
+    if config_source and not args.quiet:
+        config_details = [*config_applied, *config_inactive]
+        print(
+            f"config: {config_source} — "
+            + (", ".join(config_details) if config_details else "no Sphinx settings applied")
+        )
+
+    runtime_metadata = _runtime_metadata(
+        verified=args.sphinx_src is not None,
+        word_samples=bool(word_samples),
+    )
+
+    if explicit_build_dir and args.sphinx_src is None and not args.diff_only:
+        _require_verified_sphinx("--build-dir")
+
+    if args.no_toctree and args.sphinx_src is None:
+        _require_verified_sphinx("--no-toctree")
+    # The old "--no-toctree requires one of outline/outline-only/json/
+    # context" half is now structurally impossible: --no-toctree only
+    # exists on check/outline/context's own parsers, and each of those
+    # already guarantees the condition on its own (check via
+    # _validate_check_args requiring --format=json; outline's own
+    # set_defaults(outline=True); context's own args.context backfill) —
+    # see docs/roadmap.rst, "Subcommands: flag-soup incompatibilities
+    # become verbs".
+
+    # --sphinx-src is a deliberate opt-in to Phase 2; a path given without a
+    # conf.py in it is a mistake worth failing on immediately, not silently
+    # skipping (see module docstring, "Phase 2 — Sphinx build integrity check").
+    if not args.diff_only and args.sphinx_src is not None and not (args.sphinx_src / "conf.py").is_file():
+        print(f"check_rst: no conf.py found in --sphinx-src {args.sphinx_src}")
+        sys.exit(1)
+
+    if not args.diff_only and args.build_dir is not None:
+        existing = args.build_dir
+        while not existing.exists() and existing.parent != existing:
+            existing = existing.parent
+        if not existing.is_dir():
+            print(f"check_rst: --build-dir {args.build_dir}: {existing} is not a directory")
+            sys.exit(1)
+
+    if args.refs is not None:
+        _run_refs(args, runtime_metadata)
+
+    files, whole_file = _discover_and_validate_files(args, project_root)
+
+    if args.command == "list-table":
+        _run_list_table(files, only=args.only, skip=args.skip, apply=args.apply, quiet=args.quiet)
+
+    if args.fix_only:
+        if whole_file:
+            selection = "recursive" if args.recursive else "explicit"
+            scope = f"{selection}/whole-file; hygiene and hierarchy are whole-file"
+        else:
+            scope = "Git-selected/diff-scoped adornment geometry; hygiene and hierarchy are whole-file"
+        _run_fix_only(
+            files,
+            whole_file,
+            include_structure=not args.no_adornments,
+            project_root=project_root,
+            scope=scope,
+            quiet=args.quiet,
+            verbose=args.verbose,
+        )
+
+    if args.context is not None:
+        sys.exit(
+            _run_context_query(
+                args.context,
+                files[0],
+                project_root,
+                args.sphinx_src,
+                args.build_dir,
+                args.no_toctree,
+            )
+        )
+
+    if args.diff_only:
+        _run_diff_only(files, whole_file, project_root, no_adornments=args.no_adornments)
+
+    _run_check_pipeline(
+        args,
+        files,
+        whole_file,
+        project_root,
+        runtime_metadata,
+        word_samples,
+        suppress_findings,
+        config_source,
+        config_applied,
+        config_inactive,
+    )
 
 
 def _requested_output_limit(argv: list[str]) -> int | None:
