@@ -14,7 +14,7 @@ import sys
 import tempfile
 from typing import TYPE_CHECKING, Any, NoReturn
 
-from check_rst import DOCUMENTATION_URL, __version__
+from check_rst import DOCUMENTATION_URL, __copyright__, __license__, __version__
 
 from . import _formatting, _helpers, _output
 from ._config import LoadedConfig, _load_config
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
     from ._types import FixPlan, FixResult, ListTableIssue
 
 
-_TOP_LEVEL_HELP = f"""\
+_TOP_LEVEL_HELP = """\
 Check .rst files against reStructuredText and Sphinx project rules.
 
 A required command selects one action: check and diff serve the
@@ -82,13 +82,17 @@ Examples:
     check_rst refs doc.rst
     check_rst list-table doc.rst
     check_rst diff-json before.json after.json
-
-Documentation: {DOCUMENTATION_URL}
-Run check_rst COMMAND --help for command options.
 """
 
 
 _DOCUMENTATION_EPILOG = f"Documentation: {DOCUMENTATION_URL}"
+_TOP_LEVEL_EPILOG = f"""\
+{__copyright__}
+License: {__license__}
+Documentation: {DOCUMENTATION_URL}
+Run check_rst COMMAND --help for command options.
+"""
+_VERSION_BANNER = f"%(prog)s {__version__}\n{__copyright__}\nLicense: {__license__}"
 
 
 def _run_fix_only(
@@ -613,9 +617,15 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="check_rst",
         description=_TOP_LEVEL_HELP,
+        epilog=_TOP_LEVEL_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=_VERSION_BANNER,
+        help="show version, copyright, and license, then exit",
+    )
     _add_project_flags(parser)
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 

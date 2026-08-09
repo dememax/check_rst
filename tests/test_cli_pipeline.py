@@ -256,6 +256,8 @@ def test_cli_help_covers_examples_and_self_contained_modes(
     assert "check .rst files against project formatting rules (default verb)" not in out
     assert "2 command-line usage error" in out
     assert "https://github.com/dememax/check_rst/blob/main/docs/guide.rst" in out
+    assert "Copyright (C) 2026 Maxime P. DEMENTYEV" in out
+    assert "License: GPL-3.0-only" in out
     assert len(out.splitlines()) < 80
 
 

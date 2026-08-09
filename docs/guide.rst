@@ -58,8 +58,10 @@ lives here and in :doc:`rules`, once, so independent copies cannot drift:
 read this page for the mechanics, :doc:`rules` for why a WARNING stays a
 human judgment call, and ``--help`` only to recall an exact command, flag, or
 default.  The help output gives an actionable canonical URL for installed
-users.  Concise manual pages provide the same retrieval path for systems that
-install them, without embedding the entire guide in terminal output.
+users and identifies the copyright holder and GPL-3.0-only license;
+``--version`` repeats that release identity.  Concise manual pages provide the
+same retrieval path for systems that install them, without embedding the
+entire guide in terminal output.
 
 .. important::
 

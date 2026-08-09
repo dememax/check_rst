@@ -59,7 +59,7 @@ Global options precede the command, in the same style as Git.
    temporary build directory is removed after the run.
 
 ``--version``
-   Print the package version.
+   Print the package version, copyright holder, and SPDX license expression.
 
 ****************
 FILE SELECTION
@@ -106,6 +106,14 @@ EXAMPLES
    $ check_rst --sphinx-src docs check docs/guide.rst
    $ check_rst diff document.rst
    $ check_rst outline document.rst
+
+***********************
+COPYRIGHT AND LICENSE
+***********************
+
+Copyright (C) 2026 Maxime P. DEMENTYEV.  ``check_rst`` is licensed under the
+GNU General Public License version 3 only, identified by the SPDX expression
+``GPL-3.0-only``.
 
 **********
 SEE ALSO

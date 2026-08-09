@@ -216,7 +216,9 @@ def test_cli_version_reports_release_identity(
         cli.main()
 
     assert exc.value.code == 0
-    assert capsys.readouterr().out == "check_rst 0.2.0\n"
+    assert capsys.readouterr().out == (
+        "check_rst 0.2.0\nCopyright (C) 2026 Maxime P. DEMENTYEV\nLicense: GPL-3.0-only\n"
+    )
 
 
 @pytest.mark.integration
