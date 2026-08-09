@@ -11,14 +11,15 @@ from typing import TYPE_CHECKING
 import pytest
 from _support import _BAD_BLOCK, _GOOD_BLOCK, _git
 
+from check_rst import cli
+from check_rst.cli import _formatting, _helpers, _reports, _sphinx
+
 if TYPE_CHECKING:
-    import types
     from pathlib import Path
 
 
 @pytest.mark.integration
 def test_recursive_discovers_nested_rst_files(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -34,7 +35,7 @@ def test_recursive_discovers_nested_rst_files(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive", str(tmp_path)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert str(top) in out
@@ -44,7 +45,6 @@ def test_recursive_discovers_nested_rst_files(
 
 @pytest.mark.integration
 def test_recursive_multiple_directories_merged_no_duplicates(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -64,7 +64,7 @@ def test_recursive_multiple_directories_merged_no_duplicates(
         ["check_rst.py", "check", "--recursive", str(tmp_path), str(tmp_path / "sub")],
     )
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     # Each file gets exactly 2 status lines (adornments+hierarchy, directives)
@@ -74,7 +74,6 @@ def test_recursive_multiple_directories_merged_no_duplicates(
 
 @pytest.mark.integration
 def test_recursive_exclude_pattern_skips_file(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -88,10 +87,17 @@ def test_recursive_exclude_pattern_skips_file(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--recursive", "--exclude", "skip.rst", str(tmp_path)],
+        [
+            "check_rst.py",
+            "check",
+            "--recursive",
+            "--exclude",
+            "skip.rst",
+            str(tmp_path),
+        ],
     )
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert str(keep) in out
@@ -101,7 +107,6 @@ def test_recursive_exclude_pattern_skips_file(
 
 @pytest.mark.integration
 def test_recursive_multiple_exclude_patterns(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -115,10 +120,19 @@ def test_recursive_multiple_exclude_patterns(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--recursive", "--exclude", "skip1.rst", "--exclude", "skip2.rst", str(tmp_path)],
+        [
+            "check_rst.py",
+            "check",
+            "--recursive",
+            "--exclude",
+            "skip1.rst",
+            "--exclude",
+            "skip2.rst",
+            str(tmp_path),
+        ],
     )
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert str(keep) in out
@@ -128,7 +142,6 @@ def test_recursive_multiple_exclude_patterns(
 
 @pytest.mark.integration
 def test_cli_missing_explicit_file_stops_before_all_check_phases(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -140,15 +153,15 @@ def test_cli_missing_explicit_file_stops_before_all_check_phases(
     def unexpected_sphinx(*_args: object, **_kwargs: object) -> None:
         pytest.fail("Sphinx must not run when no input files exist")
 
-    monkeypatch.setattr(check_rst._sphinx, "_build_sphinx_env", unexpected_sphinx)
-    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", unexpected_sphinx)
+    monkeypatch.setattr(_sphinx, "_build_sphinx_env", unexpected_sphinx)
+    monkeypatch.setattr(_sphinx, "run_sphinx", unexpected_sphinx)
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "--sphinx-src", str(tmp_path), "check", str(missing)],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     out = capsys.readouterr().out
@@ -173,7 +186,6 @@ def test_cli_missing_explicit_file_stops_before_all_check_phases(
     ],
 )
 def test_cli_rejects_semantically_incompatible_arguments_before_actions(
-    check_rst: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     argv: list[str],
@@ -192,7 +204,7 @@ def test_cli_rejects_semantically_incompatible_arguments_before_actions(
     monkeypatch.setattr("sys.argv", ["check_rst.py", *argv])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     out = capsys.readouterr().out
@@ -202,14 +214,13 @@ def test_cli_rejects_semantically_incompatible_arguments_before_actions(
 
 @pytest.mark.integration
 def test_cli_help_uses_launcher_name(
-    check_rst: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--help"])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -220,7 +231,6 @@ def test_cli_help_uses_launcher_name(
 
 @pytest.mark.integration
 def test_cli_help_covers_examples_and_self_contained_modes(
-    check_rst: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -233,7 +243,7 @@ def test_cli_help_covers_examples_and_self_contained_modes(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--help"])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -263,7 +273,6 @@ def test_cli_help_covers_examples_and_self_contained_modes(
     ],
 )
 def test_cli_verb_help_stays_concise_and_points_to_docs(
-    check_rst: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     verb: str,
@@ -282,7 +291,7 @@ def test_cli_verb_help_stays_concise_and_points_to_docs(
     monkeypatch.setattr("sys.argv", ["check_rst.py", verb, "--help"])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -292,7 +301,6 @@ def test_cli_verb_help_stays_concise_and_points_to_docs(
 
 @pytest.mark.integration
 def test_cli_file_valued_build_dir_stops_before_fix_or_phases(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -306,11 +314,19 @@ def test_cli_file_valued_build_dir_stops_before_fix_or_phases(
     build_file.write_text("occupied", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(tmp_path), "--build-dir", str(build_file), "fix", str(p)],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(tmp_path),
+            "--build-dir",
+            str(build_file),
+            "fix",
+            str(p),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     assert p.read_text(encoding="utf-8") == original
@@ -321,7 +337,6 @@ def test_cli_file_valued_build_dir_stops_before_fix_or_phases(
 
 @pytest.mark.integration
 def test_cli_explicit_build_dir_requires_resolved_sphinx_source(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -330,11 +345,17 @@ def test_cli_explicit_build_dir_requires_resolved_sphinx_source(
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--build-dir", str(tmp_path / "_build"), "check", str(document)],
+        [
+            "check_rst.py",
+            "--build-dir",
+            str(tmp_path / "_build"),
+            "check",
+            str(document),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     out = capsys.readouterr().out
@@ -346,17 +367,19 @@ def test_cli_explicit_build_dir_requires_resolved_sphinx_source(
 
 @pytest.mark.integration
 def test_cli_no_toctree_requires_resolved_sphinx_source(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     document = tmp_path / "doc.rst"
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--no-toctree", str(document)])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "outline", "--with-findings", "--no-toctree", str(document)],
+    )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     out = capsys.readouterr().out
@@ -367,7 +390,6 @@ def test_cli_no_toctree_requires_resolved_sphinx_source(
 
 @pytest.mark.integration
 def test_cli_no_toctree_requires_format_json(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -381,11 +403,18 @@ def test_cli_no_toctree_requires_format_json(
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(tmp_path), "check", "--no-toctree", str(document)],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(tmp_path),
+            "check",
+            "--no-toctree",
+            str(document),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     out = capsys.readouterr().out
@@ -395,7 +424,6 @@ def test_cli_no_toctree_requires_format_json(
 
 @pytest.mark.integration
 def test_cli_foreign_sphinx_file_stops_before_fix_or_phases(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -414,7 +442,7 @@ def test_cli_foreign_sphinx_file_stops_before_fix_or_phases(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     assert foreign.read_text(encoding="utf-8") == original
@@ -425,7 +453,6 @@ def test_cli_foreign_sphinx_file_stops_before_fix_or_phases(
 
 @pytest.mark.integration
 def test_cli_unmerged_file_stops_before_fix_and_preserves_markers(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -453,11 +480,11 @@ def test_cli_unmerged_file_stops_before_fix_and_preserves_markers(
     assert b"<<<<<<<" in original
     invocation_dir = rst_repo.parent / "outside-invocation"
     invocation_dir.mkdir(exist_ok=True)
-    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", invocation_dir)
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", invocation_dir)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", str(p)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     assert p.read_bytes() == original
@@ -468,7 +495,6 @@ def test_cli_unmerged_file_stops_before_fix_and_preserves_markers(
 
 @pytest.mark.integration
 def test_recursive_nonexistent_directory_errors(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -478,7 +504,7 @@ def test_recursive_nonexistent_directory_errors(
     missing = tmp_path / "does_not_exist"
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive", str(missing)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "not a directory" in out
@@ -487,7 +513,6 @@ def test_recursive_nonexistent_directory_errors(
 
 @pytest.mark.integration
 def test_recursive_file_argument_errors(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -497,7 +522,7 @@ def test_recursive_file_argument_errors(
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "not a directory" in out
@@ -505,7 +530,6 @@ def test_recursive_file_argument_errors(
 
 @pytest.mark.integration
 def test_recursive_no_directories_given_errors(
-    check_rst: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -513,7 +537,7 @@ def test_recursive_no_directories_given_errors(
     silent no-op or an implicit fallback to some other scope."""
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive"])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "--recursive" in out
@@ -521,7 +545,6 @@ def test_recursive_no_directories_given_errors(
 
 @pytest.mark.integration
 def test_recursive_no_rst_files_found_exits_zero(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -531,13 +554,12 @@ def test_recursive_no_rst_files_found_exits_zero(
     (tmp_path / "empty").mkdir()
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive", str(tmp_path / "empty")])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
 
 
 @pytest.mark.integration
 def test_recursive_filename_with_spaces(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -552,7 +574,7 @@ def test_recursive_filename_with_spaces(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive", str(tmp_path)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert str(spaced) in out
@@ -562,7 +584,6 @@ def test_recursive_filename_with_spaces(
 
 @pytest.mark.integration
 def test_recursive_implies_whole_file_scoping(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -575,7 +596,7 @@ def test_recursive_implies_whole_file_scoping(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--recursive", str(tmp_path)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "must be 7 chars" in out
@@ -584,7 +605,6 @@ def test_recursive_implies_whole_file_scoping(
 
 @pytest.mark.integration
 def test_cli_summary_line_always_printed(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -596,14 +616,13 @@ def test_cli_summary_line_always_printed(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "check_rst: 1 file(s) checked, 0 error(s), 0 warning(s)" in out
 
 
 @pytest.mark.integration
 def test_cli_summary_counts_errors_and_warnings(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -613,7 +632,7 @@ def test_cli_summary_counts_errors_and_warnings(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "check_rst: 1 file(s) checked, 1 error(s), 1 warning(s)" in out
@@ -621,7 +640,6 @@ def test_cli_summary_counts_errors_and_warnings(
 
 @pytest.mark.integration
 def test_cli_summary_fix_mode_reports_fixed_files(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -631,14 +649,13 @@ def test_cli_summary_fix_mode_reports_fixed_files(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "1 file(s) fixed" in out
 
 
 @pytest.mark.integration
 def test_cli_summary_diff_mode_reports_would_change(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -650,14 +667,13 @@ def test_cli_summary_diff_mode_reports_would_change(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "diff", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "1 file(s) would change" in out
 
 
 @pytest.mark.integration
 def test_cli_diff_only_prints_preview_without_checks_or_writes(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -669,12 +685,12 @@ def test_cli_diff_only_prints_preview_without_checks_or_writes(
     def unexpected_check(*_args: object, **_kwargs: object) -> None:
         pytest.fail("--diff-only must not run Sphinx")
 
-    monkeypatch.setattr(check_rst._sphinx, "_build_sphinx_env", unexpected_check)
-    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", unexpected_check)
+    monkeypatch.setattr(_sphinx, "_build_sphinx_env", unexpected_check)
+    monkeypatch.setattr(_sphinx, "run_sphinx", unexpected_check)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "diff", "--fast", str(document)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     assert document.read_bytes() == original
@@ -688,7 +704,6 @@ def test_cli_diff_only_prints_preview_without_checks_or_writes(
 
 @pytest.mark.integration
 def test_cli_diff_only_clean_file_exits_zero(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -698,7 +713,7 @@ def test_cli_diff_only_clean_file_exits_zero(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "diff", "--fast", str(document)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     assert "0 file(s) would change" in capsys.readouterr().out
@@ -706,7 +721,6 @@ def test_cli_diff_only_clean_file_exits_zero(
 
 @pytest.mark.integration
 def test_cli_fix_only_composes_hygiene_and_structure_with_structured_output(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -718,7 +732,7 @@ def test_cli_fix_only_composes_hygiene_and_structure_with_structured_output(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", str(document)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     assert document.read_bytes() == b"#########\nTitle A\n#########\n\nText.\n"
@@ -735,7 +749,6 @@ def test_cli_fix_only_composes_hygiene_and_structure_with_structured_output(
 
 @pytest.mark.integration
 def test_cli_fix_only_plans_all_inputs_before_writing_invalid_utf8(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -752,7 +765,7 @@ def test_cli_fix_only_plans_all_inputs_before_writing_invalid_utf8(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     assert fixable.read_bytes() == original
@@ -764,7 +777,6 @@ def test_cli_fix_only_plans_all_inputs_before_writing_invalid_utf8(
 
 @pytest.mark.integration
 def test_cli_fix_only_missing_sibling_aborts_before_writing(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -780,7 +792,7 @@ def test_cli_fix_only_missing_sibling_aborts_before_writing(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     assert fixable.read_bytes() == original
@@ -791,7 +803,6 @@ def test_cli_fix_only_missing_sibling_aborts_before_writing(
 
 @pytest.mark.integration
 def test_cli_fix_only_ignores_configured_sphinx_and_never_parses(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -808,29 +819,28 @@ def test_cli_fix_only_ignores_configured_sphinx_and_never_parses(
     def unexpected_phase(*_args: object, **_kwargs: object) -> None:
         pytest.fail("--fix-only must not parse RST or construct/run Sphinx")
 
-    monkeypatch.setattr(check_rst._helpers, "_parse_rst", unexpected_phase)
-    monkeypatch.setattr(check_rst._sphinx, "_build_sphinx_env", unexpected_phase)
-    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", unexpected_phase)
+    monkeypatch.setattr(_helpers, "_parse_rst", unexpected_phase)
+    monkeypatch.setattr(_sphinx, "_build_sphinx_env", unexpected_phase)
+    monkeypatch.setattr(_sphinx, "run_sphinx", unexpected_phase)
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "--config", str(config), "fix", "--fast", str(document)],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "sphinx-src=missing-docs inactive (--fast)" in out
     assert "build-dir=missing-build inactive (--fast)" in out
-    assert check_rst.CALL_COUNTS["_parse_rst"] == 0
-    assert check_rst.CALL_COUNTS["_build_sphinx_env"] == 0
-    assert check_rst.CALL_COUNTS["run_sphinx"] == 0
+    assert _helpers.CALL_COUNTS["_parse_rst"] == 0
+    assert _helpers.CALL_COUNTS["_build_sphinx_env"] == 0
+    assert _helpers.CALL_COUNTS["run_sphinx"] == 0
 
 
 @pytest.mark.integration
 def test_cli_diff_fast_ignores_configured_sphinx_and_never_parses(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -852,23 +862,23 @@ def test_cli_diff_fast_ignores_configured_sphinx_and_never_parses(
     def unexpected_phase(*_args: object, **_kwargs: object) -> None:
         pytest.fail("diff --fast must not parse RST or construct/run Sphinx")
 
-    monkeypatch.setattr(check_rst._helpers, "_parse_rst", unexpected_phase)
-    monkeypatch.setattr(check_rst._sphinx, "_build_sphinx_env", unexpected_phase)
-    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", unexpected_phase)
+    monkeypatch.setattr(_helpers, "_parse_rst", unexpected_phase)
+    monkeypatch.setattr(_sphinx, "_build_sphinx_env", unexpected_phase)
+    monkeypatch.setattr(_sphinx, "run_sphinx", unexpected_phase)
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "--config", str(config), "diff", "--fast", str(document)],
     )
 
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
 
     out = capsys.readouterr().out
     assert "sphinx-src=missing-docs inactive (--fast)" in out
     assert "build-dir=missing-build inactive (--fast)" in out
-    assert check_rst.CALL_COUNTS["_parse_rst"] == 0
-    assert check_rst.CALL_COUNTS["_build_sphinx_env"] == 0
-    assert check_rst.CALL_COUNTS["run_sphinx"] == 0
+    assert _helpers.CALL_COUNTS["_parse_rst"] == 0
+    assert _helpers.CALL_COUNTS["_build_sphinx_env"] == 0
+    assert _helpers.CALL_COUNTS["run_sphinx"] == 0
 
 
 @pytest.mark.integration
@@ -881,7 +891,6 @@ def test_cli_diff_fast_ignores_configured_sphinx_and_never_parses(
     ],
 )
 def test_cli_fix_only_rejects_meaningless_options_before_actions(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -903,7 +912,7 @@ def test_cli_fix_only_rejects_meaningless_options_before_actions(
     monkeypatch.setattr("sys.argv", argv)
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     assert document.read_text(encoding="utf-8") == original
@@ -912,7 +921,6 @@ def test_cli_fix_only_rejects_meaningless_options_before_actions(
 
 @pytest.mark.integration
 def test_cli_fix_only_no_adornments_is_hygiene_only(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -925,7 +933,7 @@ def test_cli_fix_only_no_adornments_is_hygiene_only(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     assert document.read_text(encoding="utf-8") == _BAD_BLOCK
@@ -936,7 +944,6 @@ def test_cli_fix_only_no_adornments_is_hygiene_only(
 
 @pytest.mark.integration
 def test_cli_fix_only_quiet_emits_only_the_status_footer(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -946,7 +953,7 @@ def test_cli_fix_only_quiet_emits_only_the_status_footer(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", "--quiet", str(document)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     assert capsys.readouterr().out.splitlines() == [
@@ -956,7 +963,6 @@ def test_cli_fix_only_quiet_emits_only_the_status_footer(
 
 @pytest.mark.integration
 def test_cli_fix_only_write_failure_is_nonzero_and_keeps_final_status(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -968,11 +974,11 @@ def test_cli_fix_only_write_failure_is_nonzero_and_keeps_final_status(
     def fail_write(_plan: object) -> None:
         raise OSError("read-only filesystem")
 
-    monkeypatch.setattr(check_rst._checks, "_apply_fix_plan", fail_write)
+    monkeypatch.setattr(_formatting, "_apply_fix_plan", fail_write)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", str(document)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     assert document.read_text(encoding="utf-8") == original
@@ -983,7 +989,6 @@ def test_cli_fix_only_write_failure_is_nonzero_and_keeps_final_status(
 
 @pytest.mark.integration
 def test_cli_fix_only_is_convergent_and_verbose_names_clean_files(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -992,13 +997,13 @@ def test_cli_fix_only_is_convergent_and_verbose_names_clean_files(
     document.write_text(_BAD_BLOCK, encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", str(document)])
     with pytest.raises(SystemExit) as first:
-        check_rst.main()
+        cli.main()
     assert first.value.code == 0
     capsys.readouterr()
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", "--fast", "--verbose", str(document)])
     with pytest.raises(SystemExit) as second:
-        check_rst.main()
+        cli.main()
 
     assert second.value.code == 0
     lines = capsys.readouterr().out.splitlines()
@@ -1008,7 +1013,6 @@ def test_cli_fix_only_is_convergent_and_verbose_names_clean_files(
 
 @pytest.mark.integration
 def test_outline_blocks_summary_hidden_by_default(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1022,7 +1026,7 @@ def test_outline_blocks_summary_hidden_by_default(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "levels:" in out
     assert "blocks:" not in out
@@ -1030,7 +1034,6 @@ def test_outline_blocks_summary_hidden_by_default(
 
 @pytest.mark.integration
 def test_outline_blocks_summary_shown_with_verbose(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1040,16 +1043,18 @@ def test_outline_blocks_summary_shown_with_verbose(
         "Root\n####\n\n.. code-block:: bash\n\n   echo one\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)],
+    )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "blocks: 1 code block" in out
 
 
 @pytest.mark.integration
 def test_footer_lines_words_hidden_by_default(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1058,7 +1063,7 @@ def test_footer_lines_words_hidden_by_default(
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "check_rst: 1 file(s) checked" in out  # Line 1 always prints
     assert "lines:" not in out
@@ -1067,7 +1072,6 @@ def test_footer_lines_words_hidden_by_default(
 
 @pytest.mark.integration
 def test_footer_lines_words_shown_with_verbose(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1076,7 +1080,7 @@ def test_footer_lines_words_shown_with_verbose(
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "lines:" in out
     assert "words:" in out
@@ -1084,7 +1088,6 @@ def test_footer_lines_words_shown_with_verbose(
 
 @pytest.mark.integration
 def test_default_run_never_computes_word_frequency(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1096,20 +1099,19 @@ def test_default_run_never_computes_word_frequency(
     def _must_not_run(*_a: object, **_k: object) -> None:
         raise AssertionError("word-frequency computation must be skipped")
 
-    monkeypatch.setattr(check_rst._reports, "_top_prose_words", _must_not_run)
-    monkeypatch.setattr(check_rst._reports, "_rare_prose_words", _must_not_run)
+    monkeypatch.setattr(_reports, "_top_prose_words", _must_not_run)
+    monkeypatch.setattr(_reports, "_rare_prose_words", _must_not_run)
     p = rst_repo / "test.rst"
     p.write_text("#######\nTitle\n#######\n\nSome real prose content here.\n", encoding="utf-8")
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
 
 
 @pytest.mark.integration
 def test_word_samples_zero_disables_even_under_verbose(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1120,14 +1122,25 @@ def test_word_samples_zero_disables_even_under_verbose(
     def _must_not_run(*_a: object, **_k: object) -> None:
         raise AssertionError("word-frequency computation must be skipped")
 
-    monkeypatch.setattr(check_rst._reports, "_top_prose_words", _must_not_run)
-    monkeypatch.setattr(check_rst._reports, "_rare_prose_words", _must_not_run)
+    monkeypatch.setattr(_reports, "_top_prose_words", _must_not_run)
+    monkeypatch.setattr(_reports, "_rare_prose_words", _must_not_run)
     p = rst_repo / "test.rst"
     p.write_text("#######\nTitle\n#######\n\nSome real prose content here.\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", "--word-samples", "0", str(p)])
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "check_rst.py",
+            "check",
+            "--quiet",
+            "--verbose",
+            "--word-samples",
+            "0",
+            str(p),
+        ],
+    )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "top prose words:" not in out
     assert "rare prose words:" not in out
@@ -1135,7 +1148,6 @@ def test_word_samples_zero_disables_even_under_verbose(
 
 @pytest.mark.integration
 def test_word_samples_promotes_top_rare_words_under_quiet(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1150,7 +1162,7 @@ def test_word_samples_promotes_top_rare_words_under_quiet(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--word-samples", "5", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "top prose words: product (3 @" in out
     # lines:/words: stay hidden — --word-samples promotes only line 4.
@@ -1161,7 +1173,6 @@ def test_word_samples_promotes_top_rare_words_under_quiet(
 
 @pytest.mark.integration
 def test_json_word_samples_disabled_by_default(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1177,7 +1188,7 @@ def test_json_word_samples_disabled_by_default(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     data = json.loads(capsys.readouterr().out)
     stats = data["files"][0]["stats"]
     assert stats["top_words"] is None
@@ -1187,7 +1198,6 @@ def test_json_word_samples_disabled_by_default(
 
 @pytest.mark.integration
 def test_word_samples_rejects_negative(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1196,7 +1206,7 @@ def test_word_samples_rejects_negative(
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--word-samples", "-1", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "--word-samples must be >= 0" in out

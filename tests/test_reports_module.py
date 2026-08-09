@@ -15,52 +15,52 @@ from typing import TYPE_CHECKING
 import pytest
 from _support import _GOOD_BLOCK, _build_multi_file_env, _rst
 
+from check_rst import cli
+from check_rst.cli import _document, _reports, _sphinx, _types
+
 if TYPE_CHECKING:
     from pathlib import Path
     from typing import Any
 
 
 @pytest.mark.integration
-def test_resolve_xref_target_doc_resolves_relative_target(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_resolve_xref_target_doc_resolves_relative_target(tmp_path: Path) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "index": "Title\n=====\n",
             "sub/page": "Sub Page\n========\n",
         },
     )
-    assert check_rst._resolve_xref_target(env, "sub/page", "doc", "../index") == "index"
+    assert _sphinx._resolve_xref_target(env, "sub/page", "doc", "../index") == "index"
 
 
 @pytest.mark.integration
-def test_resolve_xref_target_doc_unresolvable_returns_none(check_rst: types.ModuleType, tmp_path: Path) -> None:
-    env = _build_multi_file_env(check_rst, tmp_path, {"index": "Title\n=====\n"})
-    assert check_rst._resolve_xref_target(env, "index", "doc", "no-such-page") is None
+def test_resolve_xref_target_doc_unresolvable_returns_none(tmp_path: Path) -> None:
+    env = _build_multi_file_env(tmp_path, {"index": "Title\n=====\n"})
+    assert _sphinx._resolve_xref_target(env, "index", "doc", "no-such-page") is None
 
 
 @pytest.mark.integration
-def test_resolve_xref_target_ref_resolves_label(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_resolve_xref_target_ref_resolves_label(tmp_path: Path) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "index": "Title\n=====\n\n.. _my-label:\n\nSection\n-------\n",
         },
     )
-    assert check_rst._resolve_xref_target(env, "index", "ref", "my-label") == "index"
+    assert _sphinx._resolve_xref_target(env, "index", "ref", "my-label") == "index"
 
 
 @pytest.mark.integration
-def test_resolve_xref_target_unknown_reftype_returns_none(check_rst: types.ModuleType, tmp_path: Path) -> None:
-    env = _build_multi_file_env(check_rst, tmp_path, {"index": "Title\n=====\n"})
-    assert check_rst._resolve_xref_target(env, "index", "obj", "whatever") is None
+def test_resolve_xref_target_unknown_reftype_returns_none(tmp_path: Path) -> None:
+    env = _build_multi_file_env(tmp_path, {"index": "Title\n=====\n"})
+    assert _sphinx._resolve_xref_target(env, "index", "obj", "whatever") is None
 
 
 @pytest.mark.integration
-def test_find_references_outgoing_doc_and_ref_in_document_order(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_find_references_outgoing_doc_and_ref_in_document_order(tmp_path: Path) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "index": """\
@@ -74,7 +74,7 @@ def test_find_references_outgoing_doc_and_ref_in_document_order(check_rst: types
             "other": "Other\n=====\n\n.. _other-label:\n\nSection\n-------\n",
         },
     )
-    entries = check_rst.find_references(env, "index")
+    entries = _sphinx.find_references(env, "index")
     assert [e.reftype for e in entries] == ["doc", "ref"]
     assert entries[0].target == "other"
     assert entries[0].resolved == "other"
@@ -84,23 +84,21 @@ def test_find_references_outgoing_doc_and_ref_in_document_order(check_rst: types
 
 
 @pytest.mark.integration
-def test_find_references_broken_target_resolved_is_none(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_find_references_broken_target_resolved_is_none(tmp_path: Path) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "index": "Title\n=====\n\n:doc:`nonexistent`\n",
         },
     )
-    entries = check_rst.find_references(env, "index")
+    entries = _sphinx.find_references(env, "index")
     assert len(entries) == 1
     assert entries[0].resolved is None
 
 
 @pytest.mark.integration
-def test_find_incoming_references_finds_pointing_docs(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_find_incoming_references_finds_pointing_docs(tmp_path: Path) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "a": "A\n=\n\n:doc:`b`\n",
@@ -108,26 +106,26 @@ def test_find_incoming_references_finds_pointing_docs(check_rst: types.ModuleTyp
             "c": "C\n=\n\nSee :ref:`shared-label`.\n",
         },
     )
-    incoming = check_rst.find_incoming_references(env, "b")
+    incoming = _sphinx.find_incoming_references(env, "b")
     assert {e.docname for e in incoming} == {"a", "c"}
 
 
 @pytest.mark.integration
-def test_find_incoming_references_empty_when_nothing_points_at_it(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_find_incoming_references_empty_when_nothing_points_at_it(
+    tmp_path: Path,
+) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "index": "Title\n=====\n",
             "lonely": "Lonely\n======\n",
         },
     )
-    assert check_rst.find_incoming_references(env, "lonely") == []
+    assert _sphinx.find_incoming_references(env, "lonely") == []
 
 
 @pytest.mark.integration
 def test_cli_refs_shows_outgoing_and_incoming(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -139,7 +137,7 @@ def test_cli_refs_shows_outgoing_and_incoming(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "refs", str(b)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "outgoing" in out
@@ -150,7 +148,6 @@ def test_cli_refs_shows_outgoing_and_incoming(
 
 @pytest.mark.integration
 def test_cli_refs_includes_parent_and_globbed_child_toctree_edges(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -180,7 +177,7 @@ def test_cli_refs_includes_parent_and_globbed_child_toctree_edges(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -191,7 +188,6 @@ def test_cli_refs_includes_parent_and_globbed_child_toctree_edges(
 
 @pytest.mark.integration
 def test_cli_refs_requires_sphinx_src(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -200,7 +196,7 @@ def test_cli_refs_requires_sphinx_src(
     p.write_text("Title\n=====\n", encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "refs", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "--sphinx-src DIR" in out
@@ -209,7 +205,6 @@ def test_cli_refs_requires_sphinx_src(
 
 @pytest.mark.integration
 def test_cli_refs_file_not_part_of_project(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -222,32 +217,36 @@ def test_cli_refs_file_not_part_of_project(
     # test_docname_for_unreachable_file_returns_none.
     outside = tmp_path.parent / "not_in_this_project.rst"
     outside.write_text("Title\n=====\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "refs", str(outside)])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "refs", str(outside)],
+    )
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     assert "not part of" in capsys.readouterr().out
 
 
 @pytest.mark.integration
 def test_cli_refs_missing_file_errors_cleanly(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
     missing = rst_repo / "missing.rst"
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "refs", str(missing)])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "refs", str(missing)],
+    )
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     assert "missing.rst" in capsys.readouterr().out
 
 
 @pytest.mark.integration
 def test_cli_json_valid_and_complete(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -259,7 +258,7 @@ def test_cli_json_valid_and_complete(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1  # underline-only ERROR — exit semantics unchanged
     out = capsys.readouterr().out
     data = json.loads(out)  # pure JSON — nothing else on stdout
@@ -282,17 +281,19 @@ def test_cli_json_valid_and_complete(
 
 @pytest.mark.integration
 def test_cli_json_no_warnings_filters_records_and_summary(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     document = rst_repo / "test.rst"
     document.write_text("#######\nTitle\n#######\n\n**Heading-like text**\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", "--no-warnings", str(document)])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "check", "--format=json", "--no-warnings", str(document)],
+    )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     data = json.loads(capsys.readouterr().out)
@@ -302,7 +303,6 @@ def test_cli_json_no_warnings_filters_records_and_summary(
 
 @pytest.mark.integration
 def test_cli_json_no_warnings_filters_sphinx_findings(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -312,11 +312,19 @@ def test_cli_json_no_warnings_filters_sphinx_findings(
     document.write_text("#######\nTitle\n#######\n\nSee :doc:`missing`.\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "check", "--format=json", "--no-warnings", str(document)],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "check",
+            "--format=json",
+            "--no-warnings",
+            str(document),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     data = json.loads(capsys.readouterr().out)
@@ -326,7 +334,6 @@ def test_cli_json_no_warnings_filters_sphinx_findings(
 
 @pytest.mark.integration
 def test_cli_json_stable_section_ids(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -341,14 +348,13 @@ def test_cli_json_stable_section_ids(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     data = json.loads(capsys.readouterr().out)
     assert data["files"][0]["outline"][0]["id"] == "docs/guide:Title"
 
 
 @pytest.mark.integration
 def test_cli_json_section_ids_are_unique_for_duplicate_titles(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -375,7 +381,7 @@ def test_cli_json_section_ids_are_unique_for_duplicate_titles(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(document)])
 
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
 
     data = json.loads(capsys.readouterr().out)
     ids = [entry["id"] for entry in data["files"][0]["outline"]]
@@ -383,7 +389,7 @@ def test_cli_json_section_ids_are_unique_for_duplicate_titles(
 
 
 @pytest.mark.integration
-def test_outline_section_extents(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_outline_section_extents(tmp_path: Path) -> None:
     """A section's extent runs from its title line to the last content line
     before the next same-or-shallower section's block (overline included),
     trailing blank separator lines trimmed; the last section runs to EOF."""
@@ -406,7 +412,7 @@ def test_outline_section_extents(check_rst: types.ModuleType, tmp_path: Path) ->
         Body B.
         """,
     )
-    entries = check_rst.build_outline(p)
+    entries = _document.build_outline(p)
     assert [(e.title, e.lineno, e.end) for e in entries] == [
         ("Root", 1, 14),
         ("Sub A", 6, 9),  # blank line 10 before Sub B trimmed
@@ -415,32 +421,32 @@ def test_outline_section_extents(check_rst: types.ModuleType, tmp_path: Path) ->
 
 
 @pytest.mark.integration
-def test_block_quote_multiline_extent(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_block_quote_multiline_extent(tmp_path: Path) -> None:
     """A multi-paragraph quote reports its full range; a single-line quote
     keeps the single-number format."""
     p = _rst(
         tmp_path,
         "Intro:\n\n    First quoted line.\n\n    Second quoted paragraph.\n\nAfter.\n",
     )
-    entries = check_rst.find_block_quotes(p)
+    entries = _document.find_block_quotes(p)
     assert len(entries) == 1
     assert (entries[0].lineno, entries[0].end) == (3, 5)
     assert str(entries[0]).startswith('3-5: blockquote "')
 
     single = _rst(tmp_path / "sub" if False else tmp_path, "Intro:\n\n    One line.\n")
-    entries = check_rst.find_block_quotes(single)
+    entries = _document.find_block_quotes(single)
     assert str(entries[0]) == '3: blockquote "One line."'
 
 
 @pytest.mark.integration
-def test_heuristic_code_block_extent(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_heuristic_code_block_extent(tmp_path: Path) -> None:
     """A code-block's extent covers the directive line through the last
     indented content line."""
     p = _rst(
         tmp_path,
         "Title\n=====\n\n.. code-block:: python\n\n    x = 1\n    y = 2\n\nAfter.\n",
     )
-    entries = check_rst.find_code_blocks_heuristic(p)
+    entries = _document.find_code_blocks_heuristic(p)
     assert len(entries) == 1
     assert (entries[0].lineno, entries[0].end) == (4, 7)
     assert str(entries[0]) == "    4-7: code-block (python): x = 1 y = 2"
@@ -448,7 +454,6 @@ def test_heuristic_code_block_extent(check_rst: types.ModuleType, tmp_path: Path
 
 @pytest.mark.integration
 def test_cli_json_outline_carries_extent(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -457,7 +462,7 @@ def test_cli_json_outline_carries_extent(
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     data = json.loads(capsys.readouterr().out)
     entry = data["files"][0]["outline"][0]
     assert entry["lineno"] == 4
@@ -465,7 +470,7 @@ def test_cli_json_outline_carries_extent(
 
 
 @pytest.mark.integration
-def test_document_prose_text_skips_code_comments_topics(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_document_prose_text_skips_code_comments_topics(tmp_path: Path) -> None:
     """Prose is what the author wrote as text: titles and paragraphs —
     not code content, not comments, not generated topics (.. contents::)."""
     p = _rst(
@@ -487,7 +492,7 @@ def test_document_prose_text_skips_code_comments_topics(check_rst: types.ModuleT
         Final paragraph.
         """,
     )
-    doc = check_rst.Document(p)
+    doc = _document.Document(p)
     assert "Real prose here." in doc.prose_text
     assert "Title" in doc.prose_text
     assert "Final paragraph." in doc.prose_text
@@ -498,7 +503,6 @@ def test_document_prose_text_skips_code_comments_topics(check_rst: types.ModuleT
 
 @pytest.mark.integration
 def test_cli_footer_top_prose_words(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -514,20 +518,18 @@ def test_cli_footer_top_prose_words(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "top prose words: product (3 @2), server (2 @5)" in out
     assert "the (" not in out  # stopwords never appear
 
 
 @pytest.mark.unit
-def test_stopword_sets_pins_known_words_all_three_languages(
-    check_rst: types.ModuleType,
-) -> None:
+def test_stopword_sets_pins_known_words_all_three_languages() -> None:
     """Regression guard, strengthened: the single existing membership check
     ("the" in English) said nothing about Russian or French ever
     resolving to real content — pin several common words per language."""
-    sets = check_rst._stopword_sets()
+    sets = _reports._stopword_sets()
     assert {"the", "and", "a", "over", "again"} <= sets["en"]
     assert {"и", "в", "на"} <= sets["ru"]
     assert {"le", "la", "de", "et"} <= sets["fr"]
@@ -535,7 +537,6 @@ def test_stopword_sets_pins_known_words_all_three_languages(
 
 @pytest.mark.integration
 def test_cli_footer_top_prose_words_excludes_english_stopwords(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -551,7 +552,7 @@ def test_cli_footer_top_prose_words_excludes_english_stopwords(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "product (4 @2), server (3 @5)" in out
     # Word-boundary match: a naive substring check falsely matches inside
@@ -564,7 +565,6 @@ def test_cli_footer_top_prose_words_excludes_english_stopwords(
 
 @pytest.mark.integration
 def test_cli_footer_top_prose_words_excludes_russian_stopwords(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -597,7 +597,7 @@ def test_cli_footer_top_prose_words_excludes_russian_stopwords(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     # Sensor/server: content words, high frequency.
     assert f"{sensor} (4 @2), {server} (3 @5)" in out
@@ -612,7 +612,6 @@ def test_cli_footer_top_prose_words_excludes_russian_stopwords(
 
 @pytest.mark.integration
 def test_cli_footer_top_prose_words_excludes_french_stopwords(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -628,7 +627,7 @@ def test_cli_footer_top_prose_words_excludes_french_stopwords(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "capteur (4 @2), serveur (3 @5)" in out
     for stopword in ("le", "et", "de", "sur"):
@@ -637,7 +636,6 @@ def test_cli_footer_top_prose_words_excludes_french_stopwords(
 
 @pytest.mark.integration
 def test_cli_footer_top_words_stem_grouping_shows_surface_form(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -654,7 +652,7 @@ def test_cli_footer_top_words_stem_grouping_shows_surface_form(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "\u043f\u0440\u043e\u0431\u043b\u0435\u043c\u044b (3 @5)" in out
     assert "\u043f\u0440\u043e\u0431\u043b\u0435\u043c (" not in out.replace(
@@ -664,7 +662,6 @@ def test_cli_footer_top_words_stem_grouping_shows_surface_form(
 
 @pytest.mark.integration
 def test_cli_json_top_words(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -674,9 +671,12 @@ def test_cli_json_top_words(
         "#########\nproduct\n#########\n\nproduct server and server product.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", "--word-samples", "10", str(p)])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "check", "--format=json", "--word-samples", "10", str(p)],
+    )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     data = json.loads(capsys.readouterr().out)
     top, suppressed = data["files"][0]["stats"]["top_words"]
     assert top[0] == ["product", 3]
@@ -686,7 +686,6 @@ def test_cli_json_top_words(
 
 @pytest.mark.integration
 def test_cli_footer_top_words_bounded_with_suppression_note(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -717,7 +716,7 @@ def test_cli_footer_top_words_bounded_with_suppression_note(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--word-samples", "10", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "top prose words: alpha (3 @" in out
     # 17 groups total (15 nato words + alpha + title), 10 shown, 7 suppressed
@@ -726,7 +725,6 @@ def test_cli_footer_top_words_bounded_with_suppression_note(
 
 @pytest.mark.integration
 def test_cli_footer_rare_words_with_sibling_annotation(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -743,7 +741,7 @@ def test_cli_footer_rare_words_with_sibling_annotation(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "rare prose words: procesess @7 (~processes 3x)" in out
     assert "zebra" in out
@@ -752,7 +750,6 @@ def test_cli_footer_rare_words_with_sibling_annotation(
 
 @pytest.mark.integration
 def test_cli_footer_rare_words_bounded(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -779,7 +776,7 @@ def test_cli_footer_rare_words_bounded(
     p.write_text("#######\nTitle\n#######\n\n" + " ".join(nato) + ".\n", encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--word-samples", "10", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     # 17 once-groups (16 nato + title), 10 shown, 7 suppressed
     assert "rare prose words: " in out
@@ -789,7 +786,6 @@ def test_cli_footer_rare_words_bounded(
 
 @pytest.mark.integration
 def test_cli_json_rare_words(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -801,9 +797,12 @@ def test_cli_json_rare_words(
         "One procesess appears.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", "--word-samples", "10", str(p)])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "check", "--format=json", "--word-samples", "10", str(p)],
+    )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     data = json.loads(capsys.readouterr().out)
     rare, suppressed = data["files"][0]["stats"]["rare_words"]
     assert ["procesess", "processes", 3] in rare
@@ -812,7 +811,6 @@ def test_cli_json_rare_words(
 
 @pytest.mark.integration
 def test_prose_grouping_detects_french_documents(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -836,7 +834,7 @@ def test_prose_grouping_detects_french_documents(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "vérifier (2 @" in out  # infinitive+participle: ONE group of two
     rare = next(ln for ln in out.splitlines() if ln.startswith("rare prose words"))
@@ -845,7 +843,6 @@ def test_prose_grouping_detects_french_documents(
 
 @pytest.mark.integration
 def test_cli_rare_words_catches_the_confessed_mistake(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -865,14 +862,13 @@ def test_cli_rare_words_catches_the_confessed_mistake(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert f"rare prose words: {bad} @5 (~{ok} 3x)" in out
 
 
 @pytest.mark.integration
 def test_cli_rare_words_annotates_once_vs_once_pair(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -889,7 +885,7 @@ def test_cli_rare_words_annotates_once_vs_once_pair(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     rare = next(ln for ln in out.splitlines() if ln.startswith("rare prose words"))
     assert "fameworks @7 \u2194 frameworks @5" in rare  # one symmetric fact, with jump targets
@@ -899,7 +895,6 @@ def test_cli_rare_words_annotates_once_vs_once_pair(
 
 @pytest.mark.integration
 def test_prose_statistics_on_realistic_journal_note(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -941,7 +936,7 @@ def test_prose_statistics_on_realistic_journal_note(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     top = next(ln for ln in out.splitlines() if ln.startswith("top prose"))
     rare = next(ln for ln in out.splitlines() if ln.startswith("rare prose"))
@@ -963,36 +958,32 @@ def test_prose_statistics_on_realistic_journal_note(
 
 
 @pytest.mark.unit
-def test_find_stopwords_accepts_either_known_casing(check_rst: types.ModuleType) -> None:
+def test_find_stopwords_accepts_either_known_casing() -> None:
     uppercase_mod = types.SimpleNamespace(ENGLISH_STOPWORDS={"the", "a"})  # sphinx 9.1.0 (gl63)
     lowercase_mod = types.SimpleNamespace(english_stopwords={"the", "a"})  # sphinx 8.2.3 (this host)
 
     names = ("ENGLISH_STOPWORDS", "english_stopwords")
-    assert check_rst._find_stopwords(uppercase_mod, names) == frozenset({"the", "a"})
-    assert check_rst._find_stopwords(lowercase_mod, names) == frozenset({"the", "a"})
+    assert _reports._find_stopwords(uppercase_mod, names) == frozenset({"the", "a"})
+    assert _reports._find_stopwords(lowercase_mod, names) == frozenset({"the", "a"})
 
 
 @pytest.mark.unit
-def test_find_stopwords_raises_when_neither_name_present(
-    check_rst: types.ModuleType,
-) -> None:
+def test_find_stopwords_raises_when_neither_name_present() -> None:
     """A third casing (sphinx renamed it again) must raise — never
     silently return an empty set mistaken for 'no stopwords'."""
     renamed_again_mod = types.SimpleNamespace(SOME_OTHER_NAME={"the", "a"})
     renamed_again_mod.__name__ = "renamed_again_mod"
 
-    with pytest.raises(check_rst.StopwordsUnavailable, match="renamed_again_mod"):
-        check_rst._find_stopwords(renamed_again_mod, ("ENGLISH_STOPWORDS", "english_stopwords"))
+    with pytest.raises(_types.StopwordsUnavailable, match="renamed_again_mod"):
+        _reports._find_stopwords(renamed_again_mod, ("ENGLISH_STOPWORDS", "english_stopwords"))
 
 
 @pytest.mark.unit
-def test_stopword_sets_returns_nonempty_sets_for_all_three_languages(
-    check_rst: types.ModuleType,
-) -> None:
+def test_stopword_sets_returns_nonempty_sets_for_all_three_languages() -> None:
     """Regression guard for the reported bug: against the REAL installed
     sphinx (whichever casing it uses), _stopword_sets() must resolve —
     not silently return None."""
-    sets = check_rst._stopword_sets()
+    sets = _reports._stopword_sets()
     assert set(sets) == {"en", "ru", "fr"}
     assert all(sets[lang] for lang in sets)
     assert "the" in sets["en"]
@@ -1000,36 +991,33 @@ def test_stopword_sets_returns_nonempty_sets_for_all_three_languages(
 
 @pytest.mark.unit
 def test_stopword_sets_raises_when_sphinx_search_not_importable(
-    check_rst: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """sphinx.search unimportable must raise, not silently return None."""
-    check_rst._stopword_sets.cache_clear()
+    _reports._stopword_sets.cache_clear()
     monkeypatch.setitem(sys.modules, "sphinx.search.en", None)
     try:
-        with pytest.raises(check_rst.StopwordsUnavailable):
-            check_rst._stopword_sets()
+        with pytest.raises(_types.StopwordsUnavailable):
+            _reports._stopword_sets()
     finally:
-        check_rst._stopword_sets.cache_clear()
+        _reports._stopword_sets.cache_clear()
 
 
 @pytest.mark.unit
 def test_prose_stemmers_raise_instead_of_silently_degrading(
-    check_rst: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    check_rst._prose_stemmers.cache_clear()
+    _reports._prose_stemmers.cache_clear()
     monkeypatch.setitem(sys.modules, "snowballstemmer", None)
     try:
-        with pytest.raises(check_rst.WordStatsUnavailable, match="snowballstemmer"):
-            check_rst._prose_stemmers()
+        with pytest.raises(_types.WordStatsUnavailable, match="snowballstemmer"):
+            _reports._prose_stemmers()
     finally:
-        check_rst._prose_stemmers.cache_clear()
+        _reports._prose_stemmers.cache_clear()
 
 
 @pytest.mark.integration
 def test_cli_footer_explicit_warning_when_stopwords_unavailable(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1042,12 +1030,12 @@ def test_cli_footer_explicit_warning_when_stopwords_unavailable(
     p.write_text("#######\nTitle\n#######\n\nSome prose words here.\n", encoding="utf-8")
 
     def _boom() -> dict[str, set[str]]:
-        raise check_rst.StopwordsUnavailable("sphinx.search.en has neither X nor Y")
+        raise _types.StopwordsUnavailable("sphinx.search.en has neither X nor Y")
 
-    monkeypatch.setattr(check_rst._reports, "_stopword_sets", _boom)
+    monkeypatch.setattr(_reports, "_stopword_sets", _boom)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
     with pytest.raises(SystemExit) as exc_info:
-        check_rst.main()
+        cli.main()
     assert exc_info.value.code == 0  # a broken cosmetic stat must not fail the run
     out = capsys.readouterr().out
     assert "WARNING: top/rare prose words unavailable — sphinx.search.en has neither X nor Y" in out
@@ -1059,7 +1047,6 @@ def test_cli_footer_explicit_warning_when_stopwords_unavailable(
 
 @pytest.mark.integration
 def test_cli_json_word_stats_error_when_stopwords_unavailable(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1070,12 +1057,15 @@ def test_cli_json_word_stats_error_when_stopwords_unavailable(
     p.write_text("#######\nTitle\n#######\n\nSome prose words here.\n", encoding="utf-8")
 
     def _boom() -> dict[str, set[str]]:
-        raise check_rst.StopwordsUnavailable("sphinx.search.en has neither X nor Y")
+        raise _types.StopwordsUnavailable("sphinx.search.en has neither X nor Y")
 
-    monkeypatch.setattr(check_rst._reports, "_stopword_sets", _boom)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", "--word-samples", "10", str(p)])
+    monkeypatch.setattr(_reports, "_stopword_sets", _boom)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "check", "--format=json", "--word-samples", "10", str(p)],
+    )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     data = json.loads(capsys.readouterr().out)
     stats = data["files"][0]["stats"]
     assert stats["top_words"] is None
@@ -1085,7 +1075,6 @@ def test_cli_json_word_stats_error_when_stopwords_unavailable(
 
 @pytest.mark.integration
 def test_cli_no_warnings_suppresses_word_stats_failure_warning(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1094,16 +1083,24 @@ def test_cli_no_warnings_suppresses_word_stats_failure_warning(
     document.write_text(_GOOD_BLOCK + "\nSome prose words here.\n", encoding="utf-8")
 
     def _boom() -> dict[str, set[str]]:
-        raise check_rst.StopwordsUnavailable("unavailable for test")
+        raise _types.StopwordsUnavailable("unavailable for test")
 
-    monkeypatch.setattr(check_rst._reports, "_stopword_sets", _boom)
+    monkeypatch.setattr(_reports, "_stopword_sets", _boom)
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--quiet", "--no-warnings", "--word-samples", "10", str(document)],
+        [
+            "check_rst.py",
+            "check",
+            "--quiet",
+            "--no-warnings",
+            "--word-samples",
+            "10",
+            str(document),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -1124,7 +1121,11 @@ def _json_dump(
     only the fields the diff actually reads."""
     data = {
         "files": [{"path": path, "outline": outline or [], "findings": findings or []}],
-        "summary": {"files_checked": files_checked, "errors": errors, "warnings": warnings},
+        "summary": {
+            "files_checked": files_checked,
+            "errors": errors,
+            "warnings": warnings,
+        },
     }
     if sphinx_findings is not None:
         data["sphinx_findings"] = sphinx_findings
@@ -1132,18 +1133,16 @@ def _json_dump(
 
 
 @pytest.mark.unit
-def test_diff_json_dumps_summary_deltas(check_rst: types.ModuleType) -> None:
+def test_diff_json_dumps_summary_deltas() -> None:
     old = _json_dump(warnings=74)
     new = _json_dump(warnings=95)
-    diff = check_rst._diff_json_dumps(old, new)
+    diff = _reports._diff_json_dumps(old, new)
     assert diff["summary"]["warnings"] == {"old": 74, "new": 95, "delta": 21}
     assert diff["summary"]["errors"] == {"old": 0, "new": 0, "delta": 0}
 
 
 @pytest.mark.unit
-def test_diff_json_dumps_outline_added_section_hierarchy_unchanged(
-    check_rst: types.ModuleType,
-) -> None:
+def test_diff_json_dumps_outline_added_section_hierarchy_unchanged() -> None:
     """The doc's own worked example: 'added subsection, hierarchy
     unchanged' — a new section id appears, but every surviving section
     keeps its (depth, char)."""
@@ -1160,7 +1159,7 @@ def test_diff_json_dumps_outline_added_section_hierarchy_unchanged(
             {"id": "doc:New", "depth": 2, "char": "*", "title": "New"},
         ]
     )
-    diff = check_rst._diff_json_dumps(old, new)
+    diff = _reports._diff_json_dumps(old, new)
     file_diff = diff["files"]["doc.rst"]
     assert file_diff["outline"]["added"] == ["doc:New"]
     assert file_diff["outline"]["removed"] == []
@@ -1169,46 +1168,56 @@ def test_diff_json_dumps_outline_added_section_hierarchy_unchanged(
 
 
 @pytest.mark.unit
-def test_diff_json_dumps_hierarchy_changed_flags_the_id(
-    check_rst: types.ModuleType,
-) -> None:
+def test_diff_json_dumps_hierarchy_changed_flags_the_id() -> None:
     """A surviving section that changed depth or char is named, not just
     flagged true/false — the reader needs to know WHICH one."""
     old = _json_dump(outline=[{"id": "doc:Sub", "depth": 2, "char": "*", "title": "Sub"}])
     new = _json_dump(outline=[{"id": "doc:Sub", "depth": 3, "char": "=", "title": "Sub"}])
-    diff = check_rst._diff_json_dumps(old, new)
+    diff = _reports._diff_json_dumps(old, new)
     assert diff["files"]["doc.rst"]["outline"]["hierarchy_changed"] == ["doc:Sub"]
 
 
 @pytest.mark.unit
-def test_diff_json_dumps_findings_added_and_resolved_matched_by_severity_and_text(
-    check_rst: types.ModuleType,
-) -> None:
+def test_diff_json_dumps_findings_added_and_resolved_matched_by_severity_and_text() -> None:
     """Findings match on (severity, text), NOT line number — a finding
     that merely shifted lines because of an unrelated earlier edit must
     not appear as both resolved and added."""
     old = _json_dump(
         findings=[
-            {"lineno": 10, "severity": "WARNING", "text": "bold paragraph opener 'Foo'"},
-            {"lineno": 20, "severity": "WARNING", "text": "bold paragraph opener 'Gone'"},
+            {
+                "lineno": 10,
+                "severity": "WARNING",
+                "text": "bold paragraph opener 'Foo'",
+            },
+            {
+                "lineno": 20,
+                "severity": "WARNING",
+                "text": "bold paragraph opener 'Gone'",
+            },
         ]
     )
     new = _json_dump(
         findings=[
-            {"lineno": 15, "severity": "WARNING", "text": "bold paragraph opener 'Foo'"},  # shifted, not new
-            {"lineno": 30, "severity": "WARNING", "text": "bold paragraph opener 'New'"},
+            {
+                "lineno": 15,
+                "severity": "WARNING",
+                "text": "bold paragraph opener 'Foo'",
+            },  # shifted, not new
+            {
+                "lineno": 30,
+                "severity": "WARNING",
+                "text": "bold paragraph opener 'New'",
+            },
         ]
     )
-    diff = check_rst._diff_json_dumps(old, new)
+    diff = _reports._diff_json_dumps(old, new)
     findings = diff["files"]["doc.rst"]["findings"]
     assert findings["added"] == [{"severity": "WARNING", "text": "bold paragraph opener 'New'"}]
     assert findings["resolved"] == [{"severity": "WARNING", "text": "bold paragraph opener 'Gone'"}]
 
 
 @pytest.mark.unit
-def test_diff_json_dumps_compares_sphinx_findings_even_when_counts_cancel(
-    check_rst: types.ModuleType,
-) -> None:
+def test_diff_json_dumps_compares_sphinx_findings_even_when_counts_cancel() -> None:
     """One resolved and one added Sphinx warning must not look unchanged."""
     old = _json_dump(
         warnings=1,
@@ -1219,17 +1228,15 @@ def test_diff_json_dumps_compares_sphinx_findings_even_when_counts_cancel(
         sphinx_findings=[{"lineno": 8, "severity": "WARNING", "text": "doc.rst: new warning"}],
     )
 
-    diff = check_rst._diff_json_dumps(old, new)
+    diff = _reports._diff_json_dumps(old, new)
 
     assert diff["sphinx_findings"]["added"] == [{"severity": "WARNING", "text": "doc.rst: new warning"}]
     assert diff["sphinx_findings"]["resolved"] == [{"severity": "WARNING", "text": "doc.rst: old warning"}]
-    assert "new warning" in check_rst._format_json_diff(diff)
+    assert "new warning" in _reports._format_json_diff(diff)
 
 
 @pytest.mark.unit
-def test_diff_json_dumps_reports_runtime_provenance_change(
-    check_rst: types.ModuleType,
-) -> None:
+def test_diff_json_dumps_reports_runtime_provenance_change() -> None:
     old = _json_dump()
     old.update(
         {
@@ -1247,33 +1254,30 @@ def test_diff_json_dumps_reports_runtime_provenance_change(
         }
     )
 
-    diff = check_rst._diff_json_dumps(old, new)
+    diff = _reports._diff_json_dumps(old, new)
 
     assert "runtime" in diff["provenance"]["changed"]
-    assert "provenance differs" in check_rst._format_json_diff(diff)
+    assert "provenance differs" in _reports._format_json_diff(diff)
 
 
 @pytest.mark.unit
-def test_diff_json_dumps_unchanged_file_reports_unchanged_status(
-    check_rst: types.ModuleType,
-) -> None:
+def test_diff_json_dumps_unchanged_file_reports_unchanged_status() -> None:
     same = _json_dump(outline=[{"id": "doc:T", "depth": 1, "char": "#", "title": "T"}])
-    diff = check_rst._diff_json_dumps(same, same)
+    diff = _reports._diff_json_dumps(same, same)
     assert diff["files"]["doc.rst"]["status"] == "unchanged"
 
 
 @pytest.mark.unit
-def test_diff_json_dumps_added_and_removed_files(check_rst: types.ModuleType) -> None:
+def test_diff_json_dumps_added_and_removed_files() -> None:
     old = _json_dump(path="a.rst")
     new = _json_dump(path="b.rst")
-    diff = check_rst._diff_json_dumps(old, new)
+    diff = _reports._diff_json_dumps(old, new)
     assert diff["files"]["a.rst"] == {"status": "removed"}
     assert diff["files"]["b.rst"] == {"status": "added"}
 
 
 @pytest.mark.integration
 def test_cli_diff_json_end_to_end(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1285,7 +1289,7 @@ def test_cli_diff_json_end_to_end(
     p.write_text("#######\nTitle\n#######\n\n**A point.**  Detail.\n", encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     old_json = capsys.readouterr().out
     (rst_repo / "old.json").write_text(old_json, encoding="utf-8")
 
@@ -1295,16 +1299,21 @@ def test_cli_diff_json_end_to_end(
     )
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     new_json = capsys.readouterr().out
     (rst_repo / "new.json").write_text(new_json, encoding="utf-8")
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "diff-json", str(rst_repo / "old.json"), str(rst_repo / "new.json")],
+        [
+            "check_rst.py",
+            "diff-json",
+            str(rst_repo / "old.json"),
+            str(rst_repo / "new.json"),
+        ],
     )
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "warnings" in out
@@ -1315,17 +1324,21 @@ def test_cli_diff_json_end_to_end(
 
 @pytest.mark.integration
 def test_cli_diff_json_missing_file_errors_cleanly(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "diff-json", str(tmp_path / "missing1.json"), str(tmp_path / "missing2.json")],
+        [
+            "check_rst.py",
+            "diff-json",
+            str(tmp_path / "missing1.json"),
+            str(tmp_path / "missing2.json"),
+        ],
     )
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "missing1.json" in out
@@ -1342,7 +1355,6 @@ def test_cli_diff_json_missing_file_errors_cleanly(
     ],
 )
 def test_cli_diff_json_rejects_malformed_or_wrong_schema_cleanly(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1359,7 +1371,7 @@ def test_cli_diff_json_rejects_malformed_or_wrong_schema_cleanly(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     out = capsys.readouterr().out
@@ -1368,9 +1380,7 @@ def test_cli_diff_json_rejects_malformed_or_wrong_schema_cleanly(
 
 
 @pytest.mark.unit
-def test_context_resolver_accepts_future_entry_kind_without_registration(
-    check_rst: types.ModuleType,
-) -> None:
+def test_context_resolver_accepts_future_entry_kind_without_registration() -> None:
     @dataclass(frozen=True)
     class FutureWidgetEntry:
         lineno: int
@@ -1380,7 +1390,7 @@ def test_context_resolver_accepts_future_entry_kind_without_registration(
 
     entry = FutureWidgetEntry(12, 2, "Opaque widget", 15)
 
-    matches = check_rst._resolve_context_matches([entry], "Opaque widget", "guide")
+    matches = _reports._resolve_context_matches([entry], "Opaque widget", "guide")
 
     assert len(matches) == 1
     assert matches[0].entry is entry
@@ -1390,7 +1400,6 @@ def test_context_resolver_accepts_future_entry_kind_without_registration(
 
 @pytest.mark.integration
 def test_cli_context_list_item_reports_parent_path_and_adjacent_siblings(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1403,7 +1412,7 @@ def test_cli_context_list_item_reports_parent_path_and_adjacent_siblings(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "Target item.", str(p)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -1422,7 +1431,6 @@ def test_cli_context_list_item_reports_parent_path_and_adjacent_siblings(
 
 @pytest.mark.integration
 def test_cli_context_section_stable_id_and_applicable_finding(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1435,7 +1443,7 @@ def test_cli_context_section_stable_id_and_applicable_finding(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "test:Target", str(p)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -1448,7 +1456,6 @@ def test_cli_context_section_stable_id_and_applicable_finding(
 
 @pytest.mark.integration
 def test_cli_context_ambiguous_exact_match_lists_candidates_without_guessing(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1461,7 +1468,7 @@ def test_cli_context_ambiguous_exact_match_lists_candidates_without_guessing(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "Repeat.", str(p)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     out = capsys.readouterr().out
@@ -1474,7 +1481,6 @@ def test_cli_context_ambiguous_exact_match_lists_candidates_without_guessing(
 
 @pytest.mark.integration
 def test_cli_context_ambiguous_candidates_are_bounded_without_silent_truncation(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1485,7 +1491,7 @@ def test_cli_context_ambiguous_candidates_are_bounded_without_silent_truncation(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "Repeat.", str(p)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     out = capsys.readouterr().out
@@ -1496,7 +1502,6 @@ def test_cli_context_ambiguous_candidates_are_bounded_without_silent_truncation(
 
 @pytest.mark.integration
 def test_cli_context_universal_selector_addresses_anonymous_container(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1509,7 +1514,7 @@ def test_cli_context_universal_selector_addresses_anonymous_container(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "test:bullet-list@5", str(p)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -1522,7 +1527,6 @@ def test_cli_context_universal_selector_addresses_anonymous_container(
 
 @pytest.mark.integration
 def test_cli_context_requires_exactly_one_positional_file(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1541,7 +1545,7 @@ def test_cli_context_requires_exactly_one_positional_file(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "Title", str(one), str(two)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 2
     assert "unrecognized arguments" in capsys.readouterr().err
@@ -1549,7 +1553,6 @@ def test_cli_context_requires_exactly_one_positional_file(
 
 @pytest.mark.integration
 def test_cli_context_verified_references_are_scoped_to_selected_entry(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1568,11 +1571,18 @@ def test_cli_context_verified_references_are_scoped_to_selected_entry(
     (tmp_path / "outside.rst").write_text("Outside\n=======\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(tmp_path), "context", "target:Details", str(target)],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(tmp_path),
+            "context",
+            "target:Details",
+            str(target),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -1586,7 +1596,6 @@ def test_cli_context_verified_references_are_scoped_to_selected_entry(
 
 @pytest.mark.integration
 def test_cli_context_resolves_nested_cross_file_toctree_in_its_source_document(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1606,11 +1615,18 @@ def test_cli_context_resolves_nested_cross_file_toctree_in_its_source_document(
     grandchild.write_text("Grandchild\n==========\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(tmp_path), "context", "child:toctree@4", str(index)],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(tmp_path),
+            "context",
+            "child:toctree@4",
+            str(index),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out

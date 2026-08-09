@@ -10,8 +10,9 @@ from typing import TYPE_CHECKING
 import pytest
 from _support import _BAD_BLOCK, _GOOD_BLOCK
 
+from check_rst import cli
+
 if TYPE_CHECKING:
-    import types
     from pathlib import Path
 
 
@@ -27,15 +28,12 @@ if TYPE_CHECKING:
         (["--help", "--max-output-lines", "10"], None),
     ],
 )
-def test_requested_output_limit_matches_cli_bootstrap_rules(
-    check_rst: types.ModuleType, argv: list[str], expected: int | None
-) -> None:
-    assert check_rst._requested_output_limit(argv) == expected
+def test_requested_output_limit_matches_cli_bootstrap_rules(argv: list[str], expected: int | None) -> None:
+    assert cli._requested_output_limit(argv) == expected
 
 
 @pytest.mark.integration
 def test_cli_max_output_lines_rejects_values_below_two(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -48,7 +46,7 @@ def test_cli_max_output_lines_rejects_values_below_two(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     assert "--max-output-lines must be >= 2" in capsys.readouterr().out
@@ -56,7 +54,6 @@ def test_cli_max_output_lines_rejects_values_below_two(
 
 @pytest.mark.integration
 def test_cli_max_output_lines_two_reserves_statistics_and_failed_footer(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -69,7 +66,7 @@ def test_cli_max_output_lines_two_reserves_statistics_and_failed_footer(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     lines = capsys.readouterr().out.splitlines()
@@ -82,7 +79,6 @@ def test_cli_max_output_lines_two_reserves_statistics_and_failed_footer(
 
 @pytest.mark.integration
 def test_cli_max_output_lines_reports_zero_suppression_without_padding(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -95,7 +91,7 @@ def test_cli_max_output_lines_reports_zero_suppression_without_padding(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     lines = capsys.readouterr().out.splitlines()
@@ -109,7 +105,6 @@ def test_cli_max_output_lines_reports_zero_suppression_without_padding(
 
 @pytest.mark.integration
 def test_cli_max_output_lines_classifies_suppressed_warnings(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -125,7 +120,7 @@ def test_cli_max_output_lines_classifies_suppressed_warnings(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     lines = capsys.readouterr().out.splitlines()
@@ -136,7 +131,6 @@ def test_cli_max_output_lines_classifies_suppressed_warnings(
 
 @pytest.mark.integration
 def test_cli_max_output_lines_applies_after_outline_filters_and_classifies(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -148,11 +142,18 @@ def test_cli_max_output_lines_applies_after_outline_filters_and_classifies(
     )
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--sections-only", "--max-output-lines", "3", str(document)],
+        [
+            "check_rst.py",
+            "outline",
+            "--sections-only",
+            "--max-output-lines",
+            "3",
+            str(document),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     lines = capsys.readouterr().out.splitlines()
@@ -165,7 +166,6 @@ def test_cli_max_output_lines_applies_after_outline_filters_and_classifies(
 
 @pytest.mark.integration
 def test_cli_max_output_lines_early_failure_has_hint_and_status_footer(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -177,7 +177,7 @@ def test_cli_max_output_lines_early_failure_has_hint_and_status_footer(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     lines = capsys.readouterr().out.splitlines()
@@ -188,7 +188,6 @@ def test_cli_max_output_lines_early_failure_has_hint_and_status_footer(
 
 @pytest.mark.integration
 def test_cli_max_output_lines_keeps_footer_last_after_verbose_statistics(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -197,11 +196,18 @@ def test_cli_max_output_lines_keeps_footer_last_after_verbose_statistics(
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--verbose", "--max-output-lines", "5", str(document)],
+        [
+            "check_rst.py",
+            "check",
+            "--verbose",
+            "--max-output-lines",
+            "5",
+            str(document),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     lines = capsys.readouterr().out.splitlines()
@@ -212,7 +218,6 @@ def test_cli_max_output_lines_keeps_footer_last_after_verbose_statistics(
 
 @pytest.mark.integration
 def test_cli_max_output_lines_supports_fix_only_without_masking_mutation(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -225,7 +230,7 @@ def test_cli_max_output_lines_supports_fix_only_without_masking_mutation(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     assert document.read_text(encoding="utf-8") == _GOOD_BLOCK
@@ -237,7 +242,6 @@ def test_cli_max_output_lines_supports_fix_only_without_masking_mutation(
 
 @pytest.mark.integration
 def test_cli_max_output_lines_rejects_format_json(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -251,11 +255,18 @@ def test_cli_max_output_lines_rejects_format_json(
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "check", "--format=json", "--max-output-lines", "10", str(document)],
+        [
+            "check_rst.py",
+            "check",
+            "--format=json",
+            "--max-output-lines",
+            "10",
+            str(document),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     lines = capsys.readouterr().out.splitlines()
@@ -275,7 +286,6 @@ def test_cli_max_output_lines_rejects_format_json(
     ],
 )
 def test_cli_max_output_lines_absent_from_structured_or_copyable_verbs(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -296,7 +306,7 @@ def test_cli_max_output_lines_absent_from_structured_or_copyable_verbs(
     monkeypatch.setattr("sys.argv", argv)
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 2
     assert "unrecognized arguments" in capsys.readouterr().out
@@ -304,7 +314,6 @@ def test_cli_max_output_lines_absent_from_structured_or_copyable_verbs(
 
 @pytest.mark.integration
 def test_cli_quiet_suppresses_progress_keeps_summary(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -316,7 +325,7 @@ def test_cli_quiet_suppresses_progress_keeps_summary(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "Phase 1" not in out
@@ -326,7 +335,6 @@ def test_cli_quiet_suppresses_progress_keeps_summary(
 
 @pytest.mark.integration
 def test_cli_findings_match_de_facto_compiler_output_shape(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -341,7 +349,7 @@ def test_cli_findings_match_de_facto_compiler_output_shape(
     p.write_text(_BAD_BLOCK, encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     finding_lines = [ln for ln in out.splitlines() if ": ERROR: " in ln or ": WARNING: " in ln]
     assert finding_lines
@@ -352,7 +360,6 @@ def test_cli_findings_match_de_facto_compiler_output_shape(
 
 @pytest.mark.integration
 def test_cli_quiet_keeps_findings(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -365,7 +372,7 @@ def test_cli_quiet_keeps_findings(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "must be 7 chars" in out
@@ -375,7 +382,6 @@ def test_cli_quiet_keeps_findings(
 
 @pytest.mark.integration
 def test_cli_quiet_keeps_requested_outline(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -387,7 +393,7 @@ def test_cli_quiet_keeps_requested_outline(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", "--quiet", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "Outline:" in out
     assert "Title" in out

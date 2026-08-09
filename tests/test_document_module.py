@@ -9,27 +9,28 @@ from typing import TYPE_CHECKING
 import pytest
 from _support import _GOOD_BLOCK, _rst
 
+from check_rst import cli
+from check_rst.cli import _document, _helpers
+
 if TYPE_CHECKING:
-    import types
     from pathlib import Path
 
 
 @pytest.mark.integration
-def test_document_reads_and_parses_once(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_document_reads_and_parses_once(tmp_path: Path) -> None:
     """Accessing every facade property costs exactly one read and one
     docutils parse."""
     p = _rst(tmp_path, "Title\n=====\n\nText.\n\n    Quoted.\n")
-    check_rst.CALL_COUNTS.clear()
-    doc = check_rst.Document(p)
+    _helpers.CALL_COUNTS.clear()
+    doc = _document.Document(p)
     _ = doc.text, doc.lines, doc.hygiene, doc.outline, doc.block_quotes
     _ = doc.doctree
-    assert check_rst.CALL_COUNTS["_read_source"] == 1
-    assert check_rst.CALL_COUNTS["_parse_rst"] == 1
+    assert _helpers.CALL_COUNTS["_read_source"] == 1
+    assert _helpers.CALL_COUNTS["_parse_rst"] == 1
 
 
 @pytest.mark.integration
 def test_cli_check_run_reads_each_file_once(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -40,17 +41,16 @@ def test_cli_check_run_reads_each_file_once(
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    check_rst.CALL_COUNTS.clear()
+    _helpers.CALL_COUNTS.clear()
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
-    assert check_rst.CALL_COUNTS["_read_source"] == 1
-    assert check_rst.CALL_COUNTS["_parse_rst"] == 1
+        cli.main()
+    assert _helpers.CALL_COUNTS["_read_source"] == 1
+    assert _helpers.CALL_COUNTS["_parse_rst"] == 1
 
 
 @pytest.mark.integration
 def test_cli_outline_run_still_one_read_one_parse(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -60,9 +60,9 @@ def test_cli_outline_run_still_one_read_one_parse(
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    check_rst.CALL_COUNTS.clear()
+    _helpers.CALL_COUNTS.clear()
     monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
-    assert check_rst.CALL_COUNTS["_read_source"] == 1
-    assert check_rst.CALL_COUNTS["_parse_rst"] == 1
+        cli.main()
+    assert _helpers.CALL_COUNTS["_read_source"] == 1
+    assert _helpers.CALL_COUNTS["_parse_rst"] == 1

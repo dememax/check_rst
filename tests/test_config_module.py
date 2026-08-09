@@ -10,14 +10,15 @@ from typing import TYPE_CHECKING
 import pytest
 from _support import _BAD_BLOCK, _GOOD_BLOCK, _git
 
+from check_rst import cli
+from check_rst.cli import _helpers, _sphinx
+
 if TYPE_CHECKING:
-    import types
     from pathlib import Path
 
 
 @pytest.mark.integration
 def test_config_dedicated_file_applies_and_is_echoed(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -32,7 +33,7 @@ def test_config_dedicated_file_applies_and_is_echoed(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "config: .check_rst.toml" in out  # applied values are echoed
@@ -42,7 +43,6 @@ def test_config_dedicated_file_applies_and_is_echoed(
 
 @pytest.mark.integration
 def test_config_pyproject_table_applies(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -57,7 +57,7 @@ def test_config_pyproject_table_applies(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "config: pyproject.toml" in out
@@ -66,7 +66,6 @@ def test_config_pyproject_table_applies(
 
 @pytest.mark.integration
 def test_config_build_dir_without_sphinx_source_is_reported_inactive(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -78,7 +77,7 @@ def test_config_build_dir_without_sphinx_source_is_reported_inactive(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(document)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -90,7 +89,6 @@ def test_config_build_dir_without_sphinx_source_is_reported_inactive(
 
 @pytest.mark.integration
 def test_config_cli_flags_override(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -106,10 +104,18 @@ def test_config_cli_flags_override(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "--build-dir", str(rst_repo / "_build"), "check", str(p)],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "--build-dir",
+            str(rst_repo / "_build"),
+            "check",
+            str(p),
+        ],
     )
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0  # config's bad path never used
     out = capsys.readouterr().out
     assert "no conf.py" not in out
@@ -117,7 +123,6 @@ def test_config_cli_flags_override(
 
 @pytest.mark.integration
 def test_config_unknown_key_fails_loudly(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -130,7 +135,7 @@ def test_config_unknown_key_fails_loudly(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "sphix-src" in out
@@ -139,7 +144,6 @@ def test_config_unknown_key_fails_loudly(
 
 @pytest.mark.integration
 def test_no_config_skips_auto_discovery(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -153,7 +157,7 @@ def test_no_config_skips_auto_discovery(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "config:" not in out
@@ -162,7 +166,6 @@ def test_no_config_skips_auto_discovery(
 
 @pytest.mark.integration
 def test_no_config_skips_even_a_malformed_config(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -178,7 +181,7 @@ def test_no_config_skips_even_a_malformed_config(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "unknown key" not in out
@@ -186,7 +189,6 @@ def test_no_config_skips_even_a_malformed_config(
 
 @pytest.mark.integration
 def test_no_config_rejects_explicit_config(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -204,7 +206,7 @@ def test_no_config_rejects_explicit_config(
         ["check_rst.py", "--no-config", "--config", str(config), "check", str(p)],
     )
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "--no-config is incompatible with --config" in out
@@ -212,7 +214,6 @@ def test_no_config_rejects_explicit_config(
 
 @pytest.mark.integration
 def test_config_dedicated_file_wins_over_pyproject(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -228,7 +229,7 @@ def test_config_dedicated_file_wins_over_pyproject(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "config: .check_rst.toml" in out
@@ -236,7 +237,6 @@ def test_config_dedicated_file_wins_over_pyproject(
 
 @pytest.mark.integration
 def test_config_echo_suppressed_when_quiet(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -251,14 +251,13 @@ def test_config_echo_suppressed_when_quiet(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "config:" not in out
 
 
 @pytest.mark.integration
 def test_explicit_config_from_foreign_cwd_resolves_relative_values_from_config(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -279,14 +278,20 @@ def test_explicit_config_from_foreign_cwd_resolves_relative_values_from_config(
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     monkeypatch.chdir(foreign)
-    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", foreign)
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", foreign)
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--config", str(config.relative_to(foreign, walk_up=True)), "check", str(document)],
+        [
+            "check_rst.py",
+            "--config",
+            str(config.relative_to(foreign, walk_up=True)),
+            "check",
+            str(document),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -297,7 +302,6 @@ def test_explicit_config_from_foreign_cwd_resolves_relative_values_from_config(
 
 @pytest.mark.integration
 def test_explicit_config_bare_run_discovers_git_changes_from_config_root(
-    check_rst: types.ModuleType,
     tmp_git_repo: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -317,11 +321,11 @@ def test_explicit_config_bare_run_discovers_git_changes_from_config_root(
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     monkeypatch.chdir(foreign)
-    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", foreign)
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", foreign)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), "check"])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -331,7 +335,6 @@ def test_explicit_config_bare_run_discovers_git_changes_from_config_root(
 
 @pytest.mark.integration
 def test_explicit_config_suppresses_cwd_config_discovery(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -346,11 +349,11 @@ def test_explicit_config_suppresses_cwd_config_discovery(
     foreign.mkdir()
     (foreign / ".check_rst.toml").write_text('sphix-src = "typo must not be loaded"\n', encoding="utf-8")
     monkeypatch.chdir(foreign)
-    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", foreign)
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", foreign)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), "check", str(document)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -360,7 +363,6 @@ def test_explicit_config_suppresses_cwd_config_discovery(
 
 @pytest.mark.integration
 def test_explicit_pyproject_config_uses_tool_table(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -374,11 +376,11 @@ def test_explicit_pyproject_config_uses_tool_table(
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     monkeypatch.chdir(foreign)
-    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", foreign)
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", foreign)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), "check", str(document)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     assert f"config: {config.resolve()}" in capsys.readouterr().out
@@ -386,7 +388,6 @@ def test_explicit_pyproject_config_uses_tool_table(
 
 @pytest.mark.integration
 def test_explicit_config_json_uses_config_root_for_document_ids(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -401,14 +402,21 @@ def test_explicit_config_json_uses_config_root_for_document_ids(
     foreign = tmp_path / "foreign"
     foreign.mkdir()
     monkeypatch.chdir(foreign)
-    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", foreign)
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", foreign)
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--config", str(config), "check", "--format=json", str(document)],
+        [
+            "check_rst.py",
+            "--config",
+            str(config),
+            "check",
+            "--format=json",
+            str(document),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     data = json.loads(capsys.readouterr().out)
@@ -427,7 +435,6 @@ def test_explicit_config_json_uses_config_root_for_document_ids(
     ],
 )
 def test_explicit_config_errors_cleanly_before_actions(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -445,13 +452,13 @@ def test_explicit_config_errors_cleanly_before_actions(
     def unexpected_action(*_args: object, **_kwargs: object) -> None:
         pytest.fail("invalid explicit config must stop before Git or Sphinx")
 
-    monkeypatch.setattr(check_rst._helpers, "_changed_rst_files", unexpected_action)
-    monkeypatch.setattr(check_rst._sphinx, "_build_sphinx_env", unexpected_action)
-    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", unexpected_action)
+    monkeypatch.setattr(_helpers, "_changed_rst_files", unexpected_action)
+    monkeypatch.setattr(_sphinx, "_build_sphinx_env", unexpected_action)
+    monkeypatch.setattr(_sphinx, "run_sphinx", unexpected_action)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--config", str(config), "check"])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     out = capsys.readouterr().out
@@ -462,7 +469,6 @@ def test_explicit_config_errors_cleanly_before_actions(
 
 @pytest.mark.integration
 def test_explicit_config_values_are_overridden_by_cli_paths(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -495,7 +501,7 @@ def test_explicit_config_values_are_overridden_by_cli_paths(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -505,7 +511,6 @@ def test_explicit_config_values_are_overridden_by_cli_paths(
 
 @pytest.mark.integration
 def test_refs_accepts_explicit_config(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -521,7 +526,7 @@ def test_refs_accepts_explicit_config(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     assert f"References: {document}" in capsys.readouterr().out
@@ -529,7 +534,6 @@ def test_refs_accepts_explicit_config(
 
 @pytest.mark.integration
 def test_call_counts_heuristic_run_never_builds_sphinx(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -544,20 +548,19 @@ def test_call_counts_heuristic_run_never_builds_sphinx(
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    check_rst.CALL_COUNTS.clear()
+    _helpers.CALL_COUNTS.clear()
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
 
-    assert check_rst.CALL_COUNTS["_build_sphinx_env"] == 0
-    assert check_rst.CALL_COUNTS["run_sphinx"] == 0
-    assert check_rst.CALL_COUNTS["_load_config"] == 1
-    assert check_rst.CALL_COUNTS["_parse_rst"] >= 1
+    assert _helpers.CALL_COUNTS["_build_sphinx_env"] == 0
+    assert _helpers.CALL_COUNTS["run_sphinx"] == 0
+    assert _helpers.CALL_COUNTS["_load_config"] == 1
+    assert _helpers.CALL_COUNTS["_parse_rst"] >= 1
 
 
 @pytest.mark.integration
 def test_call_counts_verified_run_builds_exactly_once(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -571,7 +574,7 @@ def test_call_counts_verified_run_builds_exactly_once(
     b = rst_repo / "other.rst"
     b.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    check_rst.CALL_COUNTS.clear()
+    _helpers.CALL_COUNTS.clear()
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -586,15 +589,14 @@ def test_call_counts_verified_run_builds_exactly_once(
         ],
     )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
 
-    assert check_rst.CALL_COUNTS["_build_sphinx_env"] == 1
-    assert check_rst.CALL_COUNTS["run_sphinx"] == 1
+    assert _helpers.CALL_COUNTS["_build_sphinx_env"] == 1
+    assert _helpers.CALL_COUNTS["run_sphinx"] == 1
 
 
 @pytest.mark.integration
 def test_call_counts_toctree_anomalies_computed_once_per_run(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -614,7 +616,7 @@ def test_call_counts_toctree_anomalies_computed_once_per_run(
     b = rst_repo / "other.rst"
     b.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    check_rst.CALL_COUNTS.clear()
+    _helpers.CALL_COUNTS.clear()
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -629,6 +631,6 @@ def test_call_counts_toctree_anomalies_computed_once_per_run(
         ],
     )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
 
-    assert check_rst.CALL_COUNTS["_toctree_anomalies"] == 1
+    assert _helpers.CALL_COUNTS["_toctree_anomalies"] == 1

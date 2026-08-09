@@ -18,11 +18,18 @@ from __future__ import annotations
 
 import subprocess
 import textwrap
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from check_rst.cli import _sphinx
+
 if TYPE_CHECKING:
-    import types
     from pathlib import Path
+
+    import sphinx.environment
+
+
+type BuildSphinxEnv = Callable[[str], tuple[sphinx.environment.BuildEnvironment, str]]
 
 
 def _rst(tmp_path: Path, content: str) -> Path:
@@ -36,7 +43,7 @@ def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
 
 
-def _build_multi_file_env(check_rst: types.ModuleType, tmp_path: Path, files: dict[str, str]) -> object:
+def _build_multi_file_env(tmp_path: Path, files: dict[str, str]) -> sphinx.environment.BuildEnvironment:
     """Write conf.py + *files* (docname -> rst text) under tmp_path and
     return a real, in-process Sphinx env over them.
 
@@ -44,12 +51,15 @@ def _build_multi_file_env(check_rst: types.ModuleType, tmp_path: Path, files: di
     document to exist and defaults to "index", which these fixtures don't
     always define."""
     root_doc = next(iter(files))
-    (tmp_path / "conf.py").write_text(f'project = "test"\nextensions = []\nroot_doc = "{root_doc}"\n', encoding="utf-8")
+    (tmp_path / "conf.py").write_text(
+        f'project = "test"\nextensions = []\nroot_doc = "{root_doc}"\n',
+        encoding="utf-8",
+    )
     for docname, text in files.items():
         path = tmp_path / f"{docname}.rst"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(textwrap.dedent(text), encoding="utf-8")
-    env, _warning_text = check_rst._build_sphinx_env(tmp_path, tmp_path / "_build")
+    env, _warning_text = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
     return env
 
 

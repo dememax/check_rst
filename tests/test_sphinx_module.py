@@ -13,26 +13,28 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from _support import _GOOD_BLOCK, _build_multi_file_env
+from _support import _GOOD_BLOCK, BuildSphinxEnv, _build_multi_file_env
+
+from check_rst import cli
+from check_rst.cli import _document, _helpers, _reports, _sphinx, _types
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    import docutils.nodes
 
 
 @pytest.mark.integration
-def test_docname_for_unreachable_file_returns_none(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_docname_for_unreachable_file_returns_none(tmp_path: Path) -> None:
     """A file outside the Sphinx project's source tree resolves to None,
     not a crash — Phase 2 must be able to skip it gracefully."""
     (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
     (tmp_path / "index.rst").write_text("Title\n=====\n", encoding="utf-8")
-    env, _ = check_rst._build_sphinx_env(tmp_path, tmp_path / "_build")
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
     outside = tmp_path.parent / "not_in_this_project.rst"
-    assert check_rst._docname_for(env, outside) is None
+    assert _sphinx._docname_for(env, outside) is None
 
 
 @pytest.mark.integration
 def test_cli_verified_mode_accepts_orphan_inside_sphinx_source(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -44,11 +46,18 @@ def test_cli_verified_mode_accepts_orphan_inside_sphinx_source(
     orphan.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(tmp_path), "check", "--quiet", str(orphan)],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(tmp_path),
+            "check",
+            "--quiet",
+            str(orphan),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     assert "not part of" not in capsys.readouterr().out
@@ -56,7 +65,6 @@ def test_cli_verified_mode_accepts_orphan_inside_sphinx_source(
 
 @pytest.mark.integration
 def test_cli_verified_mode_rejects_file_excluded_by_sphinx_environment(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -71,11 +79,18 @@ def test_cli_verified_mode_rejects_file_excluded_by_sphinx_environment(
     excluded.write_text(_GOOD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(tmp_path), "check", "--quiet", str(excluded)],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(tmp_path),
+            "check",
+            "--quiet",
+            str(excluded),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     out = capsys.readouterr().out
@@ -110,24 +125,20 @@ _INCONSISTENT_TITLE_STYLE_RST = textwrap.dedent("""\
 
 
 @pytest.mark.unit
-def test_find_findings_from_sphinx_output_parses_console_lines(
-    check_rst: types.ModuleType,
-) -> None:
+def test_find_findings_from_sphinx_output_parses_console_lines() -> None:
     """_findings_from_sphinx_output (shared by run_sphinx's subprocess
     parsing and Phase 2's captured-warning parsing) turns a raw
     'path:line: LEVEL: msg' console line into a Finding, filtered to the
     given files."""
     raw = "/some/repo/index.rst:16: ERROR: Inconsistent title style: skip from level 2 to 4.\n"
-    findings = check_rst._findings_from_sphinx_output(raw, [Path("/some/repo/index.rst")])
+    findings = _sphinx._findings_from_sphinx_output(raw, [Path("/some/repo/index.rst")])
     assert len(findings) == 1
     assert findings[0].severity == "ERROR"
     assert "Inconsistent title style" in findings[0].text
 
 
 @pytest.mark.unit
-def test_findings_from_sphinx_output_accepts_warning_without_line_number(
-    check_rst: types.ModuleType,
-) -> None:
+def test_findings_from_sphinx_output_accepts_warning_without_line_number() -> None:
     """Sphinx emits some file-scoped diagnostics without ``:line:``.
 
     ``toc.not_included`` is a common example.  It still references the
@@ -136,7 +147,7 @@ def test_findings_from_sphinx_output_accepts_warning_without_line_number(
     """
     raw = "/some/repo/orphan.rst: WARNING: document isn't included in any toctree [toc.not_included]\n"
 
-    findings = check_rst._findings_from_sphinx_output(raw, [Path("/some/repo/orphan.rst")])
+    findings = _sphinx._findings_from_sphinx_output(raw, [Path("/some/repo/orphan.rst")])
 
     assert len(findings) == 1
     assert findings[0].lineno == 0
@@ -145,15 +156,13 @@ def test_findings_from_sphinx_output_accepts_warning_without_line_number(
 
 
 @pytest.mark.unit
-def test_findings_from_sphinx_output_strips_ansi_color_codes(
-    check_rst: types.ModuleType,
-) -> None:
+def test_findings_from_sphinx_output_strips_ansi_color_codes() -> None:
     """The actual root cause, pinned directly: Sphinx's in-process build
     colorizes its console stream even into an io.StringIO() with no real
     isatty() — confirmed live — and the leading '\\x1b[31m' broke
     _WARNING_RE's '^' anchor, silently dropping every match."""
     raw = "\x1b[31m/some/repo/index.rst:16: ERROR: Inconsistent title style: skip from level 2 to 4.\x1b[39;49;00m\n"
-    findings = check_rst._findings_from_sphinx_output(raw, [Path("/some/repo/index.rst")])
+    findings = _sphinx._findings_from_sphinx_output(raw, [Path("/some/repo/index.rst")])
     assert len(findings) == 1
     assert findings[0].severity == "ERROR"
     assert "Inconsistent title style" in findings[0].text
@@ -162,7 +171,6 @@ def test_findings_from_sphinx_output_strips_ansi_color_codes(
 
 @pytest.mark.unit
 def test_run_sphinx_nonzero_with_only_warning_adds_failure_error(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -177,8 +185,8 @@ def test_run_sphinx_nonzero_with_only_warning_adds_failure_error(
         command.extend(args)
         return subprocess.CompletedProcess(args=["sphinx-build"], returncode=2, stdout=warning, stderr="fatal\n")
 
-    monkeypatch.setattr(check_rst.subprocess, "run", failed_run)
-    findings = check_rst.run_sphinx([document], tmp_path / "_build", tmp_path, tmp_path)
+    monkeypatch.setattr("check_rst.cli._sphinx.subprocess.run", failed_run)
+    findings = _sphinx.run_sphinx([document], tmp_path / "_build", tmp_path, tmp_path)
 
     assert any(f.severity == "WARNING" for f in findings)
     assert any(f.severity == "ERROR" and "exited 2" in f.text for f in findings)
@@ -186,10 +194,8 @@ def test_run_sphinx_nonzero_with_only_warning_adds_failure_error(
 
 
 @pytest.mark.unit
-def test_runtime_metadata_names_behavior_affecting_dependencies(
-    check_rst: types.ModuleType,
-) -> None:
-    runtime = check_rst._runtime_metadata(verified=True, word_samples=True)
+def test_runtime_metadata_names_behavior_affecting_dependencies() -> None:
+    runtime = _reports._runtime_metadata(verified=True, word_samples=True)
 
     assert runtime["check_rst"]["version"] == "0.2.0"
     assert runtime["python"]["version"]
@@ -201,32 +207,31 @@ def test_runtime_metadata_names_behavior_affecting_dependencies(
 
 @pytest.mark.integration
 def test_cli_version_reports_release_identity(
-    check_rst: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("sys.argv", ["check_rst", "--version"])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     assert capsys.readouterr().out == "check_rst 0.2.0\n"
 
 
 @pytest.mark.integration
-def test_build_sphinx_env_returns_its_own_warning_text(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_build_sphinx_env_returns_its_own_warning_text(tmp_path: Path) -> None:
     """_build_sphinx_env must return its captured warning stream, not
     just the env — the whole point of the fix: the caller MUST see it."""
     (tmp_path / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
     (tmp_path / "index.rst").write_text(_INCONSISTENT_TITLE_STYLE_RST, encoding="utf-8")
-    _env, warning_text = check_rst._build_sphinx_env(tmp_path, tmp_path / "_build")
+    _env, warning_text = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
     assert "Inconsistent title style" in warning_text
 
 
 @pytest.mark.integration
 def test_build_sphinx_env_reemits_persistent_warning_with_cached_build_dir(
-    check_rst: types.ModuleType, tmp_path: Path
+    tmp_path: Path,
 ) -> None:
     """Re-read checked documents without discarding the incremental cache.
 
@@ -257,9 +262,9 @@ def test_build_sphinx_env_reemits_persistent_warning_with_cached_build_dir(
     (tmp_path / "other.rst").write_text(_GOOD_BLOCK, encoding="utf-8")
     build_dir = tmp_path / "_build"
 
-    _env, first_warning_text = check_rst._build_sphinx_env(tmp_path, build_dir)
+    _env, first_warning_text = _sphinx._build_sphinx_env(tmp_path, build_dir)
     read_log.write_text("", encoding="utf-8")
-    _env, second_warning_text = check_rst._build_sphinx_env(tmp_path, build_dir, files=[checked])
+    _env, second_warning_text = _sphinx._build_sphinx_env(tmp_path, build_dir, files=[checked])
 
     assert "Inconsistent title style" in first_warning_text
     assert "Inconsistent title style" in second_warning_text
@@ -268,7 +273,6 @@ def test_build_sphinx_env_reemits_persistent_warning_with_cached_build_dir(
 
 @pytest.mark.integration
 def test_cli_materializes_required_docutils_model_before_sphinx(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -284,11 +288,11 @@ def test_cli_materializes_required_docutils_model_before_sphinx(
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
     events: list[str] = []
-    original_parse = check_rst._parse_rst
+    original_parse = _helpers._parse_rst
 
-    def recording_parse(*args: object, **kwargs: object) -> object:
+    def recording_parse(path: Path, text: str | None = None) -> docutils.nodes.document:
         events.append("docutils")
-        return original_parse(*args, **kwargs)
+        return original_parse(path, text)
 
     env = types.SimpleNamespace(
         found_docs={"test"},
@@ -300,18 +304,27 @@ def test_cli_materializes_required_docutils_model_before_sphinx(
         events.append("sphinx")
         return env, ""
 
-    monkeypatch.setattr(check_rst._helpers, "_parse_rst", recording_parse)
-    monkeypatch.setattr(check_rst._sphinx, "_build_sphinx_env", recording_sphinx_build)
-    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", lambda *_args: [])
-    monkeypatch.setattr(check_rst._reports, "_top_prose_words", lambda *_args: ([], 0))
-    monkeypatch.setattr(check_rst._reports, "_rare_prose_words", lambda *_args: ([], 0))
+    monkeypatch.setattr(_helpers, "_parse_rst", recording_parse)
+    monkeypatch.setattr(_sphinx, "_build_sphinx_env", recording_sphinx_build)
+    monkeypatch.setattr(_sphinx, "run_sphinx", lambda *_args: [])
+    monkeypatch.setattr(_reports, "_top_prose_words", lambda *_args: ([], 0))
+    monkeypatch.setattr(_reports, "_rare_prose_words", lambda *_args: ([], 0))
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "check", "--no-directives", "--word-samples", "1", str(p)],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "check",
+            "--no-directives",
+            "--word-samples",
+            "1",
+            str(p),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     capsys.readouterr()
     assert exc.value.code == 0
@@ -320,7 +333,6 @@ def test_cli_materializes_required_docutils_model_before_sphinx(
 
 @pytest.mark.integration
 def test_cli_verified_mode_surfaces_phase2_inconsistent_title_style(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -346,7 +358,7 @@ def test_cli_verified_mode_surfaces_phase2_inconsistent_title_style(
         ],
     )
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "Inconsistent title style" in out
     assert exc.value.code == 1
@@ -354,7 +366,6 @@ def test_cli_verified_mode_surfaces_phase2_inconsistent_title_style(
 
 @pytest.mark.integration
 def test_cli_verified_mode_deduplicates_same_phase2_and_phase3_finding(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -369,21 +380,21 @@ def test_cli_verified_mode_deduplicates_same_phase2_and_phase3_finding(
         domaindata={},
         path2doc=lambda _path: "test",
     )
-    duplicate = check_rst.Finding(
+    duplicate = _types.Finding(
         lineno=5,
-        severity="WARNING",
+        severity=_types.Severity.WARNING,
         text="test.rst: repeated Sphinx diagnostic [review.test]",
     )
     monkeypatch.setattr(
-        check_rst._sphinx,
+        _sphinx,
         "_build_sphinx_env",
         lambda *_args, **_kwargs: (env, raw_warning),
     )
-    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", lambda *_args: [duplicate])
+    monkeypatch.setattr(_sphinx, "run_sphinx", lambda *_args: [duplicate])
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "check", str(p)])
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     out = capsys.readouterr().out
     assert exc.value.code == 0
@@ -392,84 +403,86 @@ def test_cli_verified_mode_deduplicates_same_phase2_and_phase3_finding(
 
 
 @pytest.mark.unit
-def test_did_you_mean_finds_close_match(check_rst: types.ModuleType) -> None:
-    result = check_rst._did_you_mean("idnex", ["index", "other"])
+def test_did_you_mean_finds_close_match() -> None:
+    result = _sphinx._did_you_mean("idnex", ["index", "other"])
     assert result is not None
     assert "index" in result
 
 
 @pytest.mark.unit
-def test_did_you_mean_returns_none_when_nothing_close(check_rst: types.ModuleType) -> None:
-    assert check_rst._did_you_mean("totally-unrelated-xyz", ["index"]) is None
+def test_did_you_mean_returns_none_when_nothing_close() -> None:
+    assert _sphinx._did_you_mean("totally-unrelated-xyz", ["index"]) is None
 
 
 @pytest.mark.integration
 def test_attach_did_you_mean_unknown_document_suggests_close_docname(
-    check_rst: types.ModuleType,
-    build_sphinx_env: Callable[[str], tuple[object, str]],
+    build_sphinx_env: BuildSphinxEnv,
 ) -> None:
     env, _docname = build_sphinx_env("Title\n=====\n")
-    finding = check_rst.Finding(4, "WARNING", "unknown document: 'idnex' [ref.doc]")
-    result = check_rst._attach_did_you_mean(finding, env)
+    finding = _types.Finding(4, _types.Severity.WARNING, "unknown document: 'idnex' [ref.doc]")
+    result = _sphinx._attach_did_you_mean(finding, env)
     assert "did you mean" in result.text
     assert "'index'" in result.text
 
 
 @pytest.mark.integration
 def test_attach_did_you_mean_toctree_nonexisting_document(
-    check_rst: types.ModuleType,
-    build_sphinx_env: Callable[[str], tuple[object, str]],
+    build_sphinx_env: BuildSphinxEnv,
 ) -> None:
     """'toctree contains reference to nonexisting document' has no colon
     before the quoted target — a different shape than 'unknown document:'."""
     env, _docname = build_sphinx_env("Title\n=====\n")
-    finding = check_rst.Finding(
+    finding = _types.Finding(
         4,
-        "WARNING",
+        _types.Severity.WARNING,
         "toctree contains reference to nonexisting document 'idnex' [toc.not_readable]",
     )
-    result = check_rst._attach_did_you_mean(finding, env)
+    result = _sphinx._attach_did_you_mean(finding, env)
     assert "did you mean" in result.text
     assert "'index'" in result.text
 
 
 @pytest.mark.integration
 def test_attach_did_you_mean_undefined_label_suggests_close_label(
-    check_rst: types.ModuleType,
-    build_sphinx_env: Callable[[str], tuple[object, str]],
+    build_sphinx_env: BuildSphinxEnv,
 ) -> None:
     env, _docname = build_sphinx_env("Title\n=====\n\n.. _real-label:\n\nSection\n-------\n")
-    finding = check_rst.Finding(4, "WARNING", "undefined label: 'real-labl' [ref.ref]")
-    result = check_rst._attach_did_you_mean(finding, env)
+    finding = _types.Finding(4, _types.Severity.WARNING, "undefined label: 'real-labl' [ref.ref]")
+    result = _sphinx._attach_did_you_mean(finding, env)
     assert "did you mean" in result.text
     assert "'real-label'" in result.text
 
 
 @pytest.mark.integration
 def test_attach_did_you_mean_no_suggestion_when_nothing_close(
-    check_rst: types.ModuleType,
-    build_sphinx_env: Callable[[str], tuple[object, str]],
+    build_sphinx_env: BuildSphinxEnv,
 ) -> None:
     env, _docname = build_sphinx_env("Title\n=====\n")
-    finding = check_rst.Finding(4, "WARNING", "unknown document: 'zzz-nothing-alike-qqq' [ref.doc]")
-    result = check_rst._attach_did_you_mean(finding, env)
+    finding = _types.Finding(
+        4,
+        _types.Severity.WARNING,
+        "unknown document: 'zzz-nothing-alike-qqq' [ref.doc]",
+    )
+    result = _sphinx._attach_did_you_mean(finding, env)
     assert result.text == finding.text
 
 
 @pytest.mark.integration
 def test_attach_did_you_mean_leaves_unrelated_findings_unchanged(
-    check_rst: types.ModuleType,
-    build_sphinx_env: Callable[[str], tuple[object, str]],
+    build_sphinx_env: BuildSphinxEnv,
 ) -> None:
     env, _docname = build_sphinx_env("Title\n=====\n")
-    finding = check_rst.Finding(4, "WARNING", "Inconsistent title style: skip from level 2 to 4.")
-    result = check_rst._attach_did_you_mean(finding, env)
+    finding = _types.Finding(
+        4,
+        _types.Severity.WARNING,
+        "Inconsistent title style: skip from level 2 to 4.",
+    )
+    result = _sphinx._attach_did_you_mean(finding, env)
     assert result.text == finding.text
 
 
 @pytest.mark.integration
 def test_cli_did_you_mean_suggested_for_broken_doc_reference(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -484,7 +497,7 @@ def test_cli_did_you_mean_suggested_for_broken_doc_reference(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "check", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "unknown document" in out
     assert "did you mean" in out
@@ -492,52 +505,50 @@ def test_cli_did_you_mean_suggested_for_broken_doc_reference(
 
 
 @pytest.mark.integration
-def test_bare_filenames_flags_mention_matching_known_docname(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_bare_filenames_flags_mention_matching_known_docname(tmp_path: Path) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "a": "A\n=\n\nSee guide.rst for details.\n",
             "guide": "Guide\n=====\n",
         },
     )
-    doc = check_rst.Document(tmp_path / "a.rst")
-    violations = check_rst.check_bare_filenames(env, "a", doc)
+    doc = _document.Document(tmp_path / "a.rst")
+    violations = _sphinx.check_bare_filenames(env, "a", doc)
     assert len(violations) == 1
     assert violations[0].severity == "WARNING"
     assert "guide" in violations[0].text
 
 
 @pytest.mark.integration
-def test_bare_filenames_ignores_self_mention(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_bare_filenames_ignores_self_mention(tmp_path: Path) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "a": "A\n=\n\nThis file, a.rst, describes itself.\n",
         },
     )
-    doc = check_rst.Document(tmp_path / "a.rst")
-    assert check_rst.check_bare_filenames(env, "a", doc) == []
+    doc = _document.Document(tmp_path / "a.rst")
+    assert _sphinx.check_bare_filenames(env, "a", doc) == []
 
 
 @pytest.mark.integration
-def test_bare_filenames_ignores_unknown_filename(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_bare_filenames_ignores_unknown_filename(tmp_path: Path) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "a": "A\n=\n\nSee nonexistent.rst for details.\n",
         },
     )
-    doc = check_rst.Document(tmp_path / "a.rst")
-    assert check_rst.check_bare_filenames(env, "a", doc) == []
+    doc = _document.Document(tmp_path / "a.rst")
+    assert _sphinx.check_bare_filenames(env, "a", doc) == []
 
 
 @pytest.mark.integration
-def test_bare_filenames_lists_multiple_candidates_when_ambiguous(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_bare_filenames_lists_multiple_candidates_when_ambiguous(
+    tmp_path: Path,
+) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "a": "A\n=\n\nSee guide.rst for details.\n",
@@ -545,8 +556,8 @@ def test_bare_filenames_lists_multiple_candidates_when_ambiguous(check_rst: type
             "sub2/guide": "Guide Two\n=========\n",
         },
     )
-    doc = check_rst.Document(tmp_path / "a.rst")
-    violations = check_rst.check_bare_filenames(env, "a", doc)
+    doc = _document.Document(tmp_path / "a.rst")
+    violations = _sphinx.check_bare_filenames(env, "a", doc)
     assert len(violations) == 1
     assert "sub1/guide" in violations[0].text
     assert "sub2/guide" in violations[0].text
@@ -554,7 +565,7 @@ def test_bare_filenames_lists_multiple_candidates_when_ambiguous(check_rst: type
 
 @pytest.mark.integration
 def test_bare_filenames_skips_when_too_many_candidates_share_basename(
-    check_rst: types.ModuleType, tmp_path: Path
+    tmp_path: Path,
 ) -> None:
     """Real evidence: this Journal's own corpus has 1072 files named
     'Notes.rst' — a bare mention of that basename is not a specific,
@@ -563,39 +574,37 @@ def test_bare_filenames_skips_when_too_many_candidates_share_basename(
     files = {"a": "A\n=\n\nSee notes.rst for details.\n"}
     for i in range(10):
         files[f"day{i}/notes"] = f"Day {i}\n=====\n"
-    env = _build_multi_file_env(check_rst, tmp_path, files)
-    doc = check_rst.Document(tmp_path / "a.rst")
-    assert check_rst.check_bare_filenames(env, "a", doc) == []
+    env = _build_multi_file_env(tmp_path, files)
+    doc = _document.Document(tmp_path / "a.rst")
+    assert _sphinx.check_bare_filenames(env, "a", doc) == []
 
 
 @pytest.mark.integration
-def test_bare_filenames_skips_literal_block_content(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_bare_filenames_skips_literal_block_content(tmp_path: Path) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "a": "A\n=\n\n::\n\n    See guide.rst for details.\n",
             "guide": "Guide\n=====\n",
         },
     )
-    doc = check_rst.Document(tmp_path / "a.rst")
-    assert check_rst.check_bare_filenames(env, "a", doc) == []
+    doc = _document.Document(tmp_path / "a.rst")
+    assert _sphinx.check_bare_filenames(env, "a", doc) == []
 
 
 @pytest.mark.integration
-def test_bare_filenames_flags_mention_inside_inline_literal(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_bare_filenames_flags_mention_inside_inline_literal(tmp_path: Path) -> None:
     """The real downstream-project evidence's own shape: a filename wrapped in double
     backticks as the author's own emphasis, not code output."""
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "a": "A\n=\n\nDocumented in ``guide.rst`` under Section One.\n",
             "guide": "Guide\n=====\n",
         },
     )
-    doc = check_rst.Document(tmp_path / "a.rst")
-    assert len(check_rst.check_bare_filenames(env, "a", doc)) == 1
+    doc = _document.Document(tmp_path / "a.rst")
+    assert len(_sphinx.check_bare_filenames(env, "a", doc)) == 1
 
 
 @pytest.mark.integration
@@ -606,43 +615,21 @@ def test_bare_filenames_flags_mention_inside_inline_literal(check_rst: types.Mod
         "`guide.rst <https://example.com/guide.rst>`_",
     ],
 )
-def test_bare_filenames_ignores_already_linked_filename_labels(
-    check_rst: types.ModuleType, tmp_path: Path, reference: str
-) -> None:
+def test_bare_filenames_ignores_already_linked_filename_labels(tmp_path: Path, reference: str) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "a": f"A\n=\n\nSee {reference} for details.\n",
             "guide": "Guide\n=====\n",
         },
     )
-    doc = check_rst.Document(tmp_path / "a.rst")
+    doc = _document.Document(tmp_path / "a.rst")
 
-    assert check_rst.check_bare_filenames(env, "a", doc) == []
+    assert _sphinx.check_bare_filenames(env, "a", doc) == []
 
 
 @pytest.mark.integration
 def test_cli_bare_filenames_warning_shown(
-    check_rst: types.ModuleType,
-    rst_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\nroot_doc = "a"\n', encoding="utf-8")
-    (rst_repo / "a.rst").write_text("A\n=\n\nSee guide.rst for details.\n", encoding="utf-8")
-    (rst_repo / "guide.rst").write_text("Guide\n=====\n", encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "check", str(rst_repo / "a.rst")])
-    with pytest.raises(SystemExit):
-        check_rst.main()
-    out = capsys.readouterr().out
-    assert "WARNING:" in out
-    assert "guide" in out
-
-
-@pytest.mark.integration
-def test_cli_json_bare_filenames_included(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -652,10 +639,43 @@ def test_cli_json_bare_filenames_included(
     (rst_repo / "guide.rst").write_text("Guide\n=====\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "check", "--format=json", str(rst_repo / "a.rst")],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "check",
+            str(rst_repo / "a.rst"),
+        ],
     )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
+    out = capsys.readouterr().out
+    assert "WARNING:" in out
+    assert "guide" in out
+
+
+@pytest.mark.integration
+def test_cli_json_bare_filenames_included(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\nroot_doc = "a"\n', encoding="utf-8")
+    (rst_repo / "a.rst").write_text("A\n=\n\nSee guide.rst for details.\n", encoding="utf-8")
+    (rst_repo / "guide.rst").write_text("Guide\n=====\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "check",
+            "--format=json",
+            str(rst_repo / "a.rst"),
+        ],
+    )
+    with pytest.raises(SystemExit):
+        cli.main()
     data = json.loads(capsys.readouterr().out)
     findings = data["files"][0]["findings"]
     assert any(f["severity"] == "WARNING" and "guide" in f["text"] for f in findings)
@@ -663,7 +683,6 @@ def test_cli_json_bare_filenames_included(
 
 @pytest.mark.integration
 def test_sphinx_src_omitted_runs_heuristic_phase2_skips_phase3(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -676,7 +695,7 @@ def test_sphinx_src_omitted_runs_heuristic_phase2_skips_phase3(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "Phase 2: Python Sphinx rules (heuristic — no --sphinx-src given" in out
@@ -685,7 +704,6 @@ def test_sphinx_src_omitted_runs_heuristic_phase2_skips_phase3(
 
 @pytest.mark.integration
 def test_sphinx_src_missing_conf_py_errors_before_phase1(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -699,7 +717,7 @@ def test_sphinx_src_missing_conf_py_errors_before_phase1(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(empty_dir), "check", str(p)])
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "no conf.py found" in out
@@ -708,7 +726,6 @@ def test_sphinx_src_missing_conf_py_errors_before_phase1(
 
 @pytest.mark.integration
 def test_sphinx_src_valid_dir_runs_phase2_and_phase3(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -721,7 +738,7 @@ def test_sphinx_src_valid_dir_runs_phase2_and_phase3(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "check", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
     assert "Phase 2: Python Sphinx rules" in out
     assert "Phase 3: Sphinx build integrity" in out
@@ -733,7 +750,6 @@ def test_sphinx_src_valid_dir_runs_phase2_and_phase3(
 
 @pytest.mark.integration
 def test_cli_invalid_sphinx_configuration_is_clean_error_not_traceback(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -747,7 +763,7 @@ def test_cli_invalid_sphinx_configuration_is_clean_error_not_traceback(
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 1
     out = capsys.readouterr().out
@@ -759,7 +775,6 @@ def test_cli_invalid_sphinx_configuration_is_clean_error_not_traceback(
 
 @pytest.mark.integration
 def test_outline_without_sphinx_src_shows_heuristic_headings_and_code_blocks(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -775,7 +790,7 @@ def test_outline_without_sphinx_src_shows_heuristic_headings_and_code_blocks(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--with-findings", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
 
     phase1_block = out[out.index("Phase 1: RST rules") : out.index("Phase 2: Python Sphinx rules")]
@@ -790,7 +805,6 @@ def test_outline_without_sphinx_src_shows_heuristic_headings_and_code_blocks(
 
 @pytest.mark.integration
 def test_outline_with_sphinx_src_merges_headings_and_code_blocks(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -805,10 +819,18 @@ def test_outline_with_sphinx_src_merges_headings_and_code_blocks(
     (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
 
     monkeypatch.setattr(
-        "sys.argv", ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", "--with-findings", str(p)]
+        "sys.argv",
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "outline",
+            "--with-findings",
+            str(p),
+        ],
     )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
 
     # Phase 1 must not print its own separate outline when --sphinx-src is given.
@@ -824,7 +846,6 @@ def test_outline_with_sphinx_src_merges_headings_and_code_blocks(
 
 @pytest.mark.integration
 def test_outline_with_sphinx_src_uses_sphinx_doctree_for_headings(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -854,14 +875,22 @@ def test_outline_with_sphinx_src_uses_sphinx_doctree_for_headings(
             """),
         encoding="utf-8",
     )
-    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", lambda *_args: [])
+    monkeypatch.setattr(_sphinx, "run_sphinx", lambda *_args: [])
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", "--no-adornments", "--no-directives", str(p)],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "outline",
+            "--no-adornments",
+            "--no-directives",
+            str(p),
+        ],
     )
 
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
 
     out = capsys.readouterr().out
     assert "Title" in out
@@ -870,10 +899,9 @@ def test_outline_with_sphinx_src_uses_sphinx_doctree_for_headings(
 
 @pytest.mark.integration
 def test_multiple_toctree_check_flags_same_child_twice_in_one_parent(
-    check_rst: types.ModuleType, tmp_path: Path
+    tmp_path: Path,
 ) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "index": "Index\n=====\n\n.. toctree::\n\n   child\n   child\n",
@@ -881,7 +909,7 @@ def test_multiple_toctree_check_flags_same_child_twice_in_one_parent(
         },
     )
 
-    findings = check_rst.check_multiple_toctree_parents(env, [tmp_path / "index.rst"])
+    findings = _sphinx.check_multiple_toctree_parents(env, [tmp_path / "index.rst"])
 
     assert len(findings) == 1
     assert findings[0].severity == "WARNING"
@@ -891,9 +919,10 @@ def test_multiple_toctree_check_flags_same_child_twice_in_one_parent(
 
 
 @pytest.mark.integration
-def test_multiple_toctree_check_flags_child_under_distinct_parents(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_multiple_toctree_check_flags_child_under_distinct_parents(
+    tmp_path: Path,
+) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "index": "Index\n=====\n",
@@ -903,7 +932,7 @@ def test_multiple_toctree_check_flags_child_under_distinct_parents(check_rst: ty
         },
     )
 
-    findings = check_rst.check_multiple_toctree_parents(env, [tmp_path / "parent-a.rst", tmp_path / "child.rst"])
+    findings = _sphinx.check_multiple_toctree_parents(env, [tmp_path / "parent-a.rst", tmp_path / "child.rst"])
 
     assert len(findings) == 2
     assert {f.severity for f in findings} == {"WARNING"}
@@ -911,9 +940,8 @@ def test_multiple_toctree_check_flags_child_under_distinct_parents(check_rst: ty
 
 
 @pytest.mark.integration
-def test_multiple_toctree_check_single_reference_is_clean(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_multiple_toctree_check_single_reference_is_clean(tmp_path: Path) -> None:
     env = _build_multi_file_env(
-        check_rst,
         tmp_path,
         {
             "index": "Index\n=====\n\n.. toctree::\n\n   child\n",
@@ -921,12 +949,11 @@ def test_multiple_toctree_check_single_reference_is_clean(check_rst: types.Modul
         },
     )
 
-    assert check_rst.check_multiple_toctree_parents(env, [tmp_path / "index.rst", tmp_path / "child.rst"]) == []
+    assert _sphinx.check_multiple_toctree_parents(env, [tmp_path / "index.rst", tmp_path / "child.rst"]) == []
 
 
 @pytest.mark.integration
 def test_cli_selected_toctree_parent_surfaces_child_anchored_anomaly(
-    check_rst: types.ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -942,14 +969,21 @@ def test_cli_selected_toctree_parent_surfaces_child_anchored_anomaly(
         encoding="utf-8",
     )
     (tmp_path / "child.rst").write_text("#######\nChild\n#######\n", encoding="utf-8")
-    monkeypatch.setattr(check_rst._sphinx, "run_sphinx", lambda *_args: [])
+    monkeypatch.setattr(_sphinx, "run_sphinx", lambda *_args: [])
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(tmp_path), "check", "--quiet", str(parent)],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(tmp_path),
+            "check",
+            "--quiet",
+            str(parent),
+        ],
     )
 
     with pytest.raises(SystemExit) as exc:
-        check_rst.main()
+        cli.main()
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
@@ -958,23 +992,22 @@ def test_cli_selected_toctree_parent_surfaces_child_anchored_anomaly(
 
 
 @pytest.mark.integration
-def test_multiple_toctree_check_survives_persistent_cache_rerun(check_rst: types.ModuleType, tmp_path: Path) -> None:
+def test_multiple_toctree_check_survives_persistent_cache_rerun(tmp_path: Path) -> None:
     (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
     parent = tmp_path / "index.rst"
     parent.write_text("Index\n=====\n\n.. toctree::\n\n   child\n   child\n", encoding="utf-8")
     (tmp_path / "child.rst").write_text("Child\n=====\n", encoding="utf-8")
     build_dir = tmp_path / "_build"
 
-    check_rst._build_sphinx_env(tmp_path, build_dir, files=[parent])
-    env, _warnings = check_rst._build_sphinx_env(tmp_path, build_dir, files=[parent])
+    _sphinx._build_sphinx_env(tmp_path, build_dir, files=[parent])
+    env, _warnings = _sphinx._build_sphinx_env(tmp_path, build_dir, files=[parent])
 
-    findings = check_rst.check_multiple_toctree_parents(env, [parent])
+    findings = _sphinx.check_multiple_toctree_parents(env, [parent])
     assert len(findings) == 1
 
 
 @pytest.mark.integration
 def test_toctree_recurses_into_included_documents(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1004,10 +1037,16 @@ def test_toctree_recurses_into_included_documents(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", str(rst_repo / "index.rst")],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "outline",
+            str(rst_repo / "index.rst"),
+        ],
     )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
 
     assert "toctree (2 entries, maxdepth=2)" in out
@@ -1024,7 +1063,6 @@ def test_toctree_recurses_into_included_documents(
 
 @pytest.mark.integration
 def test_toctree_recurses_across_multiple_levels(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1039,10 +1077,16 @@ def test_toctree_recurses_across_multiple_levels(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", str(rst_repo / "index.rst")],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "outline",
+            str(rst_repo / "index.rst"),
+        ],
     )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
 
     assert "sub1:1-6:= Sub One" in out
@@ -1059,7 +1103,6 @@ def test_toctree_recurses_across_multiple_levels(
 
 @pytest.mark.integration
 def test_toctree_cycle_is_reported_and_does_not_hang(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1073,10 +1116,16 @@ def test_toctree_cycle_is_reported_and_does_not_hang(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", str(rst_repo / "index.rst")],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "outline",
+            str(rst_repo / "index.rst"),
+        ],
     )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
 
     assert "a:1-6:= Doc A" in out
@@ -1088,7 +1137,6 @@ def test_toctree_cycle_is_reported_and_does_not_hang(
 
 @pytest.mark.integration
 def test_toctree_diamond_shows_heading_again_without_reexpanding(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1103,10 +1151,16 @@ def test_toctree_diamond_shows_heading_again_without_reexpanding(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", str(rst_repo / "index.rst")],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "outline",
+            str(rst_repo / "index.rst"),
+        ],
     )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
 
     assert out.count("b:1-4:= Doc B") == 2
@@ -1114,7 +1168,6 @@ def test_toctree_diamond_shows_heading_again_without_reexpanding(
 
 @pytest.mark.integration
 def test_toctree_sections_only_hides_container_keeps_cross_file_headings(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1127,10 +1180,17 @@ def test_toctree_sections_only_hides_container_keeps_cross_file_headings(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", "--sections-only", str(rst_repo / "index.rst")],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "outline",
+            "--sections-only",
+            str(rst_repo / "index.rst"),
+        ],
     )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
 
     assert "toctree (" not in out
@@ -1139,7 +1199,6 @@ def test_toctree_sections_only_hides_container_keeps_cross_file_headings(
 
 @pytest.mark.integration
 def test_toctree_outline_depth_bounds_across_file_boundary(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1152,10 +1211,18 @@ def test_toctree_outline_depth_bounds_across_file_boundary(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", "--outline-depth", "2", str(rst_repo / "index.rst")],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "outline",
+            "--outline-depth",
+            "2",
+            str(rst_repo / "index.rst"),
+        ],
     )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
 
     # The toctree container itself is shallow enough to stay visible, but
@@ -1169,7 +1236,6 @@ def test_toctree_outline_depth_bounds_across_file_boundary(
 
 @pytest.mark.integration
 def test_no_toctree_flag_suppresses_recursion(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1181,10 +1247,17 @@ def test_no_toctree_flag_suppresses_recursion(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "outline", "--no-toctree", str(rst_repo / "index.rst")],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "outline",
+            "--no-toctree",
+            str(rst_repo / "index.rst"),
+        ],
     )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     # Search only the Outline: section's own body, not the whole capture —
     # pytest's own tmp_path for THIS test's name literally contains
     # "no_toctree", which would false-positive a bare substring check
@@ -1198,7 +1271,6 @@ def test_no_toctree_flag_suppresses_recursion(
 
 @pytest.mark.integration
 def test_toctree_json_shape_includes_toctrees_and_cross_file_ids(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1213,10 +1285,17 @@ def test_toctree_json_shape_includes_toctrees_and_cross_file_ids(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "--sphinx-src", str(rst_repo), "check", "--format=json", str(rst_repo / "index.rst")],
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "check",
+            "--format=json",
+            str(rst_repo / "index.rst"),
+        ],
     )
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     data = json.loads(capsys.readouterr().out)
     file_record = data["files"][0]
 
@@ -1231,7 +1310,6 @@ def test_toctree_json_shape_includes_toctrees_and_cross_file_ids(
 
 @pytest.mark.integration
 def test_toctree_invisible_without_sphinx_src(
-    check_rst: types.ModuleType,
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1244,7 +1322,7 @@ def test_toctree_invisible_without_sphinx_src(
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", str(p)])
     with pytest.raises(SystemExit):
-        check_rst.main()
+        cli.main()
     out = capsys.readouterr().out
 
     assert "sub1:" not in out

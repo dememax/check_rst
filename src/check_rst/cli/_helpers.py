@@ -45,6 +45,19 @@ CALL_COUNTS: collections.Counter[str] = collections.Counter()
 _JSON_SCHEMA_VERSION = 1
 
 
+def _freeze_node_attribute(value: object) -> object:
+    """Convert docutils attribute values into stable comparison primitives."""
+    if isinstance(value, dict):
+        return tuple(sorted((str(key), _freeze_node_attribute(item)) for key, item in value.items()))
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_node_attribute(item) for item in value)
+    if isinstance(value, set):
+        return tuple(sorted((_freeze_node_attribute(item) for item in value), key=repr))
+    if isinstance(value, (str, int, float, bool, type(None))):
+        return value
+    return repr(value)
+
+
 # Every character docutils itself recognizes as a valid title/adornment
 # character, derived directly from docutils' own definition — not hardcoded
 # — so it stays correct if a future docutils version ever changes it.

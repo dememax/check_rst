@@ -26,16 +26,13 @@ if TYPE_CHECKING:
 
 
 from . import _helpers
-from ._checks import (
-    build_outline,
+from ._document import Document, build_outline
+from ._formatting import (
     check_adornments,
-    check_directives,
     check_hierarchy,
-    check_homoglyphs,
-    check_nested_inline_markup,
     check_single_top_level,
 )
-from ._document import Document
+from ._lint import check_directives, check_homoglyphs, check_nested_inline_markup
 from ._sphinx import (
     _build_sphinx_env_checked,
     _docname_for,
@@ -117,7 +114,10 @@ def _runtime_metadata(verified: bool, word_samples: bool) -> dict[str, Any]:
 
 def _format_runtime(metadata: dict[str, Any]) -> str:
     """Render _runtime_metadata as one concise human-readable line."""
-    parts = [f"check_rst {metadata['check_rst']['version']}", f"Python {metadata['python']['version']}"]
+    parts = [
+        f"check_rst {metadata['check_rst']['version']}",
+        f"Python {metadata['python']['version']}",
+    ]
     if metadata["sphinx"] is not None:
         parts.append(f"Sphinx {metadata['sphinx']['version'] or 'unknown'}")
     parts.append(f"docutils {metadata['docutils']['version'] or 'unknown'}")

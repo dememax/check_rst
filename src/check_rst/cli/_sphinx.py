@@ -22,13 +22,11 @@ if TYPE_CHECKING:
 
 
 from . import _helpers
-from ._checks import (
-    _outline_preview,
-    build_outline,
-)
 from ._document import (
     Document,
+    _outline_preview,
     _resolve_document,
+    build_outline,
 )
 from ._helpers import (
     CALL_COUNTS,
@@ -282,7 +280,9 @@ def find_incoming_references(env: sphinx.environment.BuildEnvironment, target_do
     return incoming
 
 
-def _toctree_anomalies(env: sphinx.environment.BuildEnvironment) -> dict[str, list[str]]:
+def _toctree_anomalies(
+    env: sphinx.environment.BuildEnvironment,
+) -> dict[str, list[str]]:
     """The project-wide multiple-toctree-parent graph, derived once from
     ``env.toctree_includes`` — split out of check_multiple_toctree_parents
     (found by code review: that function rebuilt this same graph from

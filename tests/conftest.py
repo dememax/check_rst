@@ -3,14 +3,17 @@
 # Shared pytest fixtures — check_rst project
 """Shared fixtures for the standalone check_rst regression suite.
 
-check_rst/rst_repo/build_sphinx_env/_isolated_project_root moved here from
+tmp_git_repo/rst_repo/build_sphinx_env/_isolated_project_root moved here from
 test_check_rst.py when that file was split along the same module boundaries
-as src/check_rst/cli/ (found by code review: every one of these four is used
-across many of the split files, not just one topic area — check_rst and
-rst_repo by nearly every test in the whole suite, so a per-file duplicate
-would drift; _isolated_project_root is autouse=True, so centralizing it here
-is what keeps that isolation applying uniformly to every split file, not an
-optional convenience)."""
+as src/check_rst/cli/. These fixtures are used across many behavioral test
+files, so per-file duplicates would drift; _isolated_project_root is
+autouse=True, and centralizing it here keeps that isolation uniform rather
+than optional.
+
+The former ``check_rst`` module fixture deliberately no longer lives here:
+tests import each private implementation module from its defining location,
+so mypy can check those calls instead of seeing an untyped ``ModuleType``.
+"""
 
 from __future__ import annotations
 
@@ -20,10 +23,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from check_rst.cli import _helpers, _sphinx
+
 if TYPE_CHECKING:
-    import types
-    from collections.abc import Callable
     from pathlib import Path
+
+    import sphinx.environment
+    from _support import BuildSphinxEnv
 
 
 @pytest.fixture
@@ -48,23 +54,15 @@ def tmp_git_repo(tmp_path: Path) -> Path:
     return tmp_path
 
 
-@pytest.fixture(scope="session")
-def check_rst() -> types.ModuleType:
-    """Return the installed-layout implementation module once per session."""
-    from check_rst import cli
-
-    return cli
-
-
 @pytest.fixture
-def rst_repo(check_rst: types.ModuleType, tmp_git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def rst_repo(tmp_git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point check_rst's PROJECT_ROOT at the temp git repo for git-scoped checks."""
-    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", tmp_git_repo)
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", tmp_git_repo)
     return tmp_git_repo
 
 
 @pytest.fixture
-def build_sphinx_env(check_rst: types.ModuleType, tmp_path: Path) -> Callable[[str], tuple[object, str]]:
+def build_sphinx_env(tmp_path: Path) -> BuildSphinxEnv:
     """Return build(rst_text) -> (env, docname) for tmp_path/index.rst.
 
     Writes a minimal conf.py once, then on each call writes rst_text to
@@ -73,10 +71,12 @@ def build_sphinx_env(check_rst: types.ModuleType, tmp_path: Path) -> Callable[[s
     """
     (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
 
-    def _build(rst_text: str) -> tuple[object, str]:
+    def _build(
+        rst_text: str,
+    ) -> tuple[sphinx.environment.BuildEnvironment, str]:
         (tmp_path / "index.rst").write_text(textwrap.dedent(rst_text), encoding="utf-8")
-        env, _ = check_rst._build_sphinx_env(tmp_path, tmp_path / "_build")
-        docname = check_rst._docname_for(env, tmp_path / "index.rst")
+        env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+        docname = _sphinx._docname_for(env, tmp_path / "index.rst")
         assert docname is not None
         return env, docname
 
@@ -84,7 +84,7 @@ def build_sphinx_env(check_rst: types.ModuleType, tmp_path: Path) -> Callable[[s
 
 
 @pytest.fixture(autouse=True)
-def _isolated_project_root(check_rst: types.ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolated_project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Isolate every test from the real repository's .check_rst.toml.
 
     PROJECT_ROOT is captured at import time — under pytest that is the
@@ -97,5 +97,5 @@ def _isolated_project_root(check_rst: types.ModuleType, tmp_path: Path, monkeypa
     fixtures run before explicitly requested ones, so rst_repo's own
     PROJECT_ROOT patch still wins for tests that use it.
     """
-    monkeypatch.setattr(check_rst._helpers, "PROJECT_ROOT", tmp_path)
-    check_rst.CALL_COUNTS.clear()  # each test starts from zero — counts are assertable
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", tmp_path)
+    _helpers.CALL_COUNTS.clear()  # each test starts from zero — counts are assertable
