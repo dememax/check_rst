@@ -869,27 +869,73 @@ _NESTED_ALIGNED_TABLE = """\
 
 
 @pytest.mark.integration
-def test_plan_converts_nested_aligned_tables_safely_in_two_passes(tmp_path: Path) -> None:
+def test_plan_converts_nested_aligned_tables_ancestor_first_in_one_run(tmp_path: Path) -> None:
     """An inner table has no independently editable source block while
     its text is framed by an outer grid.  Converting the ancestor makes
-    that directive ordinary list-item content, so the next pass can
-    convert it without rebuilding the outer table."""
+    that directive ordinary list-item content.  The default bulk plan can
+    then convert it from the in-memory candidate without rebuilding the
+    outer table or requiring a second command."""
     p = _rst(tmp_path, "Title\n#####\n\n" + _NESTED_ALIGNED_TABLE)
 
-    outer = _list_table._plan_list_table_file(p, only=[], skip=[])
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
 
-    assert outer.fatal is None
-    assert outer.converted == [1]
-    assert [issue.code for issue in outer.refusals] == ["list-table.nested-aligned-table"]
-    assert "ancestor first" in outer.refusals[0].action
+    assert result.fatal is None
+    assert result.converted == [1, 2]
+    assert result.refusals == []
+    assert result.candidate.count(".. list-table::") == 2
+    assert _list_table._list_table_conversion_preserves_semantics(p, result.original, result.candidate)
 
-    p.write_text(outer.candidate, encoding="utf-8")
-    inner = _list_table._plan_list_table_file(p, only=[2], skip=[])
 
-    assert inner.fatal is None
-    assert inner.converted == [2]
-    assert inner.candidate.count(".. list-table::") == 2
-    assert _list_table._list_table_conversion_preserves_semantics(p, inner.original, inner.candidate)
+@pytest.mark.integration
+def test_plan_repeats_ancestor_first_conversion_through_three_levels(tmp_path: Path) -> None:
+    middle_directive = [".. table:: Middle", "", *(f"   {line}" for line in _NESTED_ALIGNED_TABLE.splitlines())]
+    width = max(len("Wrapper"), *(len(line) for line in middle_directive))
+    border = f"+{'-' * (width + 2)}+"
+    header_rule = f"+{'=' * (width + 2)}+"
+    outer = "\n".join(
+        (
+            border,
+            f"| {'Wrapper'.ljust(width)} |",
+            header_rule,
+            *(f"| {line.ljust(width)} |" for line in middle_directive),
+            border,
+            "",
+        )
+    )
+    p = _rst(tmp_path, "Title\n#####\n\n" + outer)
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == [1, 2, 3]
+    assert result.refusals == []
+    assert result.candidate.count(".. list-table::") == 3
+    assert _list_table._list_table_conversion_preserves_semantics(p, result.original, result.candidate)
+
+
+@pytest.mark.integration
+def test_plan_rejects_nested_aggregate_if_final_semantic_proof_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = _rst(tmp_path, "Title\n#####\n\n" + _NESTED_ALIGNED_TABLE)
+    real_proof = _list_table._list_table_conversion_preserves_semantics
+
+    def fail_final_aggregate(path: Path, original: str, candidate: str) -> bool:
+        if original.count(".. list-table::") == 0 and candidate.count(".. list-table::") == 2:
+            return False
+        return real_proof(path, original, candidate)
+
+    monkeypatch.setattr(_list_table, "_list_table_conversion_preserves_semantics", fail_final_aggregate)
+    monkeypatch.setattr(_list_table, "_list_table_divergence_reason", lambda *_args: "aggregate probe divergence")
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is not None
+    assert result.fatal.code == "list-table.semantic-proof"
+    assert "aggregate probe divergence" in result.fatal.reason
+    assert result.converted == []
+    assert result.candidate == result.original
 
 
 @pytest.mark.integration
@@ -905,37 +951,47 @@ def test_plan_refuses_inner_table_only_until_ancestor_is_converted(tmp_path: Pat
 
 
 @pytest.mark.integration
-def test_plan_refuses_widths_auto_with_specific_blocker(tmp_path: Path) -> None:
+def test_plan_converts_nested_table_when_only_also_selects_its_ancestor(tmp_path: Path) -> None:
+    p = _rst(tmp_path, "Title\n#####\n\n" + _NESTED_ALIGNED_TABLE)
+
+    result = _list_table._plan_list_table_file(p, only=[1, 2], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == [1, 2]
+    assert result.refusals == []
+    assert result.candidate.count(".. list-table::") == 2
+    assert _list_table._list_table_conversion_preserves_semantics(p, result.original, result.candidate)
+
+
+@pytest.mark.integration
+def test_plan_maps_widths_auto_to_docutils_auto_class_and_grid_widths(tmp_path: Path) -> None:
     body = "\n".join(f"   {line}" if line else "" for line in _GRID.splitlines())
     p = _rst(tmp_path, "Title\n#####\n\n.. table::\n   :widths: auto\n\n" + body + "\n")
 
     result = _list_table._plan_list_table_file(p, only=[], skip=[])
 
     assert result.fatal is None
-    assert result.converted == []
-    assert len(result.refusals) == 1
-    assert "widths-auto" in result.refusals[0].code
-    assert "changes the table's column-width model" in result.refusals[0].reason
+    assert result.converted == [1]
+    assert result.refusals == []
+    assert ":widths: 5 7" in result.candidate
+    assert ":class: colwidths-auto" in result.candidate
+    assert _list_table._list_table_conversion_preserves_semantics(p, result.original, result.candidate)
 
 
 @pytest.mark.integration
-def test_widths_auto_list_table_has_a_different_canonical_model(tmp_path: Path) -> None:
+def test_widths_auto_mapping_preserves_an_existing_class(tmp_path: Path) -> None:
     body = "\n".join(f"   {line}" if line else "" for line in _GRID.splitlines())
-    original = "Title\n#####\n\n.. table::\n   :widths: auto\n\n" + body + "\n"
-    candidate = (
-        "Title\n#####\n\n"
-        ".. list-table::\n"
-        "   :header-rows: 1\n"
-        "   :widths: auto\n\n"
-        "   * - A\n"
-        "     - B\n"
-        "   * - 1\n"
-        "     - two\n"
+    p = _rst(
+        tmp_path,
+        "Title\n#####\n\n.. table::\n   :class: compact\n   :widths: auto\n\n" + body + "\n",
     )
-    p = _rst(tmp_path, original)
 
-    assert not _list_table._list_table_conversion_preserves_semantics(p, original, candidate)
-    assert "attributes changed" in _list_table._list_table_divergence_reason(p, original, candidate)
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == [1]
+    assert ":class: compact colwidths-auto" in result.candidate
+    assert _list_table._list_table_conversion_preserves_semantics(p, result.original, result.candidate)
 
 
 @pytest.mark.integration

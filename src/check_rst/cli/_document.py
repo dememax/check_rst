@@ -68,12 +68,17 @@ class _DocumentCore:
         self,
         path: pathlib.Path,
         project_root: pathlib.Path | None = None,
+        *,
+        source_text: str | None = None,
     ) -> None:
         self.path = path
         self.project_root = _helpers.PROJECT_ROOT if project_root is None else project_root
+        self._source_text = source_text
 
     @functools.cached_property
     def source(self) -> str:
+        if self._source_text is not None:
+            return self._source_text
         return _read_source(self.path)
 
     @functools.cached_property

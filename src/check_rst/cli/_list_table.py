@@ -27,6 +27,7 @@ from . import _helpers
 from ._document import (
     _SIMPLE_TABLE_RULE_RE,
     _TABLE_DIRECTIVE_RE,
+    Document,
     _simple_table_end,
     find_tables,
 )
@@ -324,20 +325,6 @@ def _evaluate_list_table_candidate(lines: list[str], entry: TableEntry) -> ListT
             refusal_code="list-table.option-unsupported",
             refusal_category="unsupported",
         )
-    widths = next((value for name, value in source.options if name == "widths"), None)
-    if widths == "auto":
-        return ListTableCandidate(
-            entry,
-            None,
-            source.caption,
-            "`:widths: auto` changes the table's column-width model when expressed as a list-table",
-            source_start=source.start,
-            source_end=source.end,
-            indent=source.indent,
-            refusal_code="list-table.widths-auto",
-            refusal_category="incompatible",
-        )
-
     body_indent = _leading_whitespace(lines[source.body_start])
     body_lines = lines[source.body_start : source.body_end]
     dedented = [line[len(body_indent) :] if line.startswith(body_indent) else line.lstrip() for line in body_lines]
@@ -432,23 +419,38 @@ def _render_list_table(
     first_prefix: str | None = None,
 ) -> str:
     """Emit RST text for a ``.. list-table::`` directive equivalent to
-    *parsed*. :widths: carries colspecs straight through — confirmed by
-    direct probe that docutils passes explicit :widths: values through to
-    each colspec's own colwidth unchanged, making the resulting doctree's
-    column-width representation match the original exactly, not merely
-    proportionally."""
+    *parsed*. Explicit :widths: values carry colspecs straight through.
+    ``:widths: auto`` on an aligned ``table`` directive is represented by
+    BOTH its parsed grid colspecs and Docutils' internal ``colwidths-auto``
+    table class. A list-table's own ``auto`` value instead manufactures
+    equal-width colspecs, so preserve the original model by emitting the
+    parsed widths explicitly and adding that same internal class through
+    ``:class:``. Docutils' writers consume the class as their automatic-
+    layout switch, while the exact colspec model remains available to
+    other consumers."""
     caption_lines = caption.splitlines() if caption else []
     lines = [f".. list-table:: {caption_lines[0]}" if caption_lines else ".. list-table::"]
     lines.extend(f"{' ' * _LIST_TABLE_BODY_INDENT}{line}" for line in caption_lines[1:])
     if parsed.header_rows:
         lines.append(f"{' ' * _LIST_TABLE_BODY_INDENT}:header-rows: {len(parsed.header_rows)}")
     source_widths = next((value for name, value in options if name == "widths"), None)
-    widths = source_widths if source_widths not in (None, "grid") else " ".join(str(width) for width in parsed.colspecs)
+    auto_widths = source_widths == "auto"
+    widths = (
+        source_widths
+        if source_widths not in (None, "grid", "auto")
+        else " ".join(str(width) for width in parsed.colspecs)
+    )
     lines.append(f"{' ' * _LIST_TABLE_BODY_INDENT}:widths: {widths}")
+    class_emitted = False
     for name, value in options:
         if name != "widths":
+            if name == "class" and auto_widths:
+                value = f"{value} colwidths-auto".strip()
+                class_emitted = True
             suffix = f" {value}" if value else ""
             lines.append(f"{' ' * _LIST_TABLE_BODY_INDENT}:{name}:{suffix}")
+    if auto_widths and not class_emitted:
+        lines.append(f"{' ' * _LIST_TABLE_BODY_INDENT}:class: colwidths-auto")
     lines.append("")
     for row in (*parsed.header_rows, *parsed.body_rows):
         lines.extend(_render_list_table_row(row))
@@ -608,7 +610,6 @@ def _list_table_issue(
         impact += "; other selected tables may still convert"
     actions = {
         "list-table.span": "Keep the aligned table, remove the span, or exclude it with --skip.",
-        "list-table.widths-auto": "Choose explicit column widths, or keep/exclude this aligned table.",
         "list-table.nested-aligned-table": "Convert its aligned-table ancestor first, then run list-table again.",
         "list-table.source-model": "Inspect the reported source range; the converter will not guess its boundaries.",
         "list-table.semantic-proof": "Keep the aligned table and inspect the reported doctree divergence.",
@@ -618,8 +619,17 @@ def _list_table_issue(
     return ListTableIssue(ordinal, entry, code, category, reason, impact, action)
 
 
-def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) -> ListTableFileResult:
-    """Plan one file's conversion — read, resolve --only/--skip, evaluate
+def _plan_list_table_text(
+    path: pathlib.Path,
+    original: str,
+    only: list[int],
+    skip: list[int],
+    *,
+    exact_selection: bool,
+) -> ListTableFileResult:
+    """Plan one conversion stage against supplied in-memory source.
+
+    Resolve --only/--skip, evaluate
     and render every in-scope table, splice approved conversions into
     the whole-file text, then re-validate the whole result before it may
     ever be written. An --only ordinal that turns out refused is fatal
@@ -628,9 +638,8 @@ def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) 
     converting the file's other eligible tables — the same
     review-don't-block spirit as --skip-fixable, not a hard-error either
     way rule."""
-    original = _read_source(path)
     plain_lines = original.splitlines()
-    tables = find_tables(path)
+    tables = find_tables(path, doc=Document(path, source_text=original))
     targets, unknown = _resolve_list_table_selection(tables, only, skip)
     if unknown:
         bad = ", ".join(str(n) for n in unknown)
@@ -664,9 +673,9 @@ def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) 
                 candidate.refusal_code or "list-table.refused",
                 candidate.refusal_category or "unsupported",
                 candidate.refusal,
-                exact_selection=bool(only),
+                exact_selection=exact_selection,
             )
-            if only:
+            if exact_selection and issue.code != "list-table.nested-aligned-table":
                 return ListTableFileResult(
                     path,
                     original,
@@ -698,9 +707,9 @@ def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) 
                 "list-table.semantic-proof",
                 "semantic-proof",
                 detail,
-                exact_selection=bool(only),
+                exact_selection=exact_selection,
             )
-            if only:
+            if exact_selection:
                 return ListTableFileResult(path, original, original, [], [], [], issue)
             refusals.append(issue)
             continue
@@ -730,3 +739,85 @@ def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) 
             ),
         )
     return ListTableFileResult(path, original, candidate_text, converted, refusals, [], None)
+
+
+def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) -> ListTableFileResult:
+    """Plan a file conversion, resolving nested tables ancestor-first.
+
+    The first stage preserves the established bulk/explicit-selection
+    semantics. In bulk mode, a nested aligned table initially has no
+    independent source range, but a converted ancestor may expose one in
+    the in-memory candidate. Retry only those nested ordinals until no
+    further ancestor conversion makes progress. Every stage and the final
+    aggregate remain protected by whole-document canonical-tree equality;
+    the file is still read once and written only by the CLI after this
+    complete plan succeeds.
+
+    Explicit ``--only`` remains exact: an inner table cannot authorize
+    converting an unselected ancestor merely to expose its source.
+    """
+    original = _read_source(path)
+    result = _plan_list_table_text(path, original, only, skip, exact_selection=bool(only))
+    if result.fatal is not None:
+        return result
+
+    nested_code = "list-table.nested-aligned-table"
+    pending = {
+        issue.ordinal: issue for issue in result.refusals if issue.code == nested_code and issue.ordinal is not None
+    }
+    if not pending:
+        return result
+    if not result.changed:
+        if only:
+            issue = pending[min(pending)]
+            return ListTableFileResult(path, original, original, [], [], [], issue)
+        return result
+
+    candidate = result.candidate
+    converted = set(result.converted)
+    retained = [issue for issue in result.refusals if issue.code != nested_code]
+    while pending:
+        progressed = False
+        for ordinal in sorted(pending):
+            retry = _plan_list_table_text(
+                path,
+                candidate,
+                [ordinal],
+                [],
+                exact_selection=False,
+            )
+            if retry.fatal is not None:
+                return ListTableFileResult(path, original, original, [], [], [], retry.fatal)
+            if ordinal in retry.converted:
+                candidate = retry.candidate
+                converted.add(ordinal)
+                del pending[ordinal]
+                progressed = True
+                continue
+            replacement_issue = next(
+                (issue for issue in retry.refusals if issue.ordinal == ordinal),
+                None,
+            )
+            if replacement_issue is not None:
+                pending[ordinal] = replacement_issue
+        if not progressed:
+            break
+
+    if pending and only:
+        issue = pending[min(pending)]
+        return ListTableFileResult(path, original, original, [], [], [], issue)
+
+    if not _list_table_conversion_preserves_semantics(path, original, candidate):
+        reason = _list_table_divergence_reason(path, original, candidate)
+        detail = f" ({reason})" if reason else ""
+        fatal = _list_table_issue(
+            None,
+            None,
+            "list-table.semantic-proof",
+            "semantic-proof",
+            f"ancestor-first converted result failed semantic validation{detail}",
+        )
+        return ListTableFileResult(path, original, original, [], [], [], fatal)
+
+    refusals = sorted((*retained, *pending.values()), key=lambda issue: issue.ordinal or 0)
+    return ListTableFileResult(path, original, candidate, sorted(converted), refusals, [], None)

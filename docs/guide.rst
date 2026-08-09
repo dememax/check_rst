@@ -730,7 +730,8 @@ may be single-line or continued directive arguments.  Options shared by
 ``table`` and ``list-table`` — ``:name:``, ``:class:``, ``:align:``,
 ``:width:``, and explicit ``:widths:`` — carry across.  ``:widths: grid``
 becomes the effective numeric geometry Docutils derived from the aligned
-source.
+source.  ``:widths: auto`` retains automatic writer layout while preserving
+that same parsed geometry as explicit list-table widths.
 
 An ordinal means the Nth table shown by ``outline``, 1-based in document
 order, not the Nth convertible table.  Existing list-tables and CSV tables
@@ -777,9 +778,9 @@ its impact and a next action:
 * ``UNCHANGED`` means the source is already a list-table.
 * ``REFUSED`` means the source is understood but conversion is out of scope
   or lacks an equivalent representation.  CSV tables are out of scope; a
-  merged row or column has no list-table representation; ``:widths: auto``
-  produces a different Docutils column-width model; and an inner table still
-  framed by an aligned ancestor lacks an independent physical source range.
+  merged row or column has no list-table representation.  An inner table
+  explicitly selected without its aligned ancestor also lacks an independent
+  physical source range; include or first convert that ancestor.
 * ``ERROR`` means selection, source capture, parsing, or semantic proof failed
   — for example an unknown ordinal, a ``source-model`` invariant, or a
   ``semantic-proof`` divergence.  The converter never guesses past one.
@@ -798,8 +799,11 @@ The guarantee mirrors "Why you can trust fix" above: a whole-file
 canonical-tree comparison (not ``astext()``, not a visual diff) gates each
 table candidate, and a final comparison gates the combined write.  Deriving
 generated ``:widths:`` from the aligned table's column geometry preserves its
-exact Docutils ``colwidth`` values.  The comparison normalizes two pieces of
-syntax/position bookkeeping that do not change document meaning:
+exact Docutils ``colwidth`` values.  For ``:widths: auto``, the generated
+list-table combines those explicit values with Docutils' own
+``colwidths-auto`` class: writers retain automatic layout and other doctree
+consumers retain the source geometry.  The comparison normalizes two pieces
+of syntax/position bookkeeping that do not change document meaning:
 
 * Docutils adds ``'colwidths-given'`` to a list-table whenever ``:widths:`` is
   explicit, but never to the equivalent aligned table.
@@ -810,15 +814,22 @@ Every other node class, attribute, text value, and child relationship must
 match.  A divergence leaves that table unchanged and is reported with the
 first differing tree path.
 
---------------------------------------
-Nested tables: the two-pass workflow
---------------------------------------
+-----------------------------------------------
+Nested tables: ancestor-first bulk conversion
+-----------------------------------------------
 
 A table nested inside an aligned-table cell initially exists only as content
 framed by the ancestor's physical borders, so it cannot be replaced
-independently.  Convert the aligned ancestor first.  Its inner ``.. table::``
-then becomes ordinary list-item source with an exact editable range; rerun
-``list-table`` to convert it safely on the second pass.
+independently.  In the default bulk scope, ``list-table`` converts the
+ancestor in memory, discovers the inner ``.. table::`` at its now-exact source
+range, and continues ancestor-first until no selected descendant remains.
+Every intermediate candidate and the aggregate still require whole-file tree
+equality; only the final aggregate can be written.
+
+An explicit ``--only`` never authorizes an unselected ancestor conversion.
+Selecting an inner table alone therefore remains a contextual
+``list-table.nested-aligned-table`` refusal: include its ancestor in the scope,
+or convert the ancestor first and rerun the inner selection.
 
 ******************************************************
 Reading RST: verified structure instead of inference

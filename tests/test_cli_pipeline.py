@@ -314,6 +314,8 @@ def test_cli_list_table_help_states_runtime_and_exit_boundaries(
     out = capsys.readouterr().out
     compact = " ".join(out.split())
     assert "bare Docutils" in compact
+    assert "ancestor-first" in compact
+    assert ":widths: auto preserves both automatic layout and parsed grid geometry" in compact
     assert "Dry-run returns 1 when files would change" in compact
     assert "N counts every table shown by outline" in compact
 

@@ -740,12 +740,14 @@ exists at all:
         help="convert eligible grid/simple tables to list-table syntax",
         description=(
             "Modifier role: convert eligible grid/simple tables to `.. list-table::` syntax. "
-            "Spans, :widths: auto, and an inner table still framed by an aligned ancestor "
-            "are refused with their blocker, impact, and next action; every candidate and "
-            "combined write is gated by whole-file tree equality. Runs in bare Docutils mode; "
-            "Sphinx mode is not used. N counts every table shown by outline. Dry-run returns 1 "
-            "when files would change; --apply writes and returns 1 only on errors — see "
-            ":doc:`guide`."
+            "Default bulk conversion resolves nested aligned tables ancestor-first; "
+            ":widths: auto preserves both automatic layout and parsed grid geometry. "
+            "Spans and an inner table selected without its aligned ancestor are refused "
+            "with their blocker, impact, and next action. Every candidate and combined "
+            "write is gated by whole-file tree equality. Runs in bare Docutils mode; "
+            "Sphinx mode is not used. N counts every table shown by outline. Dry-run "
+            "returns 1 when files would change; --apply writes and returns 1 only on "
+            "errors — see :doc:`guide`."
         ),
     )
     list_table_p.set_defaults(**_CLI_ATTR_DEFAULTS)

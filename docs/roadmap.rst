@@ -1556,9 +1556,12 @@ evaluation on 2026-08-09 proved and implemented the next increment:
 ``:name:``, ``:class:``, ``:align:``, ``:width:``, explicit numeric
 ``:widths:``, and ``:widths: grid`` all preserve the canonical tree when
 carried to list-table syntax (``grid`` materializes the effective numeric
-geometry).  ``:widths: auto`` does not: direct Docutils and HTML/LaTeX probes
-showed a different column-width model, so it remains a specific incompatible
-refusal rather than being normalized away.
+geometry).  A direct copy of ``:widths: auto`` does not: list-table manufactures
+equal colspecs instead of retaining the aligned grid's parsed values.  The
+2026-08-09 follow-up found the exact mapping rather than normalizing that
+difference away: emit the parsed values as explicit widths and carry
+Docutils' own ``colwidths-auto`` class.  HTML/LaTeX writers still select
+automatic layout, while the canonical doctree retains the original colspecs.
 
 Docutils' own ``GridTableParser``/``SimpleTableParser`` are used directly
 rather than reimplementing the alignment grammar — confirmed by direct probe
@@ -1634,9 +1637,9 @@ through ``check_rst check`` itself for a clean exit. Further focused coverage
 ``--only``/``--skip`` ordinal resolver and their combination rule, continued
 captions and directive-option preservation, span rejection for both row and
 column merges, exact existing-list/CSV outcomes and ordinals, a direct
-``:widths: auto`` canonical-model mismatch, per-table and combined semantic
-proof failures, partial safe writes, dry-run non-mutation, and the CLI-level
-exit/``--quiet``/bare-Docutils behavior.
+``:widths: auto`` canonical-model mapping, ancestor-first nested conversion,
+per-table and combined semantic proof failures, partial safe writes, dry-run
+non-mutation, and the CLI-level exit/``--quiet``/bare-Docutils behavior.
 
 -------------------------------------------
 Safety boundary after source-model review
@@ -1649,17 +1652,19 @@ enclosing-list indentation, and uses Docutils' own simple-table termination
 predicate for multi-line final rows.  Directive options and rich cell content
 were feasible; tests prove them rather than continuing to refuse them.
 
-Three cases remain intentionally blocked, each with a stable reason code,
-table context, impact, and next action in default CLI output:
+One representation blocker remains intentionally refused, with a stable
+reason code, table context, impact, and next action in default CLI output:
 
 * ``list-table.span``: list-table syntax cannot encode a merged row or column.
-* ``list-table.widths-auto``: the converted Docutils column-width model is not
-  equivalent.
-* ``list-table.nested-aligned-table``: an inner table framed by an outer
-  aligned table has no independently replaceable physical source block.
-  This last blocker is staged rather than permanent: convert the ancestor,
-  then rerun to convert the inner ``.. table::`` now exposed as ordinary
-  list-item source.
+
+Two former boundaries are now proven transformations.  ``:widths: auto`` maps
+to explicit parsed widths plus ``colwidths-auto`` and retains exact canonical
+equality.  Default bulk conversion handles nested aligned tables in one run:
+it converts ancestors in memory, rediscovers descendants at their exposed
+source ranges, and proves every stage plus the final aggregate.  The
+``list-table.nested-aligned-table`` code remains only for a descendant selected
+without authorizing its still-aligned ancestor; ``--only`` never expands its
+own scope implicitly.
 
 Parser/range invariants and canonical-tree divergence are reported separately
 as ``source-model`` and ``semantic-proof`` errors/refusals.  They never escape
