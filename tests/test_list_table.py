@@ -273,6 +273,31 @@ def test_candidate_ready_for_table_directive_with_caption(tmp_path: Path) -> Non
 
 
 @pytest.mark.integration
+def test_plan_converts_table_directive_with_continued_caption(tmp_path: Path) -> None:
+    """Both RSTTable and ListTable accept one optional argument with
+    final whitespace, so a caption may continue on indented source lines.
+    The converter must carry that valid directive argument rather than
+    mistake it for unknown content before the table body."""
+    text = (
+        "Title\n#####\n\n"
+        ".. table:: First caption line\n"
+        "   second caption line\n"
+        "   :name: continued-caption\n\n"
+        "   " + _GRID.replace("\n", "\n   ").rstrip() + "\n"
+    )
+    p = _rst(tmp_path, text)
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.refusals == []
+    assert result.converted == [1]
+    assert ".. list-table:: First caption line\n   second caption line\n" in result.candidate
+    assert "   :name: continued-caption\n" in result.candidate
+    assert _list_table._list_table_conversion_preserves_semantics(p, result.original, result.candidate)
+
+
+@pytest.mark.integration
 def test_candidate_ready_for_table_directive_without_caption(tmp_path: Path) -> None:
     text = "Title\n#####\n\n.. table::\n\n   " + _GRID.replace("\n", "\n   ").rstrip() + "\n"
     p = _rst(tmp_path, text)

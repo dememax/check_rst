@@ -138,13 +138,17 @@ def _locate_aligned_table_source(lines: list[str], entry: TableEntry) -> _Aligne
     if marker_info is not None and marker_info[0].group(1) == "table":
         marker, first_prefix, directive_indent = marker_info
         marker_text = lines[start][len(first_prefix) :]
-        caption = marker_text[marker.end() :].strip() or None
+        first_caption_line = marker_text[marker.end() :].strip()
+        caption_lines = [first_caption_line] if first_caption_line else []
         body_start: int | None = None
         options: list[tuple[str, str]] = []
+        argument_open = True
+        options_started = False
         cursor = start + 1
         while cursor < len(lines):
             line = lines[cursor]
             if not line.strip():
+                argument_open = False
                 cursor += 1
                 continue
             if len(_leading_whitespace(line)) <= len(directive_indent):
@@ -154,12 +158,18 @@ def _locate_aligned_table_source(lines: list[str], entry: TableEntry) -> _Aligne
                 break
             option_match = _TABLE_OPTION_VALUE_RE.match(line)
             if option_match:
+                options_started = True
                 options.append((option_match.group(1), option_match.group(2)))
+                cursor += 1
+                continue
+            if argument_open and not options_started:
+                caption_lines.append(line.strip())
                 cursor += 1
                 continue
             raise ValueError("table directive contains content before its aligned-table body")
         if body_start is None:
             raise ValueError("table directive has no aligned grid/simple body")
+        caption = "\n".join(caption_lines) or None
         body_end = _aligned_table_end(lines, body_start)
         return _AlignedTableSource(
             start,
@@ -427,7 +437,9 @@ def _render_list_table(
     each colspec's own colwidth unchanged, making the resulting doctree's
     column-width representation match the original exactly, not merely
     proportionally."""
-    lines = [f".. list-table:: {caption}" if caption else ".. list-table::"]
+    caption_lines = caption.splitlines() if caption else []
+    lines = [f".. list-table:: {caption_lines[0]}" if caption_lines else ".. list-table::"]
+    lines.extend(f"{' ' * _LIST_TABLE_BODY_INDENT}{line}" for line in caption_lines[1:])
     if parsed.header_rows:
         lines.append(f"{' ' * _LIST_TABLE_BODY_INDENT}:header-rows: {len(parsed.header_rows)}")
     source_widths = next((value for name, value in options if name == "widths"), None)
