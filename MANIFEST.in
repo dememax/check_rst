@@ -4,3 +4,4 @@
 
 recursive-include docs *.py *.rst
 recursive-include tests/fixtures *.py *.rst *.toml
+include tools/install_man_pages.py

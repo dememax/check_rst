@@ -107,6 +107,24 @@ EXAMPLES
    $ check_rst diff document.rst
    $ check_rst outline document.rst
 
+**************
+MANUAL PAGES
+**************
+
+From a source checkout, build and install all registered manual pages below a
+private prefix with:
+
+.. code-block:: console
+
+   $ python3.14 tools/install_man_pages.py --prefix "$HOME/opt"
+   $ export MANPATH="$HOME/opt/share/man${MANPATH:+:$MANPATH}"
+
+Distribution packagers can stage pages below a package root with ``--prefix
+/usr --destdir "$pkgdir"``.  Python wheels do not select a host manual-page
+directory.  ``--skip-build --build-dir DIR`` reuses an existing Sphinx man
+build, while ``--no-index`` leaves live-prefix index maintenance to the
+caller.
+
 ***********************
 COPYRIGHT AND LICENSE
 ***********************

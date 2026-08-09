@@ -124,16 +124,29 @@ linked above before enabling mutations in an existing documentation set.
 
 The repository includes concise Sphinx sources for `check_rst(1)`, individual
 commands, configuration and JSON contracts, source formats, workflow, and
-semantic boundaries. Build them with:
+semantic boundaries. From a source checkout, build and install every page
+registered in `docs/conf.py` under a private prefix with:
 
 ```bash
-sphinx-build -b man docs docs/_build/man
+python3.14 tools/install_man_pages.py --prefix "$HOME/opt"
+export MANPATH="$HOME/opt/share/man${MANPATH:+:$MANPATH}"
+man check_rst
 ```
 
-System packages can install the generated pages below `/usr/share/man`.
-Python wheels do not choose a host man-page directory; for a private prefix,
-place them below `~/opt/check_rst/share/man` and add that directory to
-`MANPATH`.
+The installer invokes Sphinx, installs the registered section 1, 5, and 7
+pages, and updates the prefix's manual index with `makewhatis` or `mandb` when
+available. Distribution packaging can stage the same registry below a package
+root without modifying the host index:
+
+```bash
+python3.14 tools/install_man_pages.py --prefix /usr --destdir "$pkgdir"
+```
+
+Use `--skip-build` with `--build-dir` to install an existing Sphinx man build,
+or `--no-index` when the caller owns index maintenance. The underlying manual
+build remains `sphinx-build -b man docs docs/_build/man`. Python wheels do not
+choose a host man-page directory, so manual installation is deliberately a
+source-checkout or distribution-packaging operation.
 
 ## Development
 
@@ -143,8 +156,8 @@ Run the complete regression and static-check suite from the repository root:
 
 ```bash
 python3.14 -m pytest
-ruff format --check --no-cache src tests
-ruff check --no-cache src tests
+ruff format --check --no-cache src tests tools
+ruff check --no-cache src tests tools
 PYTHONPATH=src python3.14 -m check_rst check --recursive docs
 ```
 

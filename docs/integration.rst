@@ -47,14 +47,35 @@ Verified mode loads the selected project's ``conf.py`` and extensions, which
 execute Python code.  Use ``--sphinx-src`` or a repository configuration only
 for trusted projects.
 
-The canonical manual-page sources live under ``docs/man``.  Build them with
-``sphinx-build -b man docs docs/_build/man``.  A system package can install
-the generated section 1, 5, and 7 pages under ``/usr/share/man/man1``,
-``man5``, and ``man7`` respectively.  Python wheels intentionally do not guess
-a system man directory: a private installation may instead place them under
-``~/opt/check_rst/share/man`` and add that directory to ``MANPATH``.  In every
-case the generated roff remains derived output, not a second documentation
-source.
+--------------------------
+Manual-page installation
+--------------------------
+
+The canonical manual-page sources live under ``docs/man``.  From a source
+checkout, the registry-driven installer builds and installs every page listed
+by Sphinx's ``man_pages`` setting in ``docs/conf.py``:
+
+.. code-block:: console
+
+   $ python3.14 tools/install_man_pages.py --prefix "$HOME/opt"
+   $ export MANPATH="$HOME/opt/share/man${MANPATH:+:$MANPATH}"
+   $ man check_rst
+
+The installer places pages under the appropriate ``share/man/man1``, ``man5``,
+and ``man7`` directories and then runs ``makewhatis`` or ``mandb`` when one is
+available.  A distribution package stages the same registry without touching
+the host's manual index:
+
+.. code-block:: console
+
+   $ python3.14 tools/install_man_pages.py --prefix /usr --destdir "$pkgdir"
+
+``--skip-build`` installs already-generated pages from ``--build-dir``;
+``--no-index`` leaves live-prefix index maintenance to the caller.  The direct
+build command remains ``sphinx-build -b man docs docs/_build/man``.  Python
+wheels intentionally do not guess a host manual directory, so this is a
+source-checkout or distribution-packaging operation.  Generated roff remains
+derived output, not a second documentation source.
 
 ======================
 Documentation layers

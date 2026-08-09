@@ -95,9 +95,9 @@ Run Python tests and static checks from the repository root:
 
 ```bash
 python3.14 -m pytest
-ruff format --check --no-cache src tests
-ruff check --no-cache src tests
-python3.14 -m mypy src tests
+ruff format --check --no-cache src tests tools
+ruff check --no-cache src tests tools
+python3.14 -m mypy src tests tools
 ```
 
 After an RST edit, invoke the worktree implementation so validation never
