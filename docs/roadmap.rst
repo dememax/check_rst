@@ -1067,6 +1067,8 @@ uses to prioritize — logged, not queued.
 A black-box subprocess test against a standing, combined Sphinx fixture
 =========================================================================
 
+*(implemented 2026-08-09)*
+
 (Max, 2026-07-26) — a real, confirmed gap, not a duplicate of existing
 coverage: CLI tests call ``check_rst.main()`` in-process with monkeypatched
 ``sys.argv``, and every fixture is built fresh, inline, per test (the largest
@@ -1104,11 +1106,17 @@ while still reading as real, concrete examples when the test file is
 opened, delivering the pedagogical profit without the worst of the
 maintenance cost.  A new, small, additional layer, not a replacement
 for the existing precise unit-style tests, which catch different
-things faster.  Logged, not yet implemented — a standing fixture
-directory (nested lists containing tables/admonitions, bold openers,
-a mistyped-directive comment, a homoglyph, a bare filename mention, a
-broken cross-reference) deliberately combining many real constructs
-in one realistic project is the natural shape once picked up.
+things faster.
+
+The implemented fixture under ``tests/fixtures/combined_sphinx`` combines
+toctree traversal, nested list/admonition/table depths, bold openers, a
+mistyped-directive comment, a homoglyph, a bare filename mention, live
+incoming/outgoing references, fixable title geometry, and nested aligned
+tables.  ``tests/test_cli_black_box.py`` copies and commits it for isolated
+subprocess workflows.  Targeted predicates cover argparse and runtime argument
+failures, all three CLI roles, Git diff selection, JSON structure, Sphinx
+warning-versus-failure status, preview/write/idempotence, and ancestor-first
+table conversion without pinning complete console transcripts.
 
 =========================================================
 Extend ``--outline`` across ``.. toctree::`` boundaries

@@ -124,3 +124,5 @@ def test_source_distribution_contains_manual_sources(tmp_path: Path) -> None:
     assert contains(Path("docs/guide.rst"))
     assert contains(Path("docs/man/check_rst.rst"))
     assert contains(Path("docs/man/check_rst-formats.rst"))
+    assert contains(Path("tests/fixtures/combined_sphinx/.check_rst.toml"))
+    assert contains(Path("tests/fixtures/combined_sphinx/guide.rst"))
