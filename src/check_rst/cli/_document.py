@@ -219,11 +219,10 @@ class Document(_DocumentInlineMixin, _DocumentProseMixin, _DocumentOutlineMixin)
     diamond-shared _DocumentCore base plus functools.cached_property
     behaves identically whether attributes live on one class or are
     assembled from mixins, under both CPython and strict mypy).  What
-    changes is where each domain's code CAN live once cli.py is
-    eventually split into modules: each mixin above already depends on
-    _DocumentCore alone, never on a sibling mixin, so a future outline
-    module only needs to import _DocumentCore, not the prose or
-    inline-markup domains bundled with it today.
+    changes is where each domain's code lives after the CLI split: each
+    mixin above depends on _DocumentCore alone, never on a sibling mixin,
+    so the outline domain does not import the prose or inline-markup
+    domains.
     """
 
 

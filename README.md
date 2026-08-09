@@ -16,6 +16,19 @@ geometry and parser-verifiable transformations are delegated to software.
 
 The detailed reference is in [docs/guide.rst](docs/guide.rst).
 
+## Supported source formats
+
+`check_rst` natively reads and, for explicitly selected operations, rewrites
+reStructuredText (`.rst`). With `--sphinx-src`, it also verifies trusted Sphinx
+projects against their live configuration and extensions. Markdown (`.md`) is
+not a native input format: an explicit Markdown path is ignored with a clear
+“no `.rst` files” result.
+
+Markdown can be converted externally with Pandoc and checked as generated RST
+for analysis. Diagnostics then refer to converted-RST lines, and round-trip
+editing is outside the safety contract; `check_rst` does not rewrite the
+Markdown source.
+
 ## Installation
 
 Requires Python 3.14 or newer. The shortest path from a clone to a working
@@ -79,7 +92,7 @@ selected Python environment's scripts directory, which must be on `PATH`.
 The equivalent module invocation is:
 
 ```bash
-python3.14 -m check_rst
+python3.14 -m check_rst --help
 ```
 
 ## Quick start
@@ -99,15 +112,34 @@ sphinx-src = "docs"
 build-dir = "/tmp/my-project-sphinx-build"
 ```
 
+Verified Sphinx mode imports the selected project's `conf.py` and extensions,
+which execute Python code. Use `--sphinx-src` or configuration that supplies it
+only with projects you trust.
+
 With no positional files, `check_rst` selects changed and untracked RST
 files from Git. Explicit files are checked in full. Read the complete guide
 linked above before enabling mutations in an existing documentation set.
 
+## Manual pages
+
+The repository includes concise Sphinx sources for `check_rst(1)`, individual
+commands, configuration and JSON contracts, source formats, workflow, and
+semantic boundaries. Build them with:
+
+```bash
+sphinx-build -b man docs docs/_build/man
+```
+
+System packages can install the generated pages below `/usr/share/man`.
+Python wheels do not choose a host man-page directory; for a private prefix,
+place them below `~/opt/check_rst/share/man` and add that directory to
+`MANPATH`.
+
 ## Development
 
-The imported implementation is intentionally kept as one module during the
-repository extraction. Behavioral decomposition can follow independently,
-protected by the complete regression suite:
+The implementation is divided by responsibility under `src/check_rst/`, with
+unit, integration, CLI, packaging, and documentation tests under `tests/`.
+Run the complete regression and static-check suite from the repository root:
 
 ```bash
 python3.14 -m pytest

@@ -47,15 +47,26 @@ Verified mode loads the selected project's ``conf.py`` and extensions, which
 execute Python code.  Use ``--sphinx-src`` or a repository configuration only
 for trusted projects.
 
+The canonical manual-page sources live under ``docs/man``.  Build them with
+``sphinx-build -b man docs docs/_build/man``.  A system package can install
+the generated section 1, 5, and 7 pages under ``/usr/share/man/man1``,
+``man5``, and ``man7`` respectively.  Python wheels intentionally do not guess
+a system man directory: a private installation may instead place them under
+``~/opt/check_rst/share/man`` and add that directory to ``MANPATH``.  In every
+case the generated roff remains derived output, not a second documentation
+source.
+
 ======================
 Documentation layers
 ======================
 
-``check_rst --help`` and module docstrings define flags and mechanical rules.
-The main guide explains the operational contract; the example demonstrates a
-complete workflow; the semantic-rules guide covers decisions the checker
-deliberately refuses to make; development records field evidence; and the
-roadmap records accepted, deferred, and declined work.
+``check_rst --help`` is the concise terminal-native command summary.  The
+Sphinx-generated manual pages provide focused command and concept references;
+the main guide remains the canonical operational contract.  The example
+demonstrates a complete workflow, the semantic-rules guide covers decisions
+the checker deliberately refuses to make, development records field evidence,
+and the roadmap records accepted, deferred, and declined work.  Generated roff
+is a build artifact and is never edited independently of its RST source.
 
 ``AGENTS.md`` defines development practice for this repository, written
 agent-agnostic.  ``CLAUDE.md`` is a deliberately thin adapter so Claude Code
@@ -65,11 +76,11 @@ reads the same canonical instructions without maintaining a second copy.
 Test suite
 ============
 
-``tests/test_check_rst.py`` pins every rule, fixer, query, CLI conflict, and
-check/fix-agreement invariant.  Tests import implementation functions for
-precise white-box predicates, but that access is not a public library API.
-External compatibility is established through the command line and JSON
-output.
+The split suite under ``tests/`` pins rules, fixers, structural queries, CLI
+conflicts, packaging metadata, documentation builds, and check/fix-agreement
+invariants.  Tests import implementation functions for precise white-box
+predicates, but that access is not a public library API.  External
+compatibility is established through the command line and JSON output.
 
 ************
 Provenance

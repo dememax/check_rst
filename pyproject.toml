@@ -27,6 +27,7 @@ check_rst = "check_rst.cli:main"
 
 [project.urls]
 Repository = "https://github.com/dememax/check_rst"
+Documentation = "https://github.com/dememax/check_rst/blob/main/docs/guide.rst"
 
 [tool.setuptools.dynamic]
 version = { attr = "check_rst.__version__" }

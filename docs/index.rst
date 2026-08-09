@@ -24,3 +24,4 @@ and Sphinx documentation.
    development
    roadmap
    integration
+   man/index

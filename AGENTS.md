@@ -76,9 +76,9 @@ Use TDD for behavioral changes:
 5. Reconcile CLI help, user documentation, and the roadmap when the contract
    or implementation decision changes.
 
-Do not combine repository extraction with broad refactoring of the imported
-single-module implementation. A later decomposition must remain mechanical or
-be protected by dedicated characterization tests.
+Keep implementation decomposition behavior-preserving and protect each
+boundary move with dedicated characterization tests. Do not combine a
+mechanical module move with unrelated policy changes.
 
 Comments should explain decisions, invariants, safety predicates, and relevant
 standards or library behavior. Do not narrate obvious syntax. When accepting a

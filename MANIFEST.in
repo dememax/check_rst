@@ -1,0 +1,5 @@
+# Copyright (C) 2026 Maxime P. DEMENTYEV
+# SPDX-License-Identifier: GPL-3.0-only
+# Source-distribution documentation manifest — check_rst project
+
+recursive-include docs *.py *.rst

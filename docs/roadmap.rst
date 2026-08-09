@@ -620,7 +620,7 @@ Markdown analysis via the pandoc bridge
 frontend, convert and analyze::
 
     pandoc --from gfm-gfm_auto_identifiers --to rst input.md --output converted.rst
-    check_rst --skip-fixable converted.rst
+    check_rst check --skip-fixable converted.rst
 
 ``--skip-fixable`` suppresses the adornment noise from pandoc's own
 heading style, leaving exactly the semantic findings: the probe
