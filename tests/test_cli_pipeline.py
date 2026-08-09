@@ -252,6 +252,7 @@ def test_cli_help_covers_examples_and_self_contained_modes(
     assert "check_rst diff-json before.json after.json" in out
     assert "check_rst fix --fast" in out
     assert "check_rst list-table doc.rst" in out
+    assert "Preview verbs `diff` and `list-table` also return 1" in out
     # notions/actions/roles/terms vocabulary, shared with docs/rules.rst —
     # this is the concise page's own consistency contract, not a duplicate
     # explanation of it.
@@ -297,6 +298,24 @@ def test_cli_verb_help_stays_concise_and_points_to_docs(
     out = capsys.readouterr().out
     assert needle in " ".join(out.split())
     assert len(out.splitlines()) < 60
+
+
+@pytest.mark.integration
+def test_cli_list_table_help_states_runtime_and_exit_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", "--help"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    compact = " ".join(out.split())
+    assert "bare Docutils" in compact
+    assert "Dry-run returns 1 when files would change" in compact
+    assert "N counts every table shown by outline" in compact
 
 
 @pytest.mark.integration

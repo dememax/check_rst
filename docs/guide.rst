@@ -721,44 +721,104 @@ Both repeat and combine: given together, ``--only`` narrows to its own
 ordinals first, then ``--skip`` removes any of its ordinals from that
 narrowed set — not the reverse, and not independent passes.
 
-Bare grid/simple tables and ``.. table::``-wrapped ones convert, including
-captions and the ``:name:``, ``:class:``, ``:align:``, ``:width:``, and
-explicit ``:widths:`` options.  ``:widths: grid`` becomes the effective
-numeric geometry Docutils derived from the aligned source.  Every cell's own
-source — inline markup, references, nested blocks — is reused verbatim; only
-the selected container syntax and its indentation change.  Source outside
-that exact block, including its CRLF/LF convention, remains byte-for-byte
+---------------------------
+Scope and table numbering
+---------------------------
+
+Bare grid/simple tables and ``.. table::``-wrapped ones convert.  Captions
+may be single-line or continued directive arguments.  Options shared by
+``table`` and ``list-table`` — ``:name:``, ``:class:``, ``:align:``,
+``:width:``, and explicit ``:widths:`` — carry across.  ``:widths: grid``
+becomes the effective numeric geometry Docutils derived from the aligned
+source.
+
+An ordinal means the Nth table shown by ``outline``, 1-based in document
+order, not the Nth convertible table.  Existing list-tables and CSV tables
+therefore retain their positions: the former report ``UNCHANGED`` and the
+latter ``REFUSED`` as out of scope.  A later aligned table keeps the ordinal
+visible in the source outline; ``--only`` and ``--skip`` use that same
+namespace.
+
+The conversion and its semantic proof run in bare Docutils mode, never a
+Sphinx environment.  Explicit ``--sphinx-src``/``--build-dir`` arguments are
+incompatible; values from project configuration are reported inactive for
+this verb.  ``--config`` itself remains active because it still roots file
+and Git-scope discovery.
+
+---------------------------------
+Preview, apply, and exit status
+---------------------------------
+
+The default is a read-only unified diff.  It exits 1 when at least one file
+would change or an error occurred, and 0 when there is neither.  ``--apply``
+writes every independently proven conversion and exits 1 only when an error
+occurred; an ordinary refusal alone does not make the run fail.
+
+One refused or errored table in the default scope does not discard other
+proven tables.  Under ``--apply``, those other tables are still written; a
+table error makes the command exit 1 after the safe writes.  By contrast, an
+``--only``-named table that cannot convert is fatal for that file and leaves
+the whole file untouched, because that exact conversion was requested.
+
+``--quiet`` suppresses progress and per-file status notices, not findings,
+refusals, explicitly requested dry-run diffs, or the final summary.  The
+summary counts converted, refused, and errored tables and classifies ordinary
+refusals; a refusal is never followed by the misleading fallback "no eligible
+tables to convert".
+
+----------------------------------------
+Unchanged, refused, and error outcomes
+----------------------------------------
+
+Each non-conversion names its source line and stable ``list-table.*`` code,
+identifies the table by ordinal, kind, dimensions, and caption, then states
+its impact and a next action:
+
+* ``UNCHANGED`` means the source is already a list-table.
+* ``REFUSED`` means the source is understood but conversion is out of scope
+  or lacks an equivalent representation.  CSV tables are out of scope; a
+  merged row or column has no list-table representation; ``:widths: auto``
+  produces a different Docutils column-width model; and an inner table still
+  framed by an aligned ancestor lacks an independent physical source range.
+* ``ERROR`` means selection, source capture, parsing, or semantic proof failed
+  — for example an unknown ordinal, a ``source-model`` invariant, or a
+  ``semantic-proof`` divergence.  The converter never guesses past one.
+
+----------------------------------------
+Semantic proof and source preservation
+----------------------------------------
+
+Each cell's markup, references, nested blocks, and logical line structure are
+carried into the generated list-table; container indentation and table
+padding are regenerated without trailing whitespace.  Source outside the
+exact selected block, including its CRLF/LF convention, remains byte-for-byte
 untouched.
-
-Three boundaries are refusals because conversion cannot currently prove an
-equivalent, independently editable result:
-
-* a merged row or column has no representation in list-table syntax;
-* ``:widths: auto`` gives a list-table a different Docutils column-width
-  model; and
-* a table nested inside an aligned-table cell has no independent physical
-  source range — its apparent lines are content framed by the ancestor's
-  borders.  Convert the ancestor first, then rerun: the inner directive is
-  ordinary list-item source on the second pass and can convert safely.
-
-The refusal is intentionally contextual rather than a terse skip: it names
-the source line and stable ``list-table.*`` reason code, identifies the table
-by ordinal, kind, dimensions, and caption, then states the impact and an
-action.  A run that refused a table reports its refusal count and categories;
-it does not also claim that there were merely "no eligible tables".
 
 The guarantee mirrors "Why you can trust fix" above: a whole-file
 canonical-tree comparison (not ``astext()``, not a visual diff) gates each
-table candidate, and a final comparison gates the combined write.  Confirmed
-by direct probe rather than assumed: deriving generated ``:widths:`` from the
-original table's own column geometry makes the resulting doctree match the
-original's exactly — same node classes, attributes, and column widths — with
-one deliberate, one-directional exception (a ``'colwidths-given'`` class
-Docutils itself adds whenever ``:widths:`` is explicit on list-table syntax,
-never on a grid/simple table regardless of its own widths).  One candidate
-that fails its proof remains unchanged without blocking independently proven
-tables in the default scope.  An ``--only``-named refusal is fatal for that
-file, since that exact conversion was requested.
+table candidate, and a final comparison gates the combined write.  Deriving
+generated ``:widths:`` from the aligned table's column geometry preserves its
+exact Docutils ``colwidth`` values.  The comparison normalizes two pieces of
+syntax/position bookkeeping that do not change document meaning:
+
+* Docutils adds ``'colwidths-given'`` to a list-table whenever ``:widths:`` is
+  explicit, but never to the equivalent aligned table.
+* A ``system_message`` node's physical ``line`` attribute shifts when the
+  same ambiguous cell source moves under list-table syntax.
+
+Every other node class, attribute, text value, and child relationship must
+match.  A divergence leaves that table unchanged and is reported with the
+first differing tree path.
+
+--------------------------------------
+Nested tables: the two-pass workflow
+--------------------------------------
+
+A table nested inside an aligned-table cell initially exists only as content
+framed by the ancestor's physical borders, so it cannot be replaced
+independently.  Convert the aligned ancestor first.  Its inner ``.. table::``
+then becomes ordinary list-item source with an exact editable range; rerun
+``list-table`` to convert it safely on the second pass.
 
 ******************************************************
 Reading RST: verified structure instead of inference

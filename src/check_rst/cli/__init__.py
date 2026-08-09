@@ -5,8 +5,9 @@ Check .rst files against a project's reStructuredText formatting rules.
 
 A four-phase checker and fixer, one action per role a cold reader might
 need against a document tree: `check`/`diff` for the reviewer/auditor
-role, `fix` for the modifier role, `outline`/`context`/`refs` for the
-reader role navigating that tree without a linear read.  Phase 0 byte
+role, `fix`/`list-table` for the modifier role,
+`outline`/`context`/`refs` for the reader role navigating that tree
+without a linear read.  Phase 0 byte
 hygiene, Phase 1 RST adornment/hierarchy/directive rules, Phase 2
 Sphinx-aware structure (verified with --sphinx-src, heuristic without
 it), Phase 3 a real sphinx-build integrity check.  See :doc:`guide` for
@@ -21,7 +22,8 @@ git-style: the working directory is the project root by default;
 the Sphinx source tree for verified Phase 2/3.
 
 Exit codes: 0 no ERROR (a WARNING may remain unless --no-warnings);
-1 one or more ERRORs.
+1 one or more ERRORs. Preview verbs `diff` and `list-table` also return 1
+when their dry-run output shows that files would change.
 
 Common examples::
 
@@ -236,25 +238,24 @@ def _run_list_table(
                 ),
                 end="",
             )
-    if not quiet:
-        refusal_detail = ""
-        if refusal_categories:
-            categories = ", ".join(f"{name}: {count}" for name, count in sorted(refusal_categories.items()))
-            refusal_detail = f" ({categories})"
-        table_status = (
-            f", {converted_tables} table(s) converted, {refused_tables} table(s) refused{refusal_detail}, "
-            f"{error_tables} table error(s)"
+    refusal_detail = ""
+    if refusal_categories:
+        categories = ", ".join(f"{name}: {count}" for name, count in sorted(refusal_categories.items()))
+        refusal_detail = f" ({categories})"
+    table_status = (
+        f", {converted_tables} table(s) converted, {refused_tables} table(s) refused{refusal_detail}, "
+        f"{error_tables} table error(s)"
+    )
+    if apply:
+        _emit_final_status(
+            f"check_rst: {len(files)} file(s) checked, {fatal_files} error(s), "
+            f"{converted_files} file(s) converted{table_status}"
         )
-        if apply:
-            _emit_final_status(
-                f"check_rst: {len(files)} file(s) checked, {fatal_files} error(s), "
-                f"{converted_files} file(s) converted{table_status}"
-            )
-        else:
-            _emit_final_status(
-                f"check_rst: {len(files)} file(s) checked, {fatal_files} error(s), "
-                f"{would_change} file(s) would change{table_status}"
-            )
+    else:
+        _emit_final_status(
+            f"check_rst: {len(files)} file(s) checked, {fatal_files} error(s), "
+            f"{would_change} file(s) would change{table_status}"
+        )
     raise SystemExit(1 if fatal_files or (not apply and would_change) else 0)
 
 
@@ -463,7 +464,7 @@ def _build_list_table_parent() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="N",
-        help="convert only the Nth table (1-based, document order); repeatable, default every eligible table",
+        help="convert only the Nth table shown by outline (1-based); repeatable, default considers every table",
     )
     parent.add_argument(
         "--skip",
@@ -471,7 +472,7 @@ def _build_list_table_parent() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="N",
-        help="exclude the Nth table (1-based, document order) from conversion; repeatable",
+        help="exclude the Nth table shown by outline (1-based) from conversion; repeatable",
     )
     return parent
 
@@ -741,8 +742,10 @@ exists at all:
             "Modifier role: convert eligible grid/simple tables to `.. list-table::` syntax. "
             "Spans, :widths: auto, and an inner table still framed by an aligned ancestor "
             "are refused with their blocker, impact, and next action; every candidate and "
-            "combined write is gated by whole-file tree equality. Dry-run by default; "
-            "--apply writes — see :doc:`guide`."
+            "combined write is gated by whole-file tree equality. Runs in bare Docutils mode; "
+            "Sphinx mode is not used. N counts every table shown by outline. Dry-run returns 1 "
+            "when files would change; --apply writes and returns 1 only on errors — see "
+            ":doc:`guide`."
         ),
     )
     list_table_p.set_defaults(**_CLI_ATTR_DEFAULTS)

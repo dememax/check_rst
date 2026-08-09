@@ -1579,18 +1579,19 @@ exception for column-width representation. Confirmed by direct probe: it
 does not. Emitting ``:widths:`` on the generated ``list-table``, derived
 directly from the original table's own ``colspecs``, makes docutils compute
 the *exact same* ``colwidth`` per column — not merely a proportional
-equivalent. The only genuine, one-directional delta is a
-``'colwidths-given'`` class docutils adds to any ``<table>`` node whose
-``:widths:`` was given explicitly on ``list-table`` syntax specifically — a
-grid/simple table never carries it, having no "auto" alternative to
-distinguish itself from. With that one class excluded from the comparison,
-canonical-tree equality (the same modeling technique as
-``_text_space_evidence``'s permitted-delta model, reused verbatim, but with
-no permitted delta of its own here) is the complete predicate — parse both
-whole-file variants and compare.  The extended implementation applies that
-proof to each candidate first, so one unproven table does not discard
-independent conversions in the same default-scope run, then repeats the proof
-for the combined candidate before any write.
+equivalent. One genuine, one-directional delta is a ``'colwidths-given'``
+class Docutils adds to any ``<table>`` node whose ``:widths:`` was given
+explicitly on ``list-table`` syntax specifically — a grid/simple table never
+carries it, having no "auto" alternative to distinguish itself from.  The
+other normalized value is position bookkeeping: a ``system_message`` node's
+physical ``line`` attribute shifts when identical ambiguous cell source moves
+under list-table indentation.  With those two values excluded from the
+comparison, canonical-tree equality (the same modeling technique as
+``_text_space_evidence``'s permitted-delta model) is the complete predicate —
+parse both whole-file variants and compare.  The extended implementation
+applies that proof to each candidate first, so one unproven table does not
+discard independent conversions in the same default-scope run, then repeats
+the proof for the combined candidate before any write.
 
 -----------------------------------------------------
 A pre-existing bug, found building the real fixture
@@ -1625,16 +1626,17 @@ by line cost, multi-line final cell included — matching this project's own
 synthetic case.
 ``test_acceptance_real_world_table_converts_and_preserves_content``
 (``tests/test_list_table.py``) converts it, asserts every inline-literal
-span and the multi-line cell's own indentation survive verbatim, confirms
-canonical-tree equivalence, and runs the converted result back through
-``check_rst check`` itself for a clean exit. Further focused coverage (also
-in ``tests/test_list_table.py`` and the ``list-table``-specific tests in
+span and the multi-line cell's logical structure survive reindentation,
+confirms canonical-tree equivalence, and runs the converted result back
+through ``check_rst check`` itself for a clean exit. Further focused coverage
+(also in ``tests/test_list_table.py`` and the ``list-table``-specific tests in
 ``tests/test_cli_subcommands.py``/``tests/test_document_structure.py``): the
-``--only``/``--skip`` ordinal resolver and their combination rule, span
-rejection for both row and column merges, directive-option preservation,
-already-``list-table``/``csv-table`` rejection, dry-run non-mutation,
-multiple tables per file converting independently, and the CLI-level exit
-codes and ``--quiet``/``--sphinx-src`` behavior.
+``--only``/``--skip`` ordinal resolver and their combination rule, continued
+captions and directive-option preservation, span rejection for both row and
+column merges, exact existing-list/CSV outcomes and ordinals, a direct
+``:widths: auto`` canonical-model mismatch, per-table and combined semantic
+proof failures, partial safe writes, dry-run non-mutation, and the CLI-level
+exit/``--quiet``/bare-Docutils behavior.
 
 -------------------------------------------
 Safety boundary after source-model review

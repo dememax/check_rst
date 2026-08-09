@@ -631,6 +631,7 @@ def test_plan_unknown_ordinal_is_fatal_and_leaves_candidate_unchanged(
     p = _rst(tmp_path, "Title\n#####\n\n" + _GRID)
     result = _list_table._plan_list_table_file(p, only=[5], skip=[])
     assert result.fatal is not None
+    assert result.fatal.code == "list-table.unknown-ordinal"
     assert "5" in result.fatal.reason
     assert result.candidate == result.original
 
@@ -648,6 +649,37 @@ def test_plan_multiple_tables_all_convert_preserving_document_order(
     # the converted result must itself be valid, re-parseable RST with no
     # structural regression versus the original.
     assert _list_table._list_table_conversion_preserves_semantics(p, result.original, result.candidate)
+
+
+@pytest.mark.integration
+def test_plan_ordinals_include_existing_list_and_csv_tables(tmp_path: Path) -> None:
+    text = (
+        """\
+Title
+#####
+
+.. list-table:: Existing
+
+   * - A
+     - B
+
+.. csv-table:: CSV
+
+   "A","B"
+
+"""
+        + _GRID
+    )
+    p = _rst(tmp_path, text)
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == [3]
+    assert [(issue.ordinal, issue.code, issue.category) for issue in result.refusals] == [
+        (1, "list-table.already-list-table", "unchanged"),
+        (2, "list-table.csv-table", "unsupported"),
+    ]
 
 
 @pytest.mark.integration
@@ -887,6 +919,26 @@ def test_plan_refuses_widths_auto_with_specific_blocker(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+def test_widths_auto_list_table_has_a_different_canonical_model(tmp_path: Path) -> None:
+    body = "\n".join(f"   {line}" if line else "" for line in _GRID.splitlines())
+    original = "Title\n#####\n\n.. table::\n   :widths: auto\n\n" + body + "\n"
+    candidate = (
+        "Title\n#####\n\n"
+        ".. list-table::\n"
+        "   :header-rows: 1\n"
+        "   :widths: auto\n\n"
+        "   * - A\n"
+        "     - B\n"
+        "   * - 1\n"
+        "     - two\n"
+    )
+    p = _rst(tmp_path, original)
+
+    assert not _list_table._list_table_conversion_preserves_semantics(p, original, candidate)
+    assert "attributes changed" in _list_table._list_table_divergence_reason(p, original, candidate)
+
+
+@pytest.mark.integration
 def test_cli_refusal_explains_context_impact_and_action(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -909,6 +961,56 @@ def test_cli_refusal_explains_context_impact_and_action(
     assert "Action:" in out
     assert "1 table(s) refused" in out
     assert "no eligible tables to convert" not in out
+
+
+@pytest.mark.integration
+def test_cli_semantic_proof_failure_is_a_contextual_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = _rst(tmp_path, "Title\n#####\n\n" + _GRID)
+    monkeypatch.setattr(_list_table, "_list_table_conversion_preserves_semantics", lambda *_args: False)
+    monkeypatch.setattr(_list_table, "_list_table_divergence_reason", lambda *_args: "probe divergence")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", str(p)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert f"{p}:4: ERROR [list-table.semantic-proof]" in out
+    assert "probe divergence" in out
+    assert "1 table error(s)" in out
+    assert p.read_text(encoding="utf-8") == "Title\n#####\n\n" + _GRID
+
+
+@pytest.mark.integration
+def test_cli_combined_semantic_proof_failure_leaves_the_file_untouched(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    original = "Title\n#####\n\n" + _GRID + "\n" + _SIMPLE
+    p = _rst(tmp_path, original)
+    validation_results = iter((True, True, False))
+    monkeypatch.setattr(
+        _list_table,
+        "_list_table_conversion_preserves_semantics",
+        lambda *_args: next(validation_results),
+    )
+    monkeypatch.setattr(_list_table, "_list_table_divergence_reason", lambda *_args: "combined divergence")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", "--apply", str(p)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert p.read_text(encoding="utf-8") == original
+    out = capsys.readouterr().out
+    assert f"{p}:1: ERROR [list-table.semantic-proof]" in out
+    assert "combined divergence" in out
+    assert "0 file(s) converted" in out
 
 
 # ---------------------------------------------------------------------------
@@ -1043,6 +1145,59 @@ def test_cli_list_table_apply_writes_file_and_exits_0(
 
 
 @pytest.mark.integration
+def test_cli_apply_writes_proven_tables_despite_an_ordinary_refusal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    spanned = (
+        "+-----+-----+\n| A   | B   |\n+=====+=====+\n| 1   | 2   |\n+     +-----+\n|     | 4   |\n+-----+-----+\n"
+    )
+    p = _rst(tmp_path, "Title\n#####\n\n" + _GRID + "\n" + spanned)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", "--apply", str(p)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    written = p.read_text(encoding="utf-8")
+    assert written.count(".. list-table::") == 1
+    assert "+     +-----+" in written
+    out = capsys.readouterr().out
+    assert "REFUSED [list-table.span]" in out
+    assert "1 table(s) converted, 1 table(s) refused" in out
+
+
+@pytest.mark.integration
+def test_cli_apply_writes_other_proven_tables_but_exits_1_on_table_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = _rst(tmp_path, "Title\n#####\n\n" + _GRID + "\n" + _SIMPLE)
+    validation_results = iter((False, True, True))
+    monkeypatch.setattr(
+        _list_table,
+        "_list_table_conversion_preserves_semantics",
+        lambda *_args: next(validation_results),
+    )
+    monkeypatch.setattr(_list_table, "_list_table_divergence_reason", lambda *_args: "probe divergence")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", "--apply", str(p)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    written = p.read_text(encoding="utf-8")
+    assert written.count(".. list-table::") == 1
+    assert _GRID in written
+    out = capsys.readouterr().out
+    assert "ERROR [list-table.semantic-proof]" in out
+    assert "1 file(s) converted" in out
+    assert "1 table error(s)" in out
+
+
+@pytest.mark.integration
 def test_cli_list_table_no_eligible_tables_is_clean_exit_0(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1090,7 +1245,7 @@ def test_cli_list_table_skip_excludes_table_from_conversion(
 
 
 @pytest.mark.integration
-def test_cli_list_table_quiet_suppresses_status_and_skip_notice(
+def test_cli_list_table_quiet_keeps_only_the_final_summary_on_a_clean_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1101,7 +1256,32 @@ def test_cli_list_table_quiet_suppresses_status_and_skip_notice(
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 0
-    assert capsys.readouterr().out == ""
+    out = capsys.readouterr().out
+    assert out.startswith("check_rst: 1 file(s) checked")
+    assert "0 file(s) would change" in out
+    assert "no eligible tables to convert" not in out
+
+
+@pytest.mark.integration
+def test_cli_list_table_quiet_keeps_refusals_and_the_final_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    spanned = (
+        "+-----+-----+\n| A   | B   |\n+=====+=====+\n| 1   | 2   |\n+     +-----+\n|     | 4   |\n+-----+-----+\n"
+    )
+    p = _rst(tmp_path, "Title\n#####\n\n" + spanned)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", "--quiet", str(p)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "REFUSED [list-table.span]" in out
+    assert "1 table(s) refused" in out
+    assert "no eligible tables to convert" not in out
 
 
 @pytest.mark.integration
