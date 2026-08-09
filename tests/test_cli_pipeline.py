@@ -234,12 +234,8 @@ def test_cli_help_covers_examples_and_self_contained_modes(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Top-level help (the module docstring) is sufficient to discover the
-    self-contained report verbs and see one worked example of each, without
-    treating examples as exhaustive.  Reworded from the pre-2026-08 flat
-    reference (test_cli_verb_help_stays_concise_and_points_to_docs' own
-    docstring has the full context on why): the docstring itself now names
-    each verb's role explicitly instead of re-explaining it here."""
+    """Top-level help discovers every mode without leaking documentation
+    source syntax into a terminal or pretending a required verb is optional."""
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--help"])
 
     with pytest.raises(SystemExit) as exc:
@@ -247,20 +243,53 @@ def test_cli_help_covers_examples_and_self_contained_modes(
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    assert "Common examples::" in out
+    assert "Examples:" in out
     assert "check_rst refs doc.rst" in out
     assert "check_rst diff-json before.json after.json" in out
     assert "check_rst fix --fast" in out
     assert "check_rst list-table doc.rst" in out
-    assert "Preview verbs `diff` and `list-table` also return 1" in out
-    # notions/actions/roles/terms vocabulary, shared with docs/rules.rst —
-    # this is the concise page's own consistency contract, not a duplicate
-    # explanation of it.
+    compact = " ".join(out.split())
+    assert "Preview commands diff and list-table also return 1" in compact
     assert "reviewer/auditor" in out
     assert "modifier" in out
     assert "reader role" in out
-    assert ":doc:`guide`" in out
-    assert ":doc:`rules`" in out
+    assert "check .rst files against project formatting rules (default verb)" not in out
+    assert "2 command-line usage error" in out
+    assert "https://github.com/dememax/check_rst/blob/main/docs/guide.rst" in out
+    assert len(out.splitlines()) < 80
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--help"],
+        ["check", "--help"],
+        ["fix", "--help"],
+        ["diff", "--help"],
+        ["outline", "--help"],
+        ["diff-json", "--help"],
+        ["refs", "--help"],
+        ["context", "--help"],
+        ["list-table", "--help"],
+        ["hierarchy", "--help"],
+    ],
+)
+def test_cli_help_is_terminal_native_plain_text(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+) -> None:
+    monkeypatch.setattr("sys.argv", ["check_rst.py", *argv])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert ":doc:`" not in out
+    assert "``" not in out
+    assert "Common examples::" not in out
 
 
 @pytest.mark.integration
@@ -283,7 +312,7 @@ def test_cli_verb_help_stays_concise_and_points_to_docs(
     --help used to BE the complete reference, so this test once asserted
     long safety-explanation phrases stayed present verbatim.  Now --help
     is deliberately concise (docs/guide.rst's own note on the change) and
-    points back at :doc:`guide`/:doc:`rules` for the explanation instead
+    points back at the guide for the explanation instead
     of restating it — so this pins two different things: the safety-
     relevant FACT is still named, in one short clause, and the page stays
     genuinely concise (a fixed, generous line budget) rather than
@@ -315,9 +344,63 @@ def test_cli_list_table_help_states_runtime_and_exit_boundaries(
     compact = " ".join(out.split())
     assert "bare Docutils" in compact
     assert "ancestor-first" in compact
-    assert ":widths: auto preserves both automatic layout and parsed grid geometry" in compact
+    assert "merged cells remain unchanged" in compact
+    assert "parsed grid geometry" not in compact
     assert "Dry-run returns 1 when files would change" in compact
     assert "N counts every table shown by outline" in compact
+
+
+@pytest.mark.integration
+def test_cli_outline_help_distinguishes_git_and_structure_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "outline", "--help"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    compact = " ".join(capsys.readouterr().out.split())
+    assert "select files through Git" in compact
+    assert "whole-document structure" in compact
+    assert "findings use changed-line scope" in compact
+
+
+@pytest.mark.integration
+def test_cli_hierarchy_prints_the_live_runtime_order(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "hierarchy"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert out.startswith("Adornment hierarchy for this Docutils runtime:\n")
+    assert " 1. '#' (preferred)" in out
+    assert f"{len(_helpers.HIERARCHY):2d}. {_helpers.HIERARCHY[-1]!r}" in out
+
+
+@pytest.mark.integration
+def test_cli_explicit_non_rst_input_is_a_documented_no_op(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    markdown = tmp_path / "README.md"
+    markdown.write_text("# Markdown\n", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "check", str(markdown)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "no .rst files in the list — nothing to do" in out
+    assert "Phase 1" not in out
 
 
 @pytest.mark.integration

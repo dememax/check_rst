@@ -1,46 +1,6 @@
 # Copyright (C) 2026 Maxime P. DEMENTYEV
 # SPDX-License-Identifier: GPL-3.0-only
-"""
-Check .rst files against a project's reStructuredText formatting rules.
-
-A four-phase checker and fixer, one action per role a cold reader might
-need against a document tree: `check`/`diff` for the reviewer/auditor
-role, `fix`/`list-table` for the modifier role,
-`outline`/`context`/`refs` for the reader role navigating that tree
-without a linear read.  Phase 0 byte
-hygiene, Phase 1 RST adornment/hierarchy/directive rules, Phase 2
-Sphinx-aware structure (verified with --sphinx-src, heuristic without
-it), Phase 3 a real sphinx-build integrity check.  See :doc:`guide` for
-each phase's mechanics and :doc:`rules` for which WARNINGs stay a human
-judgment call — this page only names each flag, not why it exists.
-
---config/--no-config/--sphinx-src/--build-dir are global options, given
-before the verb (e.g. ``check_rst --sphinx-src docs check file.rst``),
-git-style: the working directory is the project root by default;
---config FILE selects another project from anywhere; --no-config skips
-.check_rst.toml/pyproject.toml discovery entirely; --sphinx-src DIR names
-the Sphinx source tree for verified Phase 2/3.
-
-Exit codes: 0 no ERROR (a WARNING may remain unless --no-warnings);
-1 one or more ERRORs. Preview verbs `diff` and `list-table` also return 1
-when their dry-run output shows that files would change.
-
-Common examples::
-
-    check_rst check                            # changed *.rst (git), diff-scoped
-    check_rst --sphinx-src . check              # Phase 2/3 verified
-    check_rst check --skip-fixable              # pre-fix pass: human-review findings only
-    check_rst fix --fast                        # fast mutation pass
-    check_rst diff doc.rst                      # preview fixes, no write
-    check_rst check --recursive docs/            # every *.rst under a directory
-    check_rst outline doc.rst                   # structure, no finding lines
-    check_rst context 'doc:Section' doc.rst     # one entry's pre-edit briefing
-    check_rst refs doc.rst                      # incoming/outgoing references
-    check_rst list-table doc.rst                # aligned table -> list-table, preview
-    check_rst diff-json before.json after.json  # compare two --format=json dumps
-
-Run ``check_rst COMMAND --help`` for that verb's own flags.
-"""
+"""Command-line implementation for check_rst."""
 
 from __future__ import annotations
 
@@ -54,7 +14,7 @@ import sys
 import tempfile
 from typing import TYPE_CHECKING, Any, NoReturn
 
-from check_rst import __version__
+from check_rst import DOCUMENTATION_URL, __version__
 
 from . import _formatting, _helpers, _output
 from ._config import LoadedConfig, _load_config
@@ -92,6 +52,43 @@ from ._sphinx import (
 
 if TYPE_CHECKING:
     from ._types import FixPlan, FixResult, ListTableIssue
+
+
+_TOP_LEVEL_HELP = f"""\
+Check .rst files against reStructuredText and Sphinx project rules.
+
+A required command selects one action: check and diff serve the
+reviewer/auditor role; fix and list-table serve the modifier role;
+outline, context, and refs serve the reader role. Phase 0 checks byte
+hygiene, Phase 1 checks RST formatting and directives, Phase 2 resolves
+Sphinx-aware structure, and Phase 3 runs a real Sphinx build.
+
+Global options must precede the command. The working directory is the
+project root unless --config selects another project; --no-config skips
+configuration discovery; --sphinx-src enables verified Phase 2 and 3.
+
+Exit status: 0 no ERROR; 1 one or more ERRORs. Preview commands diff and
+list-table also return 1 when files would change. 2 command-line usage error.
+
+Examples:
+    check_rst check
+    check_rst --sphinx-src . check
+    check_rst check --skip-fixable
+    check_rst fix --fast
+    check_rst diff doc.rst
+    check_rst check --recursive docs/
+    check_rst outline doc.rst
+    check_rst context 'doc:Section' doc.rst
+    check_rst refs doc.rst
+    check_rst list-table doc.rst
+    check_rst diff-json before.json after.json
+
+Documentation: {DOCUMENTATION_URL}
+Run check_rst COMMAND --help for command options.
+"""
+
+
+_DOCUMENTATION_EPILOG = f"Documentation: {DOCUMENTATION_URL}"
 
 
 def _run_fix_only(
@@ -259,6 +256,15 @@ def _run_list_table(
     raise SystemExit(1 if fatal_files or (not apply and would_change) else 0)
 
 
+def _run_hierarchy() -> NoReturn:
+    """Print the complete live adornment order for this Docutils runtime."""
+    print("Adornment hierarchy for this Docutils runtime:")
+    for index, character in enumerate(HIERARCHY, 1):
+        preferred = " (preferred)" if character in PREFERRED_HIERARCHY else ""
+        print(f"{index:2d}. {character!r}{preferred}")
+    raise SystemExit(0)
+
+
 _CLI_ATTR_DEFAULTS: dict[str, object] = {
     "collapse_title_spaces": False,
     "context": None,
@@ -303,7 +309,7 @@ def _add_project_flags(parser: argparse.ArgumentParser) -> None:
         type=pathlib.Path,
         default=None,
         metavar="FILE",
-        help="load settings from FILE instead of discovering .check_rst.toml/pyproject.toml in cwd; see :doc:`guide`",
+        help="load settings from FILE instead of discovering .check_rst.toml/pyproject.toml in the working directory",
     )
     parser.add_argument(
         "--no-config",
@@ -317,7 +323,7 @@ def _add_project_flags(parser: argparse.ArgumentParser) -> None:
         metavar="DIR",
         help=(
             "Sphinx source tree; enables verified Phase 2/3 against it, never auto-detected. "
-            "Omit for a heuristic Phase 2 fallback and no Phase 3; see :doc:`guide`"
+            "omit for heuristic Phase 2 and no Phase 3"
         ),
     )
     parser.add_argument(
@@ -334,11 +340,11 @@ def _add_no_toctree_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--no-toctree",
         action="store_true",
-        help="don't recurse .. toctree:: directives (verified mode only); default recurses fully — see :doc:`guide`",
+        help="don't recurse .. toctree:: directives in verified mode; default recurses fully",
     )
 
 
-def _add_scope_flags(parser: argparse.ArgumentParser) -> None:
+def _add_scope_flags(parser: argparse.ArgumentParser, *, outline: bool = False) -> None:
     """--recursive/--git-scope/--exclude — shared by check/fix/diff/outline."""
     parser.add_argument(
         "--recursive",
@@ -348,7 +354,11 @@ def _add_scope_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--git-scope",
         action="store_true",
-        help="treat positional files as an allowlist against Git's changed/untracked set, kept diff-scoped; see :doc:`guide`",
+        help=(
+            "select files through Git; show whole-document structure; findings use changed-line scope"
+            if outline
+            else "treat positional files as a Git allowlist; findings use changed-line scope"
+        ),
     )
     parser.add_argument(
         "--exclude",
@@ -364,12 +374,12 @@ def _add_quiet_verbose_words(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--verbose",
         action="store_true",
-        help="extra detail on bold/rubric WARNINGs, plus footer/outline stats; see :doc:`guide` (Verbosity levels)",
+        help="extra detail on bold/rubric WARNINGs, plus footer and outline statistics",
     )
     parser.add_argument(
         "--quiet",
         action="store_true",
-        help="suppress progress output; findings and the final summary line still print — see :doc:`guide`",
+        help="suppress progress output; findings and the final summary line still print",
     )
     parser.add_argument(
         "--word-samples",
@@ -390,7 +400,7 @@ def _add_max_output_lines(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=None,
         metavar="N",
-        help="cap the report at N lines (>= 2), exit status unaffected; final status always shown — see :doc:`guide`",
+        help="cap the report at N lines (>= 2); exit status is unaffected and final status is always shown",
     )
 
 
@@ -405,7 +415,7 @@ def _add_report_filters(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--skip-fixable",
         action="store_true",
-        help="suppress ERROR-level findings fix would resolve automatically; WARNINGs stay visible — see :doc:`guide`",
+        help="suppress ERROR-level findings fix would resolve automatically; WARNINGs stay visible",
     )
     parser.add_argument(
         "--no-adornments",
@@ -419,7 +429,7 @@ def _add_report_filters(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _build_full_parent() -> argparse.ArgumentParser:
+def _build_full_parent(*, outline: bool = False) -> argparse.ArgumentParser:
     """Shared parent for the four verbs built on the roadmap's 'full' shape:
     check, fix, diff, outline."""
     parent = argparse.ArgumentParser(add_help=False)
@@ -427,9 +437,9 @@ def _build_full_parent() -> argparse.ArgumentParser:
         "files",
         nargs="*",
         type=pathlib.Path,
-        help="files to check, checked in full; omit to auto-detect changed/untracked *.rst — see :doc:`guide`",
+        help="RST files to process in full; omit to auto-detect changed/untracked *.rst files",
     )
-    _add_scope_flags(parent)
+    _add_scope_flags(parent, outline=outline)
     _add_quiet_verbose_words(parent)
     _add_report_filters(parent)
     return parent
@@ -456,7 +466,7 @@ def _build_list_table_parent() -> argparse.ArgumentParser:
     parent.add_argument(
         "--apply",
         action="store_true",
-        help="write the converted file(s); default previews a diff — see :doc:`guide`",
+        help="write converted files; default previews a diff",
     )
     parent.add_argument(
         "--only",
@@ -485,7 +495,7 @@ def _build_mutating_parent() -> argparse.ArgumentParser:
     parent.add_argument(
         "--fast",
         action="store_true",
-        help="parser-free: Phase 0 hygiene + Phase 1 adornment/hierarchy only, no lint/stats/Sphinx — see :doc:`guide`",
+        help="parser-free Phase 0 hygiene and Phase 1 adornment/hierarchy only; no lint, statistics, or Sphinx",
     )
     parent.add_argument(
         "--normalize-blank-lines",
@@ -600,23 +610,9 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     Every subparser is backfilled with _CLI_ATTR_DEFAULTS so the untouched
     _main() pipeline body can read any args.<name> regardless of verb.
     """
-    hierarchy_lines = "\n".join(
-        f"    {i:2d}. {c!r}" + ("  (preferred)" if c in PREFERRED_HIERARCHY else "") for i, c in enumerate(HIERARCHY, 1)
-    )
-    hierarchy_help = f"""
-Adornment character hierarchy, by rank — check_hierarchy's ERROR-level
-checks and fix's remap both use this order (a character past rank 6
-gets a WARNING, never an ERROR).  Ranks 1-6 are this tool's convention;
-7-32 are every other docutils-valid adornment character, in docutils'
-own order.  Live, not documented statically, because it depends on the
-installed docutils version; see :doc:`guide` for why the ranking
-exists at all:
-
-{hierarchy_lines}
-"""
     parser = argparse.ArgumentParser(
         prog="check_rst",
-        description=(__doc__ or "") + hierarchy_help,
+        description=_TOP_LEVEL_HELP,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -624,13 +620,15 @@ exists at all:
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     full = _build_full_parent()
+    outline_full = _build_full_parent(outline=True)
     mutating = _build_mutating_parent()
 
     check_p = sub.add_parser(
         "check",
         parents=[full],
-        help="check .rst files against project formatting rules (default verb)",
+        help="check .rst files against project formatting rules",
         description="Reviewer/auditor role: Phase 0 hygiene, Phase 1 lint, Phase 2 Sphinx structure, Phase 3 build.",
+        epilog=_DOCUMENTATION_EPILOG,
     )
     check_p.add_argument(
         "--format",
@@ -649,8 +647,9 @@ exists at all:
         description=(
             "Modifier role: byte hygiene and adornment/hierarchy geometry, in-place. "
             "Rejects the whole selection before writing on any unresolved Git merge entry. "
-            "--fast skips lint/statistics/Sphinx — see :doc:`guide`."
+            "--fast skips lint, statistics, and Sphinx."
         ),
+        epilog=_DOCUMENTATION_EPILOG,
     )
     _add_max_output_lines(fix_p)
     fix_p.set_defaults(**_CLI_ATTR_DEFAULTS)
@@ -661,19 +660,21 @@ exists at all:
         parents=[full, mutating],
         help="print unified diff of what fix would change",
         description="Reviewer/auditor role, read-only: preview what fix would change. --fast stops after Phase 1.",
+        epilog=_DOCUMENTATION_EPILOG,
     )
     diff_p.set_defaults(**_CLI_ATTR_DEFAULTS)
     diff_p.set_defaults(diff=True)
 
     outline_p = sub.add_parser(
         "outline",
-        parents=[full],
+        parents=[outline_full],
         help="print each file's section structure (structure-only by default)",
         description=(
             "Reader role: this file's section tree, navigable without a linear read. "
             "Structure-only by default; --with-findings layers bold/rubric WARNINGs on top. "
-            "Always whole-document, never diff-scoped, never affects the exit code — see :doc:`guide`."
+            "Structure is always whole-document and never affects the exit code."
         ),
+        epilog=_DOCUMENTATION_EPILOG,
     )
     outline_p.add_argument(
         "--with-findings",
@@ -704,6 +705,7 @@ exists at all:
             "Semantic diff between two check --format=json dumps, matched by (severity, text), "
             "never by line number. Self-contained: no RST read, no other flags apply."
         ),
+        epilog=_DOCUMENTATION_EPILOG,
     )
     diff_json_p.add_argument("old", metavar="OLD.json")
     diff_json_p.add_argument("new", metavar="NEW.json")
@@ -716,6 +718,7 @@ exists at all:
             "Reader role: this file's outgoing targets and every other file's incoming reference "
             "to it, from the live Sphinx environment, never objects.inv. Requires --sphinx-src."
         ),
+        epilog=_DOCUMENTATION_EPILOG,
     )
     refs_p.add_argument("file", type=pathlib.Path, metavar="FILE")
     refs_p.set_defaults(**_CLI_ATTR_DEFAULTS)
@@ -725,9 +728,9 @@ exists at all:
         help="targeted pre-edit briefing for one entry",
         description=(
             "Reader role: a pre-edit briefing for one exact entry — a stable id, a generated "
-            "selector, or an exact title/term/preview. Never guesses among multiple exact matches "
-            "— see :doc:`guide` (Entry selectors)."
+            "selector, or an exact title/term/preview. Never guesses among multiple exact matches."
         ),
+        epilog=_DOCUMENTATION_EPILOG,
     )
     context_p.add_argument("entry", metavar="ENTRY")
     context_p.add_argument("file", type=pathlib.Path, metavar="FILE")
@@ -739,18 +742,23 @@ exists at all:
         parents=[_build_list_table_parent()],
         help="convert eligible grid/simple tables to list-table syntax",
         description=(
-            "Modifier role: convert eligible grid/simple tables to `.. list-table::` syntax. "
-            "Default bulk conversion resolves nested aligned tables ancestor-first; "
-            ":widths: auto preserves both automatic layout and parsed grid geometry. "
-            "Spans and an inner table selected without its aligned ancestor are refused "
-            "with their blocker, impact, and next action. Every candidate and combined "
-            "write is gated by whole-file tree equality. Runs in bare Docutils mode; "
-            "Sphinx mode is not used. N counts every table shown by outline. Dry-run "
-            "returns 1 when files would change; --apply writes and returns 1 only on "
-            "errors — see :doc:`guide`."
+            "Modifier role: convert eligible grid/simple tables to .. list-table:: syntax. "
+            "Default bulk conversion resolves nested tables ancestor-first; merged cells remain "
+            "unchanged. Every candidate and combined write is gated by whole-file tree equality. "
+            "Runs in bare Docutils mode; Sphinx mode is not used. N counts every table shown by "
+            "outline. Dry-run returns 1 when files would change; --apply returns 1 only on errors."
         ),
+        epilog=_DOCUMENTATION_EPILOG,
     )
     list_table_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+
+    hierarchy_p = sub.add_parser(
+        "hierarchy",
+        help="print the live adornment-character hierarchy",
+        description="Print the complete adornment ranking used by checks and fixes for this Docutils runtime.",
+        epilog=_DOCUMENTATION_EPILOG,
+    )
+    hierarchy_p.set_defaults(**_CLI_ATTR_DEFAULTS)
 
     return parser
 
@@ -830,6 +838,22 @@ def _validate_diff_json_args(args: argparse.Namespace) -> None:
     ]
     if active:
         _cli_fail(f"diff-json is self-contained — incompatible argument(s): {', '.join(active)}")
+
+
+def _validate_hierarchy_args(args: argparse.Namespace) -> None:
+    """hierarchy reports runtime constants and never selects a project."""
+    active = [
+        flag
+        for flag, value in (
+            ("--config", args.config),
+            ("--no-config", args.no_config),
+            ("--sphinx-src", args.sphinx_src),
+            ("--build-dir", args.build_dir),
+        )
+        if value is not None and value is not False
+    ]
+    if active:
+        _cli_fail(f"hierarchy is self-contained — incompatible argument(s): {', '.join(active)}")
 
 
 def _validate_list_table_args(args: argparse.Namespace) -> None:
@@ -1118,11 +1142,15 @@ def _main() -> None:
         _validate_context_args(args)
     elif args.command == "diff-json":
         _validate_diff_json_args(args)
+    elif args.command == "hierarchy":
+        _validate_hierarchy_args(args)
     elif args.command == "list-table":
         _validate_list_table_args(args)
 
     if args.diff_json is not None:
         _run_diff_json(args)
+    if args.command == "hierarchy":
+        _run_hierarchy()
 
     if args.word_samples is not None and args.word_samples < 0:
         print("check_rst: --word-samples must be >= 0")

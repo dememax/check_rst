@@ -3,3 +3,4 @@
 """Public package metadata for check_rst."""
 
 __version__ = "0.2.0"
+DOCUMENTATION_URL = "https://github.com/dememax/check_rst/blob/main/docs/guide.rst"

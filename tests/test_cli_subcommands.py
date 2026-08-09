@@ -87,6 +87,14 @@ def test_diff_json_verb_populates_full_attribute_contract() -> None:
 
 
 @pytest.mark.unit
+def test_hierarchy_verb_is_self_contained() -> None:
+    args = _parse(["hierarchy"])
+    assert args.command == "hierarchy"
+    assert vars(args).keys() >= _FULL_ATTR_CONTRACT
+    assert args.files == []
+
+
+@pytest.mark.unit
 def test_diff_json_verb_requires_exactly_two_positionals() -> None:
     parser = cli._build_cli_parser()
     with pytest.raises(SystemExit) as exc:
