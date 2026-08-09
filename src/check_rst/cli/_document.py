@@ -549,6 +549,28 @@ _SIMPLE_TABLE_RULE_RE = re.compile(r"^[ \t]*=+(?:[ \t]+=+)+[ \t]*$")
 _TABLE_OPTION_RE = re.compile(r"^[ \t]+:([\w-]+):")
 
 
+def _simple_table_end(lines: list[str], start: int) -> int | None:
+    """Docutils' exact end-exclusive simple-table stopping predicate.
+
+    ``start`` is the zero-based top rule.  ``None`` means no complete
+    bottom was found; a mismatched rule is malformed rather than an end.
+    Keeping this in the source-attribution module gives outline ranges and
+    list-table replacement ranges one definition of the grammar boundary.
+    """
+    top_length = len(lines[start].strip())
+    found = 0
+    for cursor in range(start + 1, len(lines)):
+        line = lines[cursor]
+        if not _SIMPLE_TABLE_RULE_RE.match(line):
+            continue
+        if len(line.strip()) != top_length:
+            raise ValueError("simple-table bottom/header rule does not match its top rule")
+        found += 1
+        if found == 2 or cursor + 1 == len(lines) or not lines[cursor + 1].strip():
+            return cursor + 1
+    return None
+
+
 def _table_kind_and_start(lines: list[str], anchor: int) -> tuple[str, int]:
     """Best-effort kind + true start line (both 1-based) for the table
     whose earliest located AST line is *anchor* — either its <title>
@@ -580,6 +602,20 @@ def _table_kind_and_start(lines: list[str], anchor: int) -> tuple[str, int]:
     m = _TABLE_DIRECTIVE_RE.match(anchor_line.strip())
     if m:
         return _TABLE_DIRECTIVE_KIND[m.group(1)], anchor
+    # A directive can begin in the first content line of a list item —
+    # notably inside a list-table cell (``* - .. table::``).  The table
+    # title's line then points at the list marker, so a start-anchored
+    # directive match misses the real nested directive and the upward
+    # fallback incorrectly attributes it to the enclosing list-table.
+    # Only accept a directive after a list marker here; ``| .. table::``
+    # inside an aligned-table cell is virtual parsed content and is not
+    # independently editable in the physical source.
+    list_item_directive = re.match(
+        r"^[ \t]*(?:(?:[*+-]|\d+[.)])[ \t]+)+(\.\.\s+(table|list-table|csv-table)::)",
+        anchor_line,
+    )
+    if list_item_directive:
+        return _TABLE_DIRECTIVE_KIND[list_item_directive.group(2)], anchor
 
     # Where to start looking for the run of border/rule lines: the anchor
     # itself if it's ALREADY one (docutils 0.23/gl63 — table.line is the
@@ -612,11 +648,17 @@ def _table_kind_and_start(lines: list[str], anchor: int) -> tuple[str, int]:
     return "table", anchor
 
 
-def _table_end(lines: list[str], last_content_line: int) -> int:
+def _table_end(lines: list[str], last_content_line: int, start_line: int | None = None) -> int:
     """Extend *last_content_line* (1-based) through any trailing grid
     border / simple-table rule that belongs to it — the bottom border a
     grid or simple table always ends on, which carries no line info of
     its own in the doctree (only cell paragraphs do).
+
+    When *start_line* identifies a simple-table top rule or a table
+    directive containing one, recover its end with Docutils' own
+    matching-rule predicate first.  Unlike grid rows, a simple table's
+    multi-line continuation has no leading marker, so AST content lines
+    plus a local continuation scan cannot locate it.
 
     First extends through a grid table's own bare ``|``-led continuation
     lines, when the table's last row spans multiple physical source
@@ -636,6 +678,27 @@ def _table_end(lines: list[str], last_content_line: int) -> int:
     '|'-led construct immediately after the closing border into the
     table's own reported end, on top of legitimately malformed input
     where RST's own required blank line after a table is missing."""
+    if start_line is not None:
+        start_index = start_line - 1
+        simple_start: int | None = None
+        if 0 <= start_index < len(lines) and _SIMPLE_TABLE_RULE_RE.match(lines[start_index]):
+            simple_start = start_index
+        elif 0 <= start_index < len(lines) and _TABLE_DIRECTIVE_RE.match(lines[start_index].strip()):
+            directive_indent = len(lines[start_index]) - len(lines[start_index].lstrip())
+            for cursor in range(start_index + 1, len(lines)):
+                line = lines[cursor]
+                if not line.strip():
+                    continue
+                if len(line) - len(line.lstrip()) <= directive_indent:
+                    break
+                if _SIMPLE_TABLE_RULE_RE.match(line):
+                    simple_start = cursor
+                    break
+        if simple_start is not None:
+            simple_end = _simple_table_end(lines, simple_start)
+            if simple_end is not None:
+                return simple_end
+
     end = last_content_line
     i = last_content_line  # 0-based index of the line right after
     while i < len(lines) and lines[i].lstrip().startswith("|"):
@@ -692,7 +755,7 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
 
         content_lines = [n.line for n in table.findall() if isinstance(n.line, int)]
         last_content_line = max(content_lines) if content_lines else start
-        end = _table_end(lines, last_content_line)
+        end = _table_end(lines, last_content_line, start)
 
         entries.append(TableEntry(start, depth, kind, (rows, cols), caption, preview, end))
     return entries

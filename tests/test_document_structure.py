@@ -1889,6 +1889,48 @@ def test_tables_end_extends_through_multiline_final_row(tmp_path: Path) -> None:
     assert (entries[0].lineno, entries[0].end) == (4, 11)
 
 
+@pytest.mark.integration
+def test_simple_table_end_extends_through_multiline_final_row(tmp_path: Path) -> None:
+    """Simple-table continuation lines do not start with ``|``.  Their
+    exact end therefore comes from the same matching-rule predicate
+    Docutils uses to isolate a simple table, not from AST line metadata."""
+    p = _rst(
+        tmp_path,
+        "Title\n#####\n\n"
+        "=====  ==========\n"
+        "A      B\n"
+        "=====  ==========\n"
+        "1      first line\n"
+        "       second line\n"
+        "=====  ==========\n",
+    )
+
+    entries = _document.find_tables(p)
+
+    assert len(entries) == 1
+    assert (entries[0].lineno, entries[0].end) == (4, 9)
+
+
+@pytest.mark.integration
+def test_directive_simple_table_end_extends_through_multiline_final_row(tmp_path: Path) -> None:
+    p = _rst(
+        tmp_path,
+        "Title\n#####\n\n"
+        ".. table:: Caption\n\n"
+        "   =====  ==========\n"
+        "   A      B\n"
+        "   =====  ==========\n"
+        "   1      first line\n"
+        "          second line\n"
+        "   =====  ==========\n",
+    )
+
+    entries = _document.find_tables(p)
+
+    assert len(entries) == 1
+    assert (entries[0].lineno, entries[0].end) == (4, 11)
+
+
 @pytest.mark.unit
 def test_table_end_stops_at_closing_border_not_past_it() -> None:
     """Found by code review of the fix above: extending through bare

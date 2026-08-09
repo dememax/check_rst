@@ -721,29 +721,44 @@ Both repeat and combine: given together, ``--only`` narrows to its own
 ordinals first, then ``--skip`` removes any of its ordinals from that
 narrowed set — not the reverse, and not independent passes.
 
-Bare grid/simple tables and ``.. table::``-wrapped ones with an optional
-caption convert; a merged row or column is a hard, explanatory refusal —
-list-table syntax cannot express a span, so one is never flattened,
-duplicated, or guessed at.  ``:name:``/``:class:``/``:align:`` are not yet
-supported and are refused the same way, not silently dropped.  Every
-cell's own source — inline markup, references, nested blocks — is reused
-verbatim; only the container syntax and indentation change.
+Bare grid/simple tables and ``.. table::``-wrapped ones convert, including
+captions and the ``:name:``, ``:class:``, ``:align:``, ``:width:``, and
+explicit ``:widths:`` options.  ``:widths: grid`` becomes the effective
+numeric geometry Docutils derived from the aligned source.  Every cell's own
+source — inline markup, references, nested blocks — is reused verbatim; only
+the selected container syntax and its indentation change.  Source outside
+that exact block, including its CRLF/LF convention, remains byte-for-byte
+untouched.
+
+Three boundaries are refusals because conversion cannot currently prove an
+equivalent, independently editable result:
+
+* a merged row or column has no representation in list-table syntax;
+* ``:widths: auto`` gives a list-table a different Docutils column-width
+  model; and
+* a table nested inside an aligned-table cell has no independent physical
+  source range — its apparent lines are content framed by the ancestor's
+  borders.  Convert the ancestor first, then rerun: the inner directive is
+  ordinary list-item source on the second pass and can convert safely.
+
+The refusal is intentionally contextual rather than a terse skip: it names
+the source line and stable ``list-table.*`` reason code, identifies the table
+by ordinal, kind, dimensions, and caption, then states the impact and an
+action.  A run that refused a table reports its refusal count and categories;
+it does not also claim that there were merely "no eligible tables".
 
 The guarantee mirrors "Why you can trust fix" above: a whole-file
-canonical-tree comparison (not ``astext()``, not a visual diff) gates every
-write, converted content included.  Confirmed by direct probe rather than
-assumed: deriving the generated ``:widths:`` from the original table's own
-column geometry makes the resulting doctree match the original's exactly —
-same node classes, same attributes, same column widths — with one
-deliberate, one-directional exception (a ``'colwidths-given'`` class
-docutils itself adds whenever ``:widths:`` is explicit on list-table syntax,
-never on a grid/simple table regardless of its own widths).  A candidate
-that fails this comparison, in any one table, is rejected outright — the
-file is left untouched, the same all-or-nothing rule as every other fixer
-here; a refusal among the default "every eligible table" scope is reported
-but does not block the file's other conversions, while an ``--only``-named
-table that turns out refused is fatal for that file, since it was asked
-for specifically.
+canonical-tree comparison (not ``astext()``, not a visual diff) gates each
+table candidate, and a final comparison gates the combined write.  Confirmed
+by direct probe rather than assumed: deriving generated ``:widths:`` from the
+original table's own column geometry makes the resulting doctree match the
+original's exactly — same node classes, attributes, and column widths — with
+one deliberate, one-directional exception (a ``'colwidths-given'`` class
+Docutils itself adds whenever ``:widths:`` is explicit on list-table syntax,
+never on a grid/simple table regardless of its own widths).  One candidate
+that fails its proof remains unchanged without blocking independently proven
+tables in the default scope.  An ``--only``-named refusal is fatal for that
+file, since that exact conversion was requested.
 
 ******************************************************
 Reading RST: verified structure instead of inference

@@ -1550,11 +1550,15 @@ hard-error-either-way rule. ``--sphinx-src``/``--build-dir`` are rejected
 Mechanical conversion, confirmed by probe
 -------------------------------------------
 
-Scope for the first version, decided deliberately rather than discovered
-late: bare tables and ``.. table::``-wrapped tables with an optional caption
-only. ``:name:``/``:class:``/``:align:`` (or any other ``.. table::`` option)
-is an explicit, reported refusal — "not yet supported" — never a silent
-mishandling; extending to them is a later, independent increment.
+The first version deliberately accepted only bare tables and
+``.. table::``-wrapped tables with an optional caption.  The source-model
+evaluation on 2026-08-09 proved and implemented the next increment:
+``:name:``, ``:class:``, ``:align:``, ``:width:``, explicit numeric
+``:widths:``, and ``:widths: grid`` all preserve the canonical tree when
+carried to list-table syntax (``grid`` materializes the effective numeric
+geometry).  ``:widths: auto`` does not: direct Docutils and HTML/LaTeX probes
+showed a different column-width model, so it remains a specific incompatible
+refusal rather than being normalized away.
 
 Docutils' own ``GridTableParser``/``SimpleTableParser`` are used directly
 rather than reimplementing the alignment grammar — confirmed by direct probe
@@ -1583,8 +1587,10 @@ distinguish itself from. With that one class excluded from the comparison,
 canonical-tree equality (the same modeling technique as
 ``_text_space_evidence``'s permitted-delta model, reused verbatim, but with
 no permitted delta of its own here) is the complete predicate — parse both
-whole-file variants, compare, reject the entire file's conversion outright on
-any mismatch, the same all-or-nothing rule ``fix`` already uses.
+whole-file variants and compare.  The extended implementation applies that
+proof to each candidate first, so one unproven table does not discard
+independent conversions in the same default-scope run, then repeats the proof
+for the combined candidate before any write.
 
 -----------------------------------------------------
 A pre-existing bug, found building the real fixture
@@ -1598,13 +1604,15 @@ already located the table's true last content line. For a table whose
 *last row* spans multiple physical source lines, that assumption breaks —
 docutils only reports the multi-line cell's first physical line, so the old
 approach stopped there, one or more lines short of the real trailing border.
-This silently truncated the reported range for **any** table with a
+This silently truncated the reported range for **any** grid table with a
 multi-line final row, in ``--outline``/``--context`` too, not only for this
 feature's own use of it. Fixed by also extending through a grid table's own
 bare ``|``-led continuation lines before looking for the border (no other
-RST construct produces one immediately following confirmed table content);
-pinned by ``test_tables_end_extends_through_multiline_final_row`` in
-``tests/test_check_rst.py``, independent of the ``list-table`` test suite.
+RST construct produces one immediately following confirmed table content).
+The 2026-08-09 evaluation found the corresponding simple-table case: its
+continuations have no marker, so the end is now recovered with Docutils'
+matching-rule stopping predicate.  Independent regressions in
+``tests/test_document_structure.py`` pin both syntaxes.
 
 --------------------------------------------------
 Acceptance evidence: a real table, not synthetic
@@ -1621,12 +1629,39 @@ span and the multi-line cell's own indentation survive verbatim, confirms
 canonical-tree equivalence, and runs the converted result back through
 ``check_rst check`` itself for a clean exit. Further focused coverage (also
 in ``tests/test_list_table.py`` and the ``list-table``-specific tests in
-``tests/test_cli_subcommands.py``/``tests/test_check_rst.py``): the
+``tests/test_cli_subcommands.py``/``tests/test_document_structure.py``): the
 ``--only``/``--skip`` ordinal resolver and their combination rule, span
-rejection for both row and column merges, unsupported-option refusal,
+rejection for both row and column merges, directive-option preservation,
 already-``list-table``/``csv-table`` rejection, dry-run non-mutation,
 multiple tables per file converting independently, and the CLI-level exit
 codes and ``--quiet``/``--sphinx-src`` behavior.
+
+-------------------------------------------
+Safety boundary after source-model review
+-------------------------------------------
+
+The 2026-08-09 review distinguished missing source capture from genuine
+representation blockers.  Exact block capture now preserves CRLF/LF outside
+the mutation, handles multiple blank lines before directive content, retains
+enclosing-list indentation, and uses Docutils' own simple-table termination
+predicate for multi-line final rows.  Directive options and rich cell content
+were feasible; tests prove them rather than continuing to refuse them.
+
+Three cases remain intentionally blocked, each with a stable reason code,
+table context, impact, and next action in default CLI output:
+
+* ``list-table.span``: list-table syntax cannot encode a merged row or column.
+* ``list-table.widths-auto``: the converted Docutils column-width model is not
+  equivalent.
+* ``list-table.nested-aligned-table``: an inner table framed by an outer
+  aligned table has no independently replaceable physical source block.
+  This last blocker is staged rather than permanent: convert the ancestor,
+  then rerun to convert the inner ``.. table::`` now exposed as ordinary
+  list-item source.
+
+Parser/range invariants and canonical-tree divergence are reported separately
+as ``source-model`` and ``semantic-proof`` errors/refusals.  They never escape
+as a traceback and never authorize a guessed rewrite.
 
 ***************************************************
 Declined, with reasons — counter-evidence welcome

@@ -43,6 +43,7 @@ Run ``check_rst COMMAND --help`` for that verb's own flags.
 from __future__ import annotations
 
 import argparse
+import collections
 import contextlib
 import difflib
 import pathlib
@@ -88,7 +89,7 @@ from ._sphinx import (
 )
 
 if TYPE_CHECKING:
-    from ._types import FixPlan, FixResult
+    from ._types import FixPlan, FixResult, ListTableIssue
 
 
 def _run_fix_only(
@@ -175,19 +176,48 @@ def _run_list_table(
     would_change = 0
     fatal_files = 0
     converted_files = 0
+    converted_tables = 0
+    refused_tables = 0
+    error_tables = 0
+    refusal_categories: collections.Counter[str] = collections.Counter()
+
+    def print_issue(path: pathlib.Path, issue: ListTableIssue, *, fatal: bool) -> None:
+        is_error = fatal or issue.category in {"source-model", "semantic-proof"}
+        label = "ERROR" if is_error else "UNCHANGED" if issue.category == "unchanged" else "REFUSED"
+        line = issue.entry.lineno if issue.entry is not None else 1
+        print(f"check_rst: {path}:{line}: {label} [{issue.code}]")
+        if issue.entry is not None and issue.ordinal is not None:
+            rows, cols = issue.entry.dims
+            caption = f', "{issue.entry.caption}"' if issue.entry.caption else ""
+            print(f"  table {issue.ordinal} ({issue.entry.kind}, {rows}x{cols}{caption}): {issue.reason}")
+        else:
+            print(f"  {issue.reason}")
+        print(f"  Impact: {issue.impact}")
+        print(f"  Action: {issue.action}")
+
     for path in files:
         result = _plan_list_table_file(path, only, skip)
         if result.fatal is not None:
-            print(f"check_rst: {path}: {result.fatal}")
+            print_issue(path, result.fatal, fatal=True)
             fatal_files += 1
             continue
-        for ordinal, reason in result.refusals:
-            print(f"check_rst: {path}: table {ordinal}: {reason}")
+        file_has_error = False
+        for issue in result.refusals:
+            print_issue(path, issue, fatal=False)
+            if issue.category in {"source-model", "semantic-proof"}:
+                error_tables += 1
+                file_has_error = True
+            elif issue.category != "unchanged":
+                refused_tables += 1
+                refusal_categories[issue.category] += 1
+        if file_has_error:
+            fatal_files += 1
         if not result.changed:
-            if not quiet:
+            if not quiet and not result.refusals:
                 print(f"check_rst: {path}: no eligible tables to convert")
             continue
         would_change += 1
+        converted_tables += len(result.converted)
         if apply:
             path.write_bytes(result.candidate.encode("utf-8"))
             converted_files += 1
@@ -207,13 +237,23 @@ def _run_list_table(
                 end="",
             )
     if not quiet:
+        refusal_detail = ""
+        if refusal_categories:
+            categories = ", ".join(f"{name}: {count}" for name, count in sorted(refusal_categories.items()))
+            refusal_detail = f" ({categories})"
+        table_status = (
+            f", {converted_tables} table(s) converted, {refused_tables} table(s) refused{refusal_detail}, "
+            f"{error_tables} table error(s)"
+        )
         if apply:
             _emit_final_status(
-                f"check_rst: {len(files)} file(s) checked, {fatal_files} error(s), {converted_files} file(s) converted"
+                f"check_rst: {len(files)} file(s) checked, {fatal_files} error(s), "
+                f"{converted_files} file(s) converted{table_status}"
             )
         else:
             _emit_final_status(
-                f"check_rst: {len(files)} file(s) checked, {fatal_files} error(s), {would_change} file(s) would change"
+                f"check_rst: {len(files)} file(s) checked, {fatal_files} error(s), "
+                f"{would_change} file(s) would change{table_status}"
             )
     raise SystemExit(1 if fatal_files or (not apply and would_change) else 0)
 
@@ -699,9 +739,10 @@ exists at all:
         help="convert eligible grid/simple tables to list-table syntax",
         description=(
             "Modifier role: convert eligible grid/simple tables to `.. list-table::` syntax. "
-            "A merged row/column or unsupported option is refused, never guessed at; every "
-            "write is gated by whole-file tree equality. Dry-run by default; --apply writes "
-            "— see :doc:`guide`."
+            "Spans, :widths: auto, and an inner table still framed by an aligned ancestor "
+            "are refused with their blocker, impact, and next action; every candidate and "
+            "combined write is gated by whole-file tree equality. Dry-run by default; "
+            "--apply writes — see :doc:`guide`."
         ),
     )
     list_table_p.set_defaults(**_CLI_ATTR_DEFAULTS)

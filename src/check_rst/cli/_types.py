@@ -523,29 +523,58 @@ class ParsedTable:
 @dataclasses.dataclass(frozen=True, slots=True)
 class ListTableCandidate:
     """One table judged ready for conversion, or refused with a reason —
-    never a silent skip; the caller reports every refusal. parsed and
-    caption are populated only when refusal is None."""
+    never a silent skip; the caller reports every refusal.  A ready
+    candidate also owns its exact physical source range, directive
+    options, and first/continuation indentation so the renderer changes
+    no surrounding source geometry."""
 
     entry: TableEntry
     parsed: ParsedTable | None
     caption: str | None
     refusal: str | None
+    options: tuple[tuple[str, str], ...] = ()
+    source_start: int | None = None
+    source_end: int | None = None
+    indent: str = ""
+    first_prefix: str | None = None
+    refusal_code: str | None = None
+    refusal_category: str | None = None
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ListTableIssue:
+    """One actionable list-table refusal or error.
+
+    The code is stable enough to search for; reason explains the actual
+    safety predicate, while impact and action answer the two questions a
+    user otherwise has to infer: what was left unchanged, and what can be
+    done next.
+    """
+
+    ordinal: int | None
+    entry: TableEntry | None
+    code: str
+    category: str
+    reason: str
+    impact: str
+    action: str
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class ListTableFileResult:
     """One file's complete list-table run: which ordinals converted,
-    every in-scope refusal (with its reason — never silent), and whether
-    an unresolvable --only/--skip ordinal or a failed whole-file
-    semantic-validation safety net rejected the file outright."""
+    every structured in-scope issue (with blocker, impact, and action),
+    and whether an unresolvable --only/--skip ordinal or a failed
+    whole-file semantic-validation safety net rejected the file
+    outright."""
 
     path: pathlib.Path
     original: str
     candidate: str
     converted: list[int]
-    refusals: list[tuple[int, str]]
+    refusals: list[ListTableIssue]
     unknown_ordinals: list[int]
-    fatal: str | None
+    fatal: ListTableIssue | None
 
     @property
     def changed(self) -> bool:

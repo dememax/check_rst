@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+import re
 from typing import TYPE_CHECKING, cast
 
 import docutils.nodes
@@ -14,6 +16,7 @@ import docutils.parsers.rst.states
 import docutils.parsers.rst.tableparser
 import docutils.statemachine
 import docutils.utils
+from docutils import ApplicationError
 
 if TYPE_CHECKING:
     import pathlib
@@ -22,8 +25,9 @@ if TYPE_CHECKING:
 
 from . import _helpers
 from ._document import (
+    _SIMPLE_TABLE_RULE_RE,
     _TABLE_DIRECTIVE_RE,
-    _TABLE_OPTION_RE,
+    _simple_table_end,
     find_tables,
 )
 from ._helpers import (
@@ -32,9 +36,147 @@ from ._helpers import (
 from ._types import (
     ListTableCandidate,
     ListTableFileResult,
+    ListTableIssue,
     ParsedTable,
     TableEntry,
 )
+
+_TABLE_OPTION_VALUE_RE = re.compile(r"^[ \t]+:([\w-]+):[ \t]*(.*?)[ \t]*$")
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _AlignedTableSource:
+    """The exact editable source block belonging to one aligned table.
+
+    Offsets are zero-based, end-exclusive physical line indexes.  They
+    deliberately do not trust ``TableEntry.end``: doctree line metadata
+    identifies semantic nodes, not the final physical continuation or
+    border line of a source table.
+    """
+
+    start: int
+    end: int
+    body_start: int
+    body_end: int
+    indent: str
+    first_prefix: str
+    caption: str | None
+    options: tuple[tuple[str, str], ...]
+
+
+def _leading_whitespace(line: str) -> str:
+    return line[: len(line) - len(line.lstrip())]
+
+
+def _table_directive_marker(line: str) -> tuple[re.Match[str], str, str] | None:
+    """Return marker match, first-line prefix, continuation indentation.
+
+    The ordinary form begins after leading whitespace.  The second form
+    begins as a list item's first content (including a list-table cell),
+    whose marker must remain on the replacement's first physical line.
+    """
+    leading = _leading_whitespace(line)
+    direct = _TABLE_DIRECTIVE_RE.match(line[len(leading) :])
+    if direct:
+        return direct, leading, leading
+    nested = re.match(
+        r"^([ \t]*(?:(?:[*+-]|\d+[.)])[ \t]+)+)(\.\.\s+(table|list-table|csv-table)::)",
+        line,
+    )
+    if nested is None:
+        return None
+    prefix = nested.group(1)
+    marker = _TABLE_DIRECTIVE_RE.match(line[len(prefix) :])
+    assert marker is not None
+    # Docutils expands source tabs at the standard eight-column stops
+    # before parsing.  Preserve the first line's bytes, but express later
+    # directive lines at that same effective content column with spaces.
+    return marker, prefix, " " * len(prefix.expandtabs())
+
+
+def _aligned_table_end(lines: list[str], start: int) -> int:
+    """Return the exact end-exclusive extent of a valid grid/simple table.
+
+    The simple-table stopping predicate is docutils' own
+    ``Body.isolate_simple_table`` rule: the second matching rule, or the
+    first matching rule followed by a blank/end-of-input for a headerless
+    table.  Keeping that predicate here fixes the information lost after
+    parsing without inventing a different table grammar.
+    """
+    if lines[start].lstrip().startswith("+"):
+        cursor = start
+        while cursor < len(lines) and lines[cursor].lstrip().startswith(("+", "|")):
+            cursor += 1
+        return cursor
+
+    end = _simple_table_end(lines, start)
+    if end is not None:
+        return end
+    raise ValueError("simple table has no complete bottom rule")
+
+
+def _is_simple_table_rule(line: str) -> bool:
+    # Kept local so source capture and parser selection remain in this
+    # module; this is the same narrow shape used by _document.
+    return bool(_SIMPLE_TABLE_RULE_RE.match(line))
+
+
+def _locate_aligned_table_source(lines: list[str], entry: TableEntry) -> _AlignedTableSource:
+    """Recover the exact editable source block represented by *entry*.
+
+    Directive ownership is established by its marker and indented body;
+    bare tables are established by their top border/rule.  If neither is
+    present at the reported source line, the table lives in a virtual
+    nested parse (for example inside an outer aligned-table cell) and
+    cannot safely be spliced until that ancestor is converted first.
+    """
+    start = entry.lineno - 1
+    if not 0 <= start < len(lines):
+        raise ValueError("reported table start is outside the source file")
+
+    marker_info = _table_directive_marker(lines[start])
+    if marker_info is not None and marker_info[0].group(1) == "table":
+        marker, first_prefix, directive_indent = marker_info
+        marker_text = lines[start][len(first_prefix) :]
+        caption = marker_text[marker.end() :].strip() or None
+        body_start: int | None = None
+        options: list[tuple[str, str]] = []
+        cursor = start + 1
+        while cursor < len(lines):
+            line = lines[cursor]
+            if not line.strip():
+                cursor += 1
+                continue
+            if len(_leading_whitespace(line)) <= len(directive_indent):
+                break
+            if line.lstrip().startswith("+") or _is_simple_table_rule(line):
+                body_start = cursor
+                break
+            option_match = _TABLE_OPTION_VALUE_RE.match(line)
+            if option_match:
+                options.append((option_match.group(1), option_match.group(2)))
+                cursor += 1
+                continue
+            raise ValueError("table directive contains content before its aligned-table body")
+        if body_start is None:
+            raise ValueError("table directive has no aligned grid/simple body")
+        body_end = _aligned_table_end(lines, body_start)
+        return _AlignedTableSource(
+            start,
+            body_end,
+            body_start,
+            body_end,
+            directive_indent,
+            first_prefix,
+            caption,
+            tuple(options),
+        )
+
+    if lines[start].lstrip().startswith("+") or _is_simple_table_rule(lines[start]):
+        end = _aligned_table_end(lines, start)
+        indent = _leading_whitespace(lines[start])
+        return _AlignedTableSource(start, end, start, end, indent, indent, None, ())
+    raise ValueError("table is nested inside source that cannot be edited independently")
 
 
 def _resolve_list_table_selection(
@@ -115,56 +257,117 @@ def _table_has_span(parsed: ParsedTable) -> bool:
 
 def _evaluate_list_table_candidate(lines: list[str], entry: TableEntry) -> ListTableCandidate:
     """Judge one table ready for conversion, or refuse it with a reported
-    reason. Scope for this version: bare tables and directive-wrapped
-    tables with an optional caption only — :name:/:class:/:align: (or any
-    other ``.. table::`` option) is an explicit, reported refusal, not
-    yet supported (docs/roadmap.rst, "Targeted aligned-table to
-    list-table transformation"), never a silent mishandling."""
+    reason and stable diagnostic code."""
     if entry.kind == "list":
-        return ListTableCandidate(entry, None, None, "already a list-table — nothing to convert")
+        return ListTableCandidate(
+            entry,
+            None,
+            None,
+            "already a list-table — nothing to convert",
+            refusal_code="list-table.already-list-table",
+            refusal_category="unchanged",
+        )
     if entry.kind == "csv":
-        return ListTableCandidate(entry, None, None, "csv-table is out of scope for this conversion")
+        return ListTableCandidate(
+            entry,
+            None,
+            None,
+            "csv-table is out of scope for this conversion",
+            refusal_code="list-table.csv-table",
+            refusal_category="unsupported",
+        )
     if not _table_kind_eligible(entry.kind):
-        return ListTableCandidate(entry, None, None, f"kind {entry.kind!r} is not supported")
+        return ListTableCandidate(
+            entry,
+            None,
+            None,
+            f"kind {entry.kind!r} is not supported",
+            refusal_code="list-table.unsupported-kind",
+            refusal_category="unsupported",
+        )
 
-    directive_line = lines[entry.lineno - 1]
-    match = _TABLE_DIRECTIVE_RE.match(directive_line.strip())
-    caption: str | None = None
-    body_start = entry.lineno - 1
-    if match:
-        caption = directive_line.strip()[match.end() :].strip() or None
-        cursor = entry.lineno  # 0-based index of the line right after the directive
-        option_names = []
-        while cursor < entry.end:
-            option_match = _TABLE_OPTION_RE.match(lines[cursor])
-            if option_match is None:
-                break
-            option_names.append(option_match.group(1))
-            cursor += 1
-        if option_names:
-            return ListTableCandidate(
-                entry,
-                None,
-                caption,
-                f"the {option_names[0]!r} option is not yet supported",
-            )
-        if cursor < entry.end and not lines[cursor].strip():
-            cursor += 1  # the required blank line between options/caption and body
-        body_start = cursor
+    try:
+        source = _locate_aligned_table_source(lines, entry)
+    except (IndexError, ValueError) as exc:
+        nested = "nested inside source" in str(exc)
+        return ListTableCandidate(
+            entry,
+            None,
+            entry.caption,
+            str(exc),
+            refusal_code="list-table.nested-aligned-table" if nested else "list-table.source-model",
+            refusal_category="incompatible" if nested else "source-model",
+        )
 
-    body_lines = lines[body_start : entry.end]
-    indent = len(body_lines[0]) - len(body_lines[0].lstrip()) if body_lines else 0
-    dedented = [line[indent:] if len(line) >= indent else line.lstrip() for line in body_lines]
+    option_names = {name for name, _ in source.options}
+    unsupported = option_names - {"class", "name", "align", "width", "widths"}
+    if unsupported:
+        name = sorted(unsupported)[0]
+        return ListTableCandidate(
+            entry,
+            None,
+            source.caption,
+            f"the {name!r} table option has no proven list-table mapping",
+            source_start=source.start,
+            source_end=source.end,
+            indent=source.indent,
+            refusal_code="list-table.option-unsupported",
+            refusal_category="unsupported",
+        )
+    widths = next((value for name, value in source.options if name == "widths"), None)
+    if widths == "auto":
+        return ListTableCandidate(
+            entry,
+            None,
+            source.caption,
+            "`:widths: auto` changes the table's column-width model when expressed as a list-table",
+            source_start=source.start,
+            source_end=source.end,
+            indent=source.indent,
+            refusal_code="list-table.widths-auto",
+            refusal_category="incompatible",
+        )
 
-    parsed = _parse_aligned_table(dedented)
+    body_indent = _leading_whitespace(lines[source.body_start])
+    body_lines = lines[source.body_start : source.body_end]
+    dedented = [line[len(body_indent) :] if line.startswith(body_indent) else line.lstrip() for line in body_lines]
+    try:
+        parsed = _parse_aligned_table(dedented)
+    except (ApplicationError, IndexError, TypeError, ValueError) as exc:
+        return ListTableCandidate(
+            entry,
+            None,
+            source.caption,
+            f"docutils could not parse the captured aligned table: {exc}",
+            source_start=source.start,
+            source_end=source.end,
+            indent=source.indent,
+            refusal_code="list-table.source-model",
+            refusal_category="source-model",
+        )
     if _table_has_span(parsed):
         return ListTableCandidate(
             entry,
             None,
-            caption,
+            source.caption,
             "contains a merged row or column (span), which list-table cannot express",
+            source_start=source.start,
+            source_end=source.end,
+            indent=source.indent,
+            refusal_code="list-table.span",
+            refusal_category="incompatible",
         )
-    return ListTableCandidate(entry, parsed, caption, None)
+    return ListTableCandidate(
+        entry,
+        parsed,
+        source.caption,
+        None,
+        options=source.options,
+        source_start=source.start,
+        source_end=source.end,
+        indent=source.indent,
+        first_prefix=source.first_prefix,
+    )
 
 
 _LIST_TABLE_BODY_INDENT = 3
@@ -211,7 +414,13 @@ def _render_list_table_row(
     return out
 
 
-def _render_list_table(parsed: ParsedTable, caption: str | None) -> str:
+def _render_list_table(
+    parsed: ParsedTable,
+    caption: str | None,
+    options: tuple[tuple[str, str], ...] = (),
+    indent: str = "",
+    first_prefix: str | None = None,
+) -> str:
     """Emit RST text for a ``.. list-table::`` directive equivalent to
     *parsed*. :widths: carries colspecs straight through — confirmed by
     direct probe that docutils passes explicit :widths: values through to
@@ -221,11 +430,20 @@ def _render_list_table(parsed: ParsedTable, caption: str | None) -> str:
     lines = [f".. list-table:: {caption}" if caption else ".. list-table::"]
     if parsed.header_rows:
         lines.append(f"{' ' * _LIST_TABLE_BODY_INDENT}:header-rows: {len(parsed.header_rows)}")
-    lines.append(f"{' ' * _LIST_TABLE_BODY_INDENT}:widths: {' '.join(str(width) for width in parsed.colspecs)}")
+    source_widths = next((value for name, value in options if name == "widths"), None)
+    widths = source_widths if source_widths not in (None, "grid") else " ".join(str(width) for width in parsed.colspecs)
+    lines.append(f"{' ' * _LIST_TABLE_BODY_INDENT}:widths: {widths}")
+    for name, value in options:
+        if name != "widths":
+            suffix = f" {value}" if value else ""
+            lines.append(f"{' ' * _LIST_TABLE_BODY_INDENT}:{name}:{suffix}")
     lines.append("")
     for row in (*parsed.header_rows, *parsed.body_rows):
         lines.extend(_render_list_table_row(row))
-    return "\n".join(lines) + "\n"
+    prefix = indent if first_prefix is None else first_prefix
+    rendered = [f"{prefix}{lines[0]}"]
+    rendered.extend(f"{indent}{line}" if line else "" for line in lines[1:])
+    return "\n".join(rendered) + "\n"
 
 
 def _canonical_doctree_model(node: docutils.nodes.Node) -> object:
@@ -342,6 +560,52 @@ def _list_table_divergence_reason(path: pathlib.Path, original_text: str, candid
     return _describe_doctree_divergence(original_model, candidate_model)
 
 
+def _replacement_text(original: str, start: int, end: int, rendered: str) -> str:
+    """Replace one physical line range without touching any other bytes.
+
+    Generated lines use the selected block's own newline convention and
+    inherit whether its final physical line had a terminator.  This is a
+    source-geometry guarantee beyond the semantic doctree proof.
+    """
+    lines = original.splitlines(keepends=True)
+    removed = lines[start:end]
+    if not removed:
+        raise ValueError("replacement range is empty")
+    first_ending = "\r\n" if removed[0].endswith("\r\n") else "\r" if removed[0].endswith("\r") else "\n"
+    replacement = rendered.replace("\n", first_ending)
+    final_had_ending = removed[-1].endswith(("\n", "\r"))
+    if not final_had_ending:
+        replacement = replacement.removesuffix(first_ending)
+    return "".join((*lines[:start], replacement, *lines[end:]))
+
+
+def _list_table_issue(
+    ordinal: int | None,
+    entry: TableEntry | None,
+    code: str,
+    category: str,
+    reason: str,
+    *,
+    exact_selection: bool = False,
+) -> ListTableIssue:
+    table = f"table {ordinal}" if ordinal is not None else "selection"
+    impact = f"{table} unchanged"
+    if exact_selection:
+        impact += "; file left untouched because --only named this table"
+    elif ordinal is not None:
+        impact += "; other selected tables may still convert"
+    actions = {
+        "list-table.span": "Keep the aligned table, remove the span, or exclude it with --skip.",
+        "list-table.widths-auto": "Choose explicit column widths, or keep/exclude this aligned table.",
+        "list-table.nested-aligned-table": "Convert its aligned-table ancestor first, then run list-table again.",
+        "list-table.source-model": "Inspect the reported source range; the converter will not guess its boundaries.",
+        "list-table.semantic-proof": "Keep the aligned table and inspect the reported doctree divergence.",
+        "list-table.unknown-ordinal": "Run outline to obtain the current table ordinals, then retry.",
+    }
+    action = actions.get(code, "Keep this table unchanged or exclude it with --skip.")
+    return ListTableIssue(ordinal, entry, code, category, reason, impact, action)
+
+
 def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) -> ListTableFileResult:
     """Plan one file's conversion — read, resolve --only/--skip, evaluate
     and render every in-scope table, splice approved conversions into
@@ -365,17 +629,31 @@ def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) 
             [],
             [],
             unknown,
-            f"unknown table ordinal(s): {bad}",
+            _list_table_issue(
+                None,
+                None,
+                "list-table.unknown-ordinal",
+                "selection",
+                f"unknown table ordinal(s): {bad}",
+            ),
         )
 
     ordinal_by_id = {id(table): ordinal for ordinal, table in enumerate(tables, start=1)}
     replacements: list[tuple[int, int, str]] = []
     converted: list[int] = []
-    refusals: list[tuple[int, str]] = []
+    refusals: list[ListTableIssue] = []
     for table in targets:
         ordinal = ordinal_by_id[id(table)]
         candidate = _evaluate_list_table_candidate(plain_lines, table)
         if candidate.refusal is not None:
+            issue = _list_table_issue(
+                ordinal,
+                table,
+                candidate.refusal_code or "list-table.refused",
+                candidate.refusal_category or "unsupported",
+                candidate.refusal,
+                exact_selection=bool(only),
+            )
             if only:
                 return ListTableFileResult(
                     path,
@@ -384,21 +662,42 @@ def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) 
                     [],
                     [],
                     [],
-                    f"table {ordinal}: {candidate.refusal}",
+                    issue,
                 )
-            refusals.append((ordinal, candidate.refusal))
+            refusals.append(issue)
             continue
         assert candidate.parsed is not None
-        rendered = _render_list_table(candidate.parsed, candidate.caption)
-        replacements.append((table.lineno - 1, table.end, rendered.rstrip("\n")))
+        assert candidate.source_start is not None
+        assert candidate.source_end is not None
+        rendered = _render_list_table(
+            candidate.parsed,
+            candidate.caption,
+            candidate.options,
+            candidate.indent,
+            candidate.first_prefix,
+        )
+        single_candidate = _replacement_text(original, candidate.source_start, candidate.source_end, rendered)
+        if not _list_table_conversion_preserves_semantics(path, original, single_candidate):
+            reason = _list_table_divergence_reason(path, original, single_candidate)
+            detail = f"semantic proof failed: {reason}" if reason else "semantic proof failed"
+            issue = _list_table_issue(
+                ordinal,
+                table,
+                "list-table.semantic-proof",
+                "semantic-proof",
+                detail,
+                exact_selection=bool(only),
+            )
+            if only:
+                return ListTableFileResult(path, original, original, [], [], [], issue)
+            refusals.append(issue)
+            continue
+        replacements.append((candidate.source_start, candidate.source_end, rendered))
         converted.append(ordinal)
 
-    new_lines = list(plain_lines)
-    for start, end, text in sorted(replacements, key=lambda item: item[0], reverse=True):
-        new_lines[start:end] = text.splitlines()
-    candidate_text = "\n".join(new_lines)
-    if original.endswith("\n"):
-        candidate_text += "\n"
+    candidate_text = original
+    for start, end, rendered in sorted(replacements, key=lambda item: item[0], reverse=True):
+        candidate_text = _replacement_text(candidate_text, start, end, rendered)
 
     if candidate_text != original and not _list_table_conversion_preserves_semantics(path, original, candidate_text):
         reason = _list_table_divergence_reason(path, original, candidate_text)
@@ -410,6 +709,12 @@ def _plan_list_table_file(path: pathlib.Path, only: list[int], skip: list[int]) 
             [],
             [],
             [],
-            f"converted result failed semantic validation — file left untouched{detail}",
+            _list_table_issue(
+                None,
+                None,
+                "list-table.semantic-proof",
+                "semantic-proof",
+                f"combined converted result failed semantic validation{detail}",
+            ),
         )
     return ListTableFileResult(path, original, candidate_text, converted, refusals, [], None)

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import docutils.parsers.rst.tableparser
 import pytest
 
 from check_rst import cli
@@ -229,10 +230,9 @@ def test_table_has_span_true_for_colspan() -> None:
 # ---------------------------------------------------------------------------
 # Stage 3: candidate evaluation — locate a table's exact inner source span
 # (dedented, ready for _parse_aligned_table) and optional caption, folding
-# in the kind/span checks from stage 2 into one refuse-or-ready verdict per
-# table.  Scope for this version: bare tables and directive-wrapped tables
-# with an optional caption only — :name:/:class:/:align: are an explicit,
-# reported refusal, never silently ignored or mishandled.
+# in kind/span/option checks from stage 2 into one refuse-or-ready verdict
+# per table.  Options shared by table and list-table are preserved; only a
+# mapping that cannot prove equivalent Docutils structure is refused.
 # ---------------------------------------------------------------------------
 
 _GRID = "+-----+-------+\n| A   | B     |\n+=====+=======+\n| 1   | two   |\n+-----+-------+\n"
@@ -283,13 +283,13 @@ def test_candidate_ready_for_table_directive_without_caption(tmp_path: Path) -> 
 
 
 @pytest.mark.integration
-def test_candidate_refuses_table_directive_with_name_option(tmp_path: Path) -> None:
+def test_candidate_preserves_table_directive_name_option(tmp_path: Path) -> None:
     text = "Title\n#####\n\n.. table:: Caption\n   :name: mytable\n\n   " + _GRID.replace("\n", "\n   ").rstrip() + "\n"
     p = _rst(tmp_path, text)
     entry = _document.find_tables(p)[0]
     candidate = _list_table._evaluate_list_table_candidate(p.read_text(encoding="utf-8").splitlines(), entry)
-    assert candidate.refusal is not None
-    assert "name" in candidate.refusal
+    assert candidate.refusal is None
+    assert candidate.options == (("name", "mytable"),)
 
 
 @pytest.mark.integration
@@ -567,8 +567,8 @@ def test_plan_default_scope_reports_refusal_without_blocking_others(
     assert result.fatal is None
     assert result.converted == [1]
     assert len(result.refusals) == 1
-    assert result.refusals[0][0] == 2
-    assert "span" in result.refusals[0][1]
+    assert result.refusals[0].ordinal == 2
+    assert "span" in result.refusals[0].reason
     assert result.changed is True
 
 
@@ -582,7 +582,7 @@ def test_plan_explicit_only_on_refused_table_is_fatal(tmp_path: Path) -> None:
     p = _rst(tmp_path, "Title\n#####\n\n" + spanned)
     result = _list_table._plan_list_table_file(p, only=[1], skip=[])
     assert result.fatal is not None
-    assert "span" in result.fatal
+    assert result.fatal.code == "list-table.span"
     assert result.candidate == result.original
 
 
@@ -606,7 +606,7 @@ def test_plan_unknown_ordinal_is_fatal_and_leaves_candidate_unchanged(
     p = _rst(tmp_path, "Title\n#####\n\n" + _GRID)
     result = _list_table._plan_list_table_file(p, only=[5], skip=[])
     assert result.fatal is not None
-    assert "5" in result.fatal
+    assert "5" in result.fatal.reason
     assert result.candidate == result.original
 
 
@@ -623,6 +623,267 @@ def test_plan_multiple_tables_all_convert_preserving_document_order(
     # the converted result must itself be valid, re-parseable RST with no
     # structural regression versus the original.
     assert _list_table._list_table_conversion_preserves_semantics(p, result.original, result.candidate)
+
+
+@pytest.mark.integration
+def test_plan_preserves_crlf_outside_the_replaced_table(tmp_path: Path) -> None:
+    """A semantic doctree comparison cannot detect newline damage in
+    unrelated source.  Conversion owns the selected table block only."""
+    p = tmp_path / "doc.rst"
+    original = ("Title\n#####\n\n" + _GRID + "\nAfter.\n").replace("\n", "\r\n")
+    p.write_bytes(original.encode())
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == [1]
+    assert result.candidate.startswith("Title\r\n#####\r\n\r\n")
+    assert result.candidate.endswith("\r\nAfter.\r\n")
+    assert ".. list-table::\r\n" in result.candidate
+
+
+@pytest.mark.integration
+def test_plan_converts_simple_table_with_multiline_final_row(tmp_path: Path) -> None:
+    simple = (
+        "=====  ==========\nA      B\n=====  ==========\n1      first line\n       second line\n=====  ==========\n"
+    )
+    p = _rst(tmp_path, "Title\n#####\n\n" + simple)
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == [1]
+    assert "first line\n       second line" in result.candidate
+    assert _list_table._list_table_conversion_preserves_semantics(p, result.original, result.candidate)
+
+
+@pytest.mark.integration
+def test_plan_accepts_multiple_blank_lines_before_table_directive_body(tmp_path: Path) -> None:
+    body = "\n".join(f"   {line}" if line else "" for line in _GRID.splitlines())
+    p = _rst(tmp_path, "Title\n#####\n\n.. table:: Caption\n\n\n" + body + "\n")
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == [1]
+    assert ".. list-table:: Caption" in result.candidate
+
+
+@pytest.mark.integration
+def test_plan_reports_docutils_table_parser_failure_without_a_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = _rst(tmp_path, "Title\n#####\n\n" + _GRID)
+
+    def fail_parse(lines: list[str]) -> _types.ParsedTable:
+        raise docutils.parsers.rst.tableparser.TableMarkupError("probe failure")
+
+    monkeypatch.setattr(_list_table, "_parse_aligned_table", fail_parse)
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == []
+    assert len(result.refusals) == 1
+    assert result.refusals[0].code == "list-table.source-model"
+    assert "probe failure" in result.refusals[0].reason
+
+
+@pytest.mark.integration
+def test_cli_reports_source_model_failure_as_contextual_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = _rst(tmp_path, "Title\n#####\n\n" + _GRID)
+
+    def fail_parse(lines: list[str]) -> _types.ParsedTable:
+        raise docutils.parsers.rst.tableparser.TableMarkupError("probe failure")
+
+    monkeypatch.setattr(_list_table, "_parse_aligned_table", fail_parse)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", str(p)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert f"{p}:4: ERROR [list-table.source-model]" in out
+    assert "Impact: table 1 unchanged" in out
+    assert "Action: Inspect the reported source range" in out
+    assert "1 table error(s)" in out
+
+
+@pytest.mark.integration
+def test_plan_preserves_enclosing_list_indentation(tmp_path: Path) -> None:
+    nested = "\n".join(f"  {line}" if line else "" for line in _GRID.splitlines()) + "\n"
+    p = _rst(tmp_path, "Title\n#####\n\n* Item\n\n" + nested)
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == [1]
+    assert "\n  .. list-table::\n" in result.candidate
+    assert _list_table._list_table_conversion_preserves_semantics(p, result.original, result.candidate)
+
+
+@pytest.mark.integration
+def test_plan_preserves_directives_lists_and_paragraphs_inside_a_cell(tmp_path: Path) -> None:
+    rich = (
+        "+--------------------+\n"
+        "| Content            |\n"
+        "+====================+\n"
+        "| .. note::          |\n"
+        "|                    |\n"
+        "|    Nested note.    |\n"
+        "|                    |\n"
+        "| * first            |\n"
+        "| * second           |\n"
+        "|                    |\n"
+        "| Final paragraph.   |\n"
+        "+--------------------+\n"
+    )
+    p = _rst(tmp_path, "Title\n#####\n\n" + rich)
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == [1]
+    assert "   * - .. note::" in result.candidate
+    assert "       * first\n       * second" in result.candidate
+    assert "       Final paragraph." in result.candidate
+    assert _list_table._list_table_conversion_preserves_semantics(p, result.original, result.candidate)
+
+
+@pytest.mark.integration
+def test_plan_preserves_supported_table_directive_options(tmp_path: Path) -> None:
+    body = "\n".join(f"   {line}" if line else "" for line in _GRID.splitlines())
+    p = _rst(
+        tmp_path,
+        "Title\n#####\n\n"
+        ".. table:: Caption\n"
+        "   :class: compact striped\n"
+        "   :name: sample-table\n"
+        "   :align: center\n"
+        "   :width: 80%\n"
+        "   :widths: 5 7\n\n"
+        f"{body}\n",
+    )
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == [1]
+    for option in (
+        ":class: compact striped",
+        ":name: sample-table",
+        ":align: center",
+        ":width: 80%",
+        ":widths: 5 7",
+    ):
+        assert option in result.candidate
+
+
+@pytest.mark.integration
+def test_plan_maps_widths_grid_to_effective_column_widths(tmp_path: Path) -> None:
+    body = "\n".join(f"   {line}" if line else "" for line in _GRID.splitlines())
+    p = _rst(tmp_path, "Title\n#####\n\n.. table::\n   :widths: grid\n\n" + body + "\n")
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == [1]
+    assert ":widths: 5 7" in result.candidate
+
+
+_NESTED_ALIGNED_TABLE = """\
++-----------------------------+
+| Outer                       |
++=============================+
+| .. table:: Inner            |
+|                             |
+|    +-----+-----+            |
+|    | A   | B   |            |
+|    +=====+=====+            |
+|    | 1   | 2   |            |
+|    +-----+-----+            |
++-----------------------------+
+"""
+
+
+@pytest.mark.integration
+def test_plan_converts_nested_aligned_tables_safely_in_two_passes(tmp_path: Path) -> None:
+    """An inner table has no independently editable source block while
+    its text is framed by an outer grid.  Converting the ancestor makes
+    that directive ordinary list-item content, so the next pass can
+    convert it without rebuilding the outer table."""
+    p = _rst(tmp_path, "Title\n#####\n\n" + _NESTED_ALIGNED_TABLE)
+
+    outer = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert outer.fatal is None
+    assert outer.converted == [1]
+    assert [issue.code for issue in outer.refusals] == ["list-table.nested-aligned-table"]
+    assert "ancestor first" in outer.refusals[0].action
+
+    p.write_text(outer.candidate, encoding="utf-8")
+    inner = _list_table._plan_list_table_file(p, only=[2], skip=[])
+
+    assert inner.fatal is None
+    assert inner.converted == [2]
+    assert inner.candidate.count(".. list-table::") == 2
+    assert _list_table._list_table_conversion_preserves_semantics(p, inner.original, inner.candidate)
+
+
+@pytest.mark.integration
+def test_plan_refuses_inner_table_only_until_ancestor_is_converted(tmp_path: Path) -> None:
+    p = _rst(tmp_path, "Title\n#####\n\n" + _NESTED_ALIGNED_TABLE)
+
+    result = _list_table._plan_list_table_file(p, only=[2], skip=[])
+
+    assert result.fatal is not None
+    assert result.fatal.code == "list-table.nested-aligned-table"
+    assert "file left untouched" in result.fatal.impact
+    assert result.candidate == result.original
+
+
+@pytest.mark.integration
+def test_plan_refuses_widths_auto_with_specific_blocker(tmp_path: Path) -> None:
+    body = "\n".join(f"   {line}" if line else "" for line in _GRID.splitlines())
+    p = _rst(tmp_path, "Title\n#####\n\n.. table::\n   :widths: auto\n\n" + body + "\n")
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == []
+    assert len(result.refusals) == 1
+    assert "widths-auto" in result.refusals[0].code
+    assert "changes the table's column-width model" in result.refusals[0].reason
+
+
+@pytest.mark.integration
+def test_cli_refusal_explains_context_impact_and_action(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    spanned = (
+        "+-----+-----+\n| A   | B   |\n+=====+=====+\n| 1   | 2   |\n+     +-----+\n|     | 4   |\n+-----+-----+\n"
+    )
+    p = _rst(tmp_path, "Title\n#####\n\n" + spanned)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", str(p)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert f"{p}:4: REFUSED [list-table.span]" in out
+    assert "table 1 (grid, 3x2)" in out
+    assert "Impact: table 1 unchanged" in out
+    assert "Action:" in out
+    assert "1 table(s) refused" in out
+    assert "no eligible tables to convert" not in out
 
 
 # ---------------------------------------------------------------------------
