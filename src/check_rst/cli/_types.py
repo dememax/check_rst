@@ -670,6 +670,26 @@ class ToctreeEntry:
         return item in str(self)
 
 
+# Found by code review: this exact 7-member union — every per-document
+# structural finder's own output type — was retyped by hand at three call
+# sites (_reports.py, _pipeline.py, _sphinx.py's _merge_toctree_clusters),
+# and the 8-member version below (adding ToctreeEntry once cross-file
+# toctree clusters get spliced in) at four more (_output.py, _pipeline.py,
+# and twice in _sphinx.py). Never ToctreeEntry: a single file's own
+# outline/code-blocks/block-quotes/tables/admonitions/comments/lists are
+# always local to it, whereas a toctree cluster's entries may point at
+# ANOTHER file entirely — see _merge_toctree_clusters, the one place both
+# aliases meet.
+type LocalEntry = (
+    OutlineEntry | CodeBlockEntry | BlockQuoteEntry | TableEntry | AdmonitionEntry | CommentEntry | ListEntry
+)
+
+# LocalEntry plus ToctreeEntry — the shape of a document's outline AFTER
+# any toctree clusters have been merged in (or of a heuristic-mode outline,
+# which builds this shape directly since it has no separate merge step).
+type MergedEntry = LocalEntry | ToctreeEntry
+
+
 class WordStatsUnavailable(RuntimeError):
     """A required provider for meaningful prose-word statistics is absent."""
 

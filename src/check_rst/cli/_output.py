@@ -20,6 +20,7 @@ from ._types import (
     CommentEntry,
     Finding,
     ListEntry,
+    MergedEntry,
     OutlineEntry,
     Severity,
     TableEntry,
@@ -142,16 +143,7 @@ def _emit_report_line(text: str, kind: str = "detail") -> None:
 
 
 def _print_outline_entries(
-    entries: list[
-        OutlineEntry
-        | CodeBlockEntry
-        | BlockQuoteEntry
-        | TableEntry
-        | AdmonitionEntry
-        | CommentEntry
-        | ListEntry
-        | ToctreeEntry
-    ],
+    entries: list[MergedEntry],
     depth_limit: int | None,
     verbose: bool,
     sections_only: bool = False,

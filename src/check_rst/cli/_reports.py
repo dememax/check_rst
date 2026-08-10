@@ -53,6 +53,7 @@ from ._types import (
     ContextMatch,
     Finding,
     ListEntry,
+    LocalEntry,
     OutlineEntry,
     ReferenceEntry,
     StopwordsUnavailable,
@@ -777,9 +778,7 @@ def _run_context_query(
             sphinx_findings.extend(check_bare_filenames(env, local_docname, document))
             sphinx_findings.extend(check_multiple_toctree_parents(env, [path]))
 
-        local_entries: list[
-            OutlineEntry | CodeBlockEntry | BlockQuoteEntry | TableEntry | AdmonitionEntry | CommentEntry | ListEntry
-        ] = sorted(
+        local_entries: list[LocalEntry] = sorted(
             [
                 *outline,
                 *code_blocks,

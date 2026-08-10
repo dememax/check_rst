@@ -53,14 +53,10 @@ from ._sphinx import (
     find_toctrees,
 )
 from ._types import (
-    AdmonitionEntry,
-    BlockQuoteEntry,
-    CodeBlockEntry,
-    CommentEntry,
-    ListEntry,
+    LocalEntry,
+    MergedEntry,
     OutlineEntry,
     Severity,
-    TableEntry,
     ToctreeEntry,
     WordStatsUnavailable,
 )
@@ -374,16 +370,7 @@ def _run_sphinx_phases(
                     if state.json_records[path]["stats"]["word_stats_error"] and not args.no_warnings:
                         state.total_warnings += 1
                 if args.outline and not args.json:
-                    heuristic_combined: list[
-                        OutlineEntry
-                        | CodeBlockEntry
-                        | BlockQuoteEntry
-                        | TableEntry
-                        | AdmonitionEntry
-                        | CommentEntry
-                        | ListEntry
-                        | ToctreeEntry
-                    ] = sorted(
+                    heuristic_combined: list[MergedEntry] = sorted(
                         [
                             *phase2_doc.outline,
                             *code_blocks,
@@ -505,15 +492,7 @@ def _run_sphinx_phases(
                                 "not part of the --sphinx-src project — code-blocks unavailable"
                             )
                     if args.outline and not args.json:
-                        local_entries: list[
-                            OutlineEntry
-                            | CodeBlockEntry
-                            | BlockQuoteEntry
-                            | TableEntry
-                            | AdmonitionEntry
-                            | CommentEntry
-                            | ListEntry
-                        ] = sorted(
+                        local_entries: list[LocalEntry] = sorted(
                             [
                                 *verified_outline,
                                 *code_blocks,

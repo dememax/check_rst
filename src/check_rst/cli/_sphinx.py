@@ -36,16 +36,13 @@ from ._helpers import (
     _node_line,
 )
 from ._types import (
-    AdmonitionEntry,
-    BlockQuoteEntry,
     CodeBlockEntry,
-    CommentEntry,
     Finding,
-    ListEntry,
+    LocalEntry,
+    MergedEntry,
     OutlineEntry,
     ReferenceEntry,
     Severity,
-    TableEntry,
     ToctreeEntry,
 )
 
@@ -537,20 +534,9 @@ def _expand_one_toctree(
 
 
 def _merge_toctree_clusters(
-    local_entries: list[
-        OutlineEntry | CodeBlockEntry | BlockQuoteEntry | TableEntry | AdmonitionEntry | CommentEntry | ListEntry
-    ],
+    local_entries: list[LocalEntry],
     clusters: list[list[ToctreeEntry | OutlineEntry]],
-) -> list[
-    OutlineEntry
-    | CodeBlockEntry
-    | BlockQuoteEntry
-    | TableEntry
-    | AdmonitionEntry
-    | CommentEntry
-    | ListEntry
-    | ToctreeEntry
-]:
+) -> list[MergedEntry]:
     """Splice each toctree cluster from find_toctrees into *local_entries*
     (already sorted by lineno) at its own container's position, WITHOUT
     re-sorting the cluster's own contents by their raw line number — a
@@ -559,16 +545,7 @@ def _merge_toctree_clusters(
     in correct document/recursion order from find_toctrees) is spliced
     in as one contiguous, internally-unsorted block.
     """
-    merged: list[
-        OutlineEntry
-        | CodeBlockEntry
-        | BlockQuoteEntry
-        | TableEntry
-        | AdmonitionEntry
-        | CommentEntry
-        | ListEntry
-        | ToctreeEntry
-    ] = []
+    merged: list[MergedEntry] = []
     idx = 0
     for cluster in clusters:
         if not cluster:
