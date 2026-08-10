@@ -1400,10 +1400,11 @@ def _hierarchy_chain_doc(chars: Sequence[str]) -> str:
     return "\n\n".join(_hierarchy_chain_block(ch, t) for ch, t in zip(chars, titles, strict=True)) + "\n"
 
 
-def _swapped(chars: str, i: int, j: int) -> tuple[str, ...]:
+def _swapped(chars: Sequence[str], i: int, j: int) -> tuple[str, ...]:
     """`chars` as a tuple with positions i and j exchanged — builds an
-    "almost entirely correct" hierarchy case for the corner-case test
-    below."""
+    "almost entirely correct" hierarchy case for the corner-case tests
+    below. Takes any Sequence[str] (a str, or an already-swapped tuple
+    from a previous call), not just a str, so swaps can be chained."""
     out = list(chars)
     out[i], out[j] = out[j], out[i]
     return tuple(out)
@@ -1506,6 +1507,56 @@ def test_fix_hierarchy_depth_ten_corner_cases_converge_to_standard_order(
     _formatting.fix_structure(p, True)
 
     assert p.read_text(encoding="utf-8") == _hierarchy_chain_doc(tuple(_helpers.HIERARCHY[:10]))
+    _assert_hierarchy_structurally_correct(p)
+
+
+_FULL_ALPHABET = tuple(_helpers.HIERARCHY)
+
+_HIERARCHY_FULL_ALPHABET_CORNER_CASES = [
+    pytest.param(tuple(reversed(_FULL_ALPHABET)), id="full_alphabet_fully_reversed_order"),
+    pytest.param(_FULL_ALPHABET[16:] + _FULL_ALPHABET[:16], id="full_alphabet_rotated_by_half"),
+    pytest.param(
+        tuple(_helpers.HIERARCHY[6:]) + tuple(_helpers.HIERARCHY[:6]),
+        id="full_alphabet_non_preferred_characters_first",
+    ),
+    pytest.param(
+        _swapped(_swapped(_FULL_ALPHABET, 2, 3), 29, 30),
+        id="full_alphabet_mostly_correct_two_distant_swaps",
+    ),
+]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("chars", _HIERARCHY_FULL_ALPHABET_CORNER_CASES)
+def test_fix_hierarchy_full_alphabet_wrong_order_converges_to_standard_order(
+    tmp_path: Path, chars: tuple[str, ...]
+) -> None:
+    """The absolute ceiling case: a linear chain using EVERY one of the
+    len(VALID_ADORNMENT_CHARS) == 32 valid RST adornment characters, in a
+    variety of deliberately wrong orders. Confirms directly (2026-08-10,
+    prompted by the project owner asking whether fixing such a document
+    could fail for running out of characters to remap onto) that the
+    remap never runs out of target slots: HIERARCHY is built FROM
+    VALID_ADORNMENT_CHARS itself (see _helpers.py's own construction),
+    so len(HIERARCHY) == len(VALID_ADORNMENT_CHARS) is an invariant of
+    that construction, not a coincidence of the current docutils version
+    -- and _established_depths can never mint a depth deeper than the
+    count of distinct characters a document uses, which is hard-capped at
+    that same 32. There is no possible 33rd level for any valid RST
+    document to reach: a 33rd heading has no unused character left to
+    introduce, so it necessarily reuses one of the 32 already-established
+    ones, which is an ordinary "return to an established depth" event,
+    not a new failure mode.
+    """
+    assert len(chars) == len(_helpers.HIERARCHY) == len(_helpers.VALID_ADORNMENT_CHARS)
+    assert len(set(chars)) == len(chars), "corner case must use every character exactly once"
+
+    p = tmp_path / "test.rst"
+    p.write_text(_hierarchy_chain_doc(chars), encoding="utf-8")
+
+    _formatting.fix_structure(p, True)
+
+    assert p.read_text(encoding="utf-8") == _hierarchy_chain_doc(_FULL_ALPHABET)
     _assert_hierarchy_structurally_correct(p)
 
 
