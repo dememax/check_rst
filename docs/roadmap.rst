@@ -421,29 +421,36 @@ The following decisions are fixed for later structural checks:
   Sphinx docnames.  Include and toctree clusters can therefore nest without
   comparing foreign line numbers.
 
-This batch intentionally does **not** change ``check_single_top_level`` or its
-severity.  Effective single-top-level enforcement, non-fixable ``ERROR``
-policy, and source-specific remediation hints remain the separate future
-batch below; they can now consume explicit composition facts instead of
-guessing them.
+The single-title batch below now consumes these facts.  Composition remains a
+separate implementation boundary: outline and JSON expose the parser-effective
+tree, while the hard title conclusion resolves standard conditions for the
+Phase 3 HTML builder on a copy.
 
 ======================================
 Single top-level heading enforcement
 ======================================
 
-*(implemented 2026-07-26)*
+*(source-only WARNING implemented 2026-07-26; effective ERROR completed
+2026-08-11)*
 
 (Max, 2026-07-23: "the level-1 heading can only be one — it represents the
 document's title") — confirmed live before implementation that a document with
 two full ``#`` sections passed with 0 errors, 0 warnings, entirely silent, at
-any ``sphinx-build`` verbosity.  ``check_single_top_level`` flags every
-occurrence of the document's own level-1 adornment character after its first as
-a WARNING (not ERROR: unlike adornment/hierarchy violations, ``--fix`` cannot
-resolve which section should be demoted — a real content decision).  See "A
-second top-level title is legal RST and a real defect" in
-:doc:`rules` for the full rationale and the real HTML-toctree defect
-that motivated ERROR-adjacent treatment despite docutils accepting the syntax
-without complaint.
+any ``sphinx-build`` verbosity.  ``check_single_top_level`` now flags every
+effective parsed depth-1 section after the first as a non-fixable ERROR.
+Severity records the proven invalid structure; ``fixable = false`` records that
+the author must choose the page title.  Bare mode follows parsed includes;
+verified mode additionally follows extension source mutation, synthetic
+prologue/epilogue content, and the standard ``only``/``ifconfig`` branches
+active for the Phase 3 HTML builder.  Foreign physical sources are reported
+directly; transformed and synthetic sources use line 0 rather than a fabricated
+edit coordinate.
+
+The once-per-run hint gives the accepted repair shape: insert the chosen page
+title before the existing sections with a nine-character underline made from
+an adornment symbol unused in the effective document, then run ``check_rst
+fix``.  See "A second top-level title is legal RST and a real defect" in
+:doc:`rules` for the full rationale and the real HTML-toctree defect.
 
 ======================================
 Homoglyph / mixed-alphabet detection

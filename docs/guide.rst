@@ -67,7 +67,7 @@ entire guide in terminal output.
 
    If you read nothing else: writing, declare a new section with a
    9-character placeholder underline and no overline, then run
-   ``check_rst check --skip-fixable`` (review WARNINGs) → ``check_rst fix
+   ``check_rst check --skip-fixable`` (review non-fixable findings) → ``check_rst fix
    --fast`` (bare form when the whole dirty RST set is yours) →
    ``check_rst check`` (confirm clean).  In a shared dirty worktree, add the
    same ``--git-scope path/to/owned.rst`` allowlist to all three commands.
@@ -441,7 +441,7 @@ The three-step loop
 
 Within a configured Git project::
 
-    check_rst check --skip-fixable   # 1. review WARNINGs (exit 0)
+    check_rst check --skip-fixable   # 1. review non-fixable findings
     check_rst fix --fast             # 2. bare form only — mutate without validation phases
     check_rst check                  # 3. confirm clean
 
@@ -457,13 +457,15 @@ No long options: ``.check_rst.toml`` at the repo root declares
 verified with Phase 3 — see "Per-repo configuration" below for the
 full contract.
 
-Step 1 shows only what needs *your* judgment (see "What the tool
-deliberately leaves to you").  It reports how many auto-fixable findings
-were suppressed per file and removes only their duplicate structural
-messages from Sphinx; unrelated Sphinx warnings remain visible.  Step 2
-plans the complete selected set, applies every deterministic fix, and stops
-without parsing or building.  Step 3 is the single full validation run and
-verifies convergence — a clean pass is a machine-checked guarantee, not an
+Step 1 shows only what deterministic mutation cannot settle (see "What the
+tool deliberately leaves to you").  This normally means WARNINGs, but a proven
+invalid structure that needs an author's decision — such as two effective page
+titles — is a non-fixable ERROR and returns status 1.  The pass reports how many
+auto-fixable findings were suppressed per file and removes only their duplicate
+structural messages from Sphinx; unrelated Sphinx warnings remain visible.
+Step 2 plans the complete selected set, applies every deterministic fix, and
+stops without parsing or building.  Step 3 is the single full validation run
+and verifies convergence — a clean pass is a machine-checked guarantee, not an
 impression.  The fixed ``--build-dir`` keeps repeat runs cheap: Sphinx
 recompiles only changed pages.
 
@@ -1534,7 +1536,7 @@ Auditing a scope
 
 For a calendar month, a project's docs tree, or an external repository::
 
-    check_rst check --recursive <dir> --skip-fixable        # WARNINGs needing judgment
+    check_rst check --recursive <dir> --skip-fixable        # non-fixable findings
     check_rst diff --fast --recursive <dir>                 # fast mechanical preview
     check_rst diff --recursive <dir>                        # preview plus complete validation
     check_rst check --recursive <dir> --exclude <name> ...  # skip specific files

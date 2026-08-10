@@ -361,14 +361,20 @@ def build_outline(
     raw: list[tuple[int, int, str, str, int, int, SourceProvenance | None, list[str]]] = []
     for sec in tree.findall(docutils.nodes.section):
         title_node = sec.children[0]
-        underline_row = title_node.line  # docutils reports the underline's 1-based line
-        if not isinstance(underline_row, int):
-            continue
         provenance = composition.provenance(title_node)
-        underline_row = composition.physical_line(title_node, underline_row)
-        title_row = underline_row - 1
-        underline_idx = underline_row - 1
-        lines = lines_for(provenance)
+        underline_row = title_node.line  # docutils reports the underline's 1-based line
+        if isinstance(underline_row, int):
+            underline_row = composition.physical_line(title_node, underline_row)
+            title_row = underline_row - 1
+            underline_idx = underline_row - 1
+            lines = lines_for(provenance)
+        else:
+            # Extensions may construct a real section without a source line.
+            # It remains part of effective structure, but line 0 / '?' are the
+            # only honest display coordinates.
+            title_row = 0
+            underline_idx = -1
+            lines = []
         char = "?"
         if 0 <= underline_idx < len(lines):
             underline = lines[underline_idx].strip()
@@ -404,7 +410,7 @@ def build_outline(
             (r for r in raw[i + 1 :] if r[1] <= depth and r[6] == provenance),
             None,
         )
-        end = (nxt[5] - 1) if nxt is not None else len(lines)
+        end = max(title_row, nxt[5] - 1) if nxt is not None else len(lines)
         if nxt is None:
             end = composition.source_end(provenance, lines)
         if not lines:

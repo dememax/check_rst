@@ -399,7 +399,7 @@ def _normalize_source_detailed(
     trailing_whitespace = 0
 
     def err(lineno: int, msg: str) -> None:
-        findings.append(Finding(lineno=lineno, severity=Severity.ERROR, text=msg))
+        findings.append(Finding(lineno=lineno, severity=Severity.ERROR, text=msg, fixable=True))
 
     if text.startswith("\ufeff"):
         text = text[1:]

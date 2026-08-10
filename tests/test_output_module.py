@@ -11,9 +11,25 @@ import pytest
 from _support import _BAD_BLOCK, _GOOD_BLOCK
 
 from check_rst import cli
+from check_rst.cli import _output, _types
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+@pytest.mark.unit
+def test_suppressed_warning_does_not_leak_its_shared_hint(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _output._hints_shown.clear()
+    finding = _types.Finding(
+        1,
+        _types.Severity.WARNING,
+        "nested inline markup in strong span",
+    )
+
+    assert _output._print_findings([finding], "doc.rst", no_warnings=True) == (0, 0)
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.unit

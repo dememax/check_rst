@@ -49,6 +49,7 @@ from ._sphinx import (
     find_toctrees,
     nest_composed_clusters,
     partition_composed_entries,
+    resolve_html_structure,
 )
 from ._types import (
     AdmonitionEntry,
@@ -666,12 +667,15 @@ def _context_candidate_line(candidate: ContextMatch) -> str:
     return f"{candidate.selector} — {_context_entry_label(candidate)} — {extent}"
 
 
-def _context_findings(document: Document) -> list[Finding]:
+def _context_findings(
+    document: Document,
+    title_findings: list[Finding] | None = None,
+) -> list[Finding]:
     """Phase 0/1 findings available without turning the query into a build."""
     findings = list(document.hygiene)
     findings.extend(check_adornments(document.path, True, doc=document))
     findings.extend(check_hierarchy(document.path, doc=document))
-    findings.extend(check_single_top_level(document.path, doc=document))
+    findings.extend(check_single_top_level(document.path, doc=document) if title_findings is None else title_findings)
     findings.extend(check_nested_inline_markup(document.path, True, doc=document))
     findings.extend(check_directives(document.path, True, True, doc=document))
     findings.extend(check_homoglyphs(document.path, doc=document))
@@ -699,7 +703,17 @@ def _format_context(
     start = _entry_lineno(selected.entry)
     end = _entry_end(selected.entry)
     extent = f"{start}-{end}" if end > start else str(start)
-    applicable = [f for f in findings if f.lineno == 0 or start <= f.lineno <= end]
+
+    def belongs_to_selected_source(finding: Finding) -> bool:
+        if selected.source is None:
+            return finding.source is None
+        return finding.source == selected.source
+
+    applicable = [
+        finding
+        for finding in findings
+        if belongs_to_selected_source(finding) and (finding.lineno == 0 or start <= finding.lineno <= end)
+    ]
 
     lines = [
         f"Context: {source_path}",
@@ -804,6 +818,7 @@ def _run_context_query(
             clusters: list[list[ToctreeEntry | OutlineEntry]] = []
             include_entries = document.includes
             conditional_entries: list[ConditionalEntry] = []
+            title_findings = check_single_top_level(path, doc=document)
         else:
             env, warning_text = _build_sphinx_env_checked(sphinx_src, actual_build_dir, files=[path])
             local = _docname_for(env, path)
@@ -822,6 +837,13 @@ def _run_context_query(
             clusters = [] if no_toctree else find_toctrees(env, local_docname, document)
             include_entries = find_includes(env, local_docname, document)
             conditional_entries = find_conditionals(env, local_docname, document)
+            title_findings = check_single_top_level(
+                path,
+                doc=document,
+                doctree=resolve_html_structure(env, local_docname),
+                source_root=sphinx_src,
+                root_transformed=_source_was_transformed(env, local_docname),
+            )
             sphinx_findings.extend(_findings_from_sphinx_output(warning_text, [path], project_root))
             sphinx_findings.extend(check_bare_filenames(env, local_docname, document))
             sphinx_findings.extend(check_multiple_toctree_parents(env, [path]))
@@ -873,8 +895,21 @@ def _run_context_query(
             sphinx_findings = _findings_from_sphinx_output(warning_text, [source_path], project_root)
             sphinx_findings.extend(check_bare_filenames(env, selected.source_docname, selected_document))
             sphinx_findings.extend(check_multiple_toctree_parents(env, [source_path]))
+            title_findings = check_single_top_level(
+                source_path,
+                doc=selected_document,
+                doctree=resolve_html_structure(env, selected.source_docname),
+                source_root=sphinx_src,
+                root_transformed=_source_was_transformed(env, selected.source_docname),
+            )
 
-        findings = _context_findings(selected_document) + sphinx_findings
+        local_findings = _context_findings(selected_document, title_findings)
+        if selected.source is not None:
+            local_findings = [
+                dataclasses.replace(finding, source=selected.source) if finding.source is None else finding
+                for finding in local_findings
+            ]
+        findings = local_findings + sphinx_findings
         outgoing = (
             find_references(env, selected.source_docname) if env is not None and not selected_is_fragment else None
         )

@@ -65,11 +65,19 @@ class Severity(enum.StrEnum):
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Finding:
-    """A lint finding with a severity level (ERROR or WARNING)."""
+    """A lint finding with independent severity and repairability.
+
+    ``source`` is set when parsed composition proves that the physical finding
+    belongs to a source other than the selected root document.  ``fixable`` is
+    an explicit capability fact: ERROR means the structure is invalid, while
+    this flag alone decides whether ``--skip-fixable`` may suppress it.
+    """
 
     lineno: int
     severity: Severity
     text: str
+    source: str | None = None
+    fixable: bool = False
 
     def __str__(self) -> str:
         return f"{self.lineno}: {self.severity}: {self.text}"

@@ -415,24 +415,30 @@ both sections as separate top-level entries in the navigation tree — a
 real, silent structural defect, discovered only by looking at a
 different page than the one with the problem.
 
-This is a WARNING, not an ERROR, for a different reason than the
-mistyped-directive lint above: not because the call is close, but
-because ``fix`` cannot resolve it.  Adornment/hierarchy ERRORs are
-ERRORs specifically because ``fix`` fixes them mechanically and
-completely; deciding which of two top-level sections should be demoted
-— and to what level — is a real content decision no deterministic pass
-can make.  So this follows ``check_directives``' severity convention
-(WARNING, always shown, never swept away by ``--skip-fixable``'s
-auto-fixable suppression) rather than ``check_hierarchy``'s.
+This is a non-fixable ERROR.  Severity and repairability answer different
+questions: the effective document structure is proven invalid, so the finding
+affects exit status; deciding the page title remains an author judgment, so
+``fix`` must not choose one.  ``--skip-fixable`` suppresses only findings
+explicitly owned by deterministic mutation and therefore retains this ERROR.
 
-The rule applies to whichever adornment character is *this* document's
-own first-appearing one, not hardcoded to ``#`` — the same convention
-``check_hierarchy`` itself already uses, since a document mid-fix or
-using a non-preferred character still has exactly one intended level-1
-role to protect.  A corpus-wide run against this Journal's full
-calendar (1415 files) found zero instances — unlike the mistyped-
-directive lint, this one shipped with no real catch yet; recorded
-honestly rather than invented.
+The diagnostic gives a bounded repair *shape*, not a semantic answer: choose
+the page title, insert it before the existing sections with a nine-character
+underline using an adornment symbol unused anywhere in the effective document,
+then run ``check_rst fix``.  The new symbol establishes a new outer level;
+``fix`` materializes the canonical overline, underline width, and hierarchy.
+
+The rule consumes the parsed section tree rather than guessing from the root
+file's first adornment character.  Standard ``include`` content therefore
+counts at its effective depth and a diagnostic points to the included physical
+source.  Verified mode uses the Sphinx parse, including extension
+``source-read``/``include-read`` changes, synthetic ``rst_prolog`` and
+``rst_epilog`` content, and the ``only``/``ifconfig`` branches active for the
+same HTML builder used by Phase 3.  Inexact transformed or synthetic sources
+remain visible at line 0 instead of receiving a fabricated editable location.
+
+A corpus-wide run against this Journal's full calendar (1415 files) found zero
+instances when the original source-only WARNING shipped; that absence remains
+recorded honestly rather than replaced with an invented catch.
 
 *****************************************************************************
 A relocated subtree's old character can silently land it at the wrong depth
@@ -550,9 +556,10 @@ typo (Cyrillic ``с`` where ``.cpp`` needed a Latin ``c``) stays silent,
 correctly, because it is a historical record, not fresh prose.  Unlike
 the bold/rubric checks, block quotes are NOT exempt — a garbled word
 inside quoted material is still garbled regardless of who typed it
-first.  WARNING, not ERROR: nothing here is auto-fixable (which of two
-scripts was "intended" is a real content decision), the same reasoning
-as the single-top-level-title WARNING above.
+first.  WARNING, not ERROR: mixed script is evidence of a likely typo, not
+proof that the structure is invalid.  Choosing which script was intended is
+also non-fixable, but repairability does not determine severity — the proven
+single-top-level defect above is the counterexample.
 
 The real catch: a corpus-wide run found 6 real occurrences against 14
 candidate mixed-script words total, zero of the 8 legitimate

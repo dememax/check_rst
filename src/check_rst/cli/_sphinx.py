@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import collections
+import copy
 import dataclasses
 import difflib
 import pathlib
@@ -90,6 +91,8 @@ _FIXABLE_SPHINX_MESSAGES = (
     "Title overline & underline mismatch",
     "Inconsistent title style",
 )
+
+_INTEGRITY_BUILDER = "html"
 
 
 def _build_sphinx_env(
@@ -209,6 +212,63 @@ def _source_was_transformed(env: sphinx.environment.BuildEnvironment, docname: s
     """Return whether a ``source-read`` listener changed this root source."""
     transformed: set[str] = getattr(env, "_check_rst_transformed_sources", set())
     return docname in transformed
+
+
+def resolve_html_structure(
+    env: sphinx.environment.BuildEnvironment,
+    docname: str,
+) -> docutils.nodes.document:
+    """Return a copy with standard conditions resolved as Phase 3 HTML sees them.
+
+    The environment stores the parser-effective doctree, before ``only`` and
+    ``ifconfig`` are applied.  That representation is correct for outline
+    honesty, but it cannot prove a single-title violation: a peer section in a
+    false branch does not exist in the HTML integrity build.  Resolve exactly
+    Sphinx's two standard conditional containers on a copy, preserving the
+    stored tree and its include provenance markers.
+
+    Verified mode already executes trusted ``conf.py`` and extensions.
+    Evaluating ``ifconfig`` here has the same trust boundary and namespace as
+    Sphinx's own ``doctree-resolved`` listener.  An invalid expression is
+    excluded from this structural proof; Phase 3 reports the expression error.
+    """
+    from sphinx import addnodes
+    from sphinx.ext.ifconfig import ifconfig
+    from sphinx.util.nodes import process_only_nodes
+    from sphinx.util.tags import Tags
+
+    tree = copy.deepcopy(env.get_doctree(docname))
+    configured_tags = {
+        tag
+        for tag in env._app.tags
+        if tag not in {env._app.builder.name, env._app.builder.format} and not tag.startswith(("builder_", "format_"))
+    }
+    tags = Tags(
+        configured_tags
+        | {
+            _INTEGRITY_BUILDER,
+            f"format_{_INTEGRITY_BUILDER}",
+            f"builder_{_INTEGRITY_BUILDER}",
+        }
+    )
+    process_only_nodes(tree, tags)
+
+    namespace = {confval.name: confval.value for confval in env.config}
+    namespace.update(env.config.__dict__.copy())
+    namespace["builder"] = _INTEGRITY_BUILDER
+    for node in list(tree.findall(ifconfig)):
+        try:
+            enabled = bool(eval(str(node["expr"]), namespace))
+        except Exception:
+            # Sphinx's own listener will emit the authoritative expression
+            # error.  Do not compound it with an unproven title diagnostic.
+            enabled = False
+        node.replace_self(node.children if enabled else docutils.nodes.comment())
+
+    # Defensive assertion: both standard control containers must be gone from
+    # the tree used for a hard structural conclusion.
+    assert not any(isinstance(node, (addnodes.only, ifconfig)) for node in tree.findall())
+    return tree
 
 
 def _docname_for(env: sphinx.environment.BuildEnvironment, path: pathlib.Path) -> str | None:

@@ -1607,7 +1607,7 @@ def test_cli_context_included_section_reads_its_physical_fragment(
     root = rst_repo / "index.rst"
     root.write_text("#######\nIndex\n#######\n\n.. include:: fragment.rst\n", encoding="utf-8")
     fragment = rst_repo / "fragment.rst"
-    fragment.write_text("**********\nIncluded\n**********\n\nDetails.\n", encoding="utf-8")
+    fragment.write_text("##########\nIncluded\n##########\n\nDetails.\n", encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "fragment:Included", str(root)])
 
     with pytest.raises(SystemExit) as exc:
@@ -1618,6 +1618,7 @@ def test_cli_context_included_section_reads_its_physical_fragment(
     assert f"Context: {fragment}" in out
     assert "selector: fragment:Included" in out
     assert "range: 2-5" in out
+    assert "2: ERROR: second effective top-level title 'Included'" in out
     assert "references:\n  unavailable — verified Sphinx mode required" in out
 
 

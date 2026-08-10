@@ -17,7 +17,7 @@ import pytest
 from _support import _GOOD_BLOCK, BuildSphinxEnv, _build_multi_file_env
 
 from check_rst import cli
-from check_rst.cli import _document, _helpers, _reports, _sphinx, _types
+from check_rst.cli import _document, _formatting, _helpers, _reports, _sphinx, _types
 
 if TYPE_CHECKING:
     import docutils.nodes
@@ -62,6 +62,157 @@ def test_cli_verified_mode_accepts_orphan_inside_sphinx_source(
 
     assert exc.value.code == 0
     assert "not part of" not in capsys.readouterr().out
+
+
+@pytest.mark.integration
+def test_html_title_enforcement_resolves_standard_conditionals(tmp_path: Path) -> None:
+    """Only the branch active for check_rst's HTML integrity build is structural."""
+    (tmp_path / "conf.py").write_text(
+        'project = "test"\nextensions = ["sphinx.ext.ifconfig"]\nshow_extra = False\n',
+        encoding="utf-8",
+    )
+    document_path = tmp_path / "index.rst"
+    document_path.write_text(
+        textwrap.dedent("""\
+            #####
+            Index
+            #####
+
+            .. only:: html
+
+               ##########
+               HTML title
+               ##########
+
+            .. only:: latex
+
+               ###########
+               LaTeX title
+               ###########
+
+            .. ifconfig:: show_extra
+
+               ############
+               Hidden title
+               ############
+            """),
+        encoding="utf-8",
+    )
+    env, _warnings = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    doctree = _sphinx.resolve_html_structure(env, "index")
+
+    findings = _formatting.check_single_top_level(
+        document_path,
+        doc=_document.Document(document_path, tmp_path),
+        doctree=doctree,
+        source_root=tmp_path,
+    )
+
+    assert len(findings) == 1
+    assert findings[0].severity == "ERROR"
+    assert "HTML title" in findings[0].text
+    assert "LaTeX title" not in findings[0].text
+    assert "Hidden title" not in findings[0].text
+
+
+@pytest.mark.integration
+def test_html_title_enforcement_preserves_conf_py_custom_tags(tmp_path: Path) -> None:
+    (tmp_path / "conf.py").write_text(
+        'project = "test"\ntags.add("edition")\n',
+        encoding="utf-8",
+    )
+    document_path = tmp_path / "index.rst"
+    document_path.write_text(
+        textwrap.dedent("""\
+            #######
+            Index
+            #######
+
+            .. only:: edition
+
+               ##########
+               Tagged title
+               ##########
+            """),
+        encoding="utf-8",
+    )
+    env, _warnings = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+
+    findings = _formatting.check_single_top_level(
+        document_path,
+        doc=_document.Document(document_path, tmp_path),
+        doctree=_sphinx.resolve_html_structure(env, "index"),
+        source_root=tmp_path,
+    )
+
+    assert len(findings) == 1
+    assert "Tagged title" in findings[0].text
+
+
+@pytest.mark.integration
+def test_verified_cli_checks_source_read_effective_titles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verified mode must not reuse Phase 1's pre-extension title answer."""
+    (tmp_path / "conf.py").write_text(
+        textwrap.dedent("""\
+            project = "test"
+
+            def add_title(app, docname, source):
+                if docname == "index":
+                    source[0] += "\\n##########\\nInjected\\n##########\\n"
+
+            def setup(app):
+                app.connect("source-read", add_title)
+            """),
+        encoding="utf-8",
+    )
+    document = tmp_path / "index.rst"
+    document.write_text("#######\nIndex\n#######\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "check_rst",
+            "--sphinx-src",
+            str(tmp_path),
+            "check",
+            "--skip-fixable",
+            str(document),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "index.rst:0: ERROR: second effective top-level title 'Injected'" in output
+
+
+@pytest.mark.integration
+def test_title_enforcement_keeps_rst_epilogue_provenance(tmp_path: Path) -> None:
+    """Synthetic Sphinx content remains visible without a fake physical line."""
+    (tmp_path / "conf.py").write_text(
+        'project = "test"\nrst_epilog = "\\n########\\nEpilogue\\n########\\n"\n',
+        encoding="utf-8",
+    )
+    document_path = tmp_path / "index.rst"
+    document_path.write_text("#######\nIndex\n#######\n", encoding="utf-8")
+    env, _warnings = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+
+    findings = _formatting.check_single_top_level(
+        document_path,
+        doc=_document.Document(document_path, tmp_path),
+        doctree=_sphinx.resolve_html_structure(env, "index"),
+        source_root=tmp_path,
+    )
+
+    assert len(findings) == 1
+    assert findings[0].source == "<rst_epilogue>"
+    assert findings[0].lineno == 0
+    assert "Epilogue" in findings[0].text
 
 
 @pytest.mark.integration

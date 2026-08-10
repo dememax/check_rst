@@ -39,10 +39,11 @@ VALIDATION LOOP
    $ check_rst fix --fast
    $ check_rst check
 
-Review WARNINGs in the first pass.  The middle command handles only bounded
-mechanical work; the final pass verifies the resulting document, including
-Sphinx when configured.  Use ``diff --fast`` before mutation when the source
-is unfamiliar.
+Review non-fixable findings in the first pass.  Most are WARNINGs; a proven
+invalid structure can be an ERROR even when repair needs author judgment.  The
+middle command handles only bounded mechanical work; the final pass verifies
+the resulting document, including Sphinx when configured.  Use ``diff --fast``
+before mutation when the source is unfamiliar.
 
 ******************
 SHARED WORKTREES

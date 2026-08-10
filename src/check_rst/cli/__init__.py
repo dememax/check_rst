@@ -454,12 +454,12 @@ def _add_report_filters(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--skip-fixable",
         action="store_true",
-        help="suppress ERROR-level findings fix would resolve automatically; WARNINGs stay visible",
+        help="suppress findings fix would resolve automatically; non-fixable ERRORs and WARNINGs stay visible",
     )
     parser.add_argument(
         "--no-adornments",
         action="store_true",
-        help="skip adornment/hierarchy lint and, with fix/diff, their fixes; Phase 0 byte hygiene remains enabled",
+        help="skip title geometry, hierarchy, and single-title checks and fixes; Phase 0 byte hygiene remains enabled",
     )
     parser.add_argument(
         "--no-directives",

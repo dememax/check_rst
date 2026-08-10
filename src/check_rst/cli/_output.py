@@ -410,6 +410,11 @@ _FINDING_HINTS: tuple[tuple[str, str], ...] = (
         "AI documents often use this pattern as an informal heading; consider a proper section title",
     ),
     ("standalone bold line ", "verify it is not substituting a section title (bold is for inline emphasis only)"),
+    (
+        "second effective top-level title ",
+        "choose the page title, insert it before the existing sections with a nine-character underline "
+        "using an adornment symbol unused in the effective document, then run check_rst fix",
+    ),
 )
 
 
@@ -433,15 +438,18 @@ def _print_findings(
     n_errors = 0
     n_warnings = 0
     for f in findings:
+        finding_prefix = f.source or prefix
+        visible = f.severity != Severity.WARNING or not no_warnings
+        if not suppress and visible:
+            for key, hint in _FINDING_HINTS:
+                if f.text.startswith(key) and key not in _hints_shown:
+                    _hints_shown.add(key)
+                    print(f"  ({key.strip()}: {hint})")
         if f.severity == Severity.WARNING:
             if no_warnings:
                 continue
             n_warnings += 1
             if not suppress:
-                for key, hint in _FINDING_HINTS:
-                    if f.text.startswith(key) and key not in _hints_shown:
-                        _hints_shown.add(key)
-                        print(f"  ({key.strip()}: {hint})")
                 # No leading glyph (Max, 2026-07-20: "we break de-facto
                 # compiler alike output... those prefixes are optional, we've
                 # got the text warning or error" — added to the contract, see
@@ -450,12 +458,12 @@ def _print_findings(
                 # message" via Finding.__str__ — the shape generic tooling
                 # (IDE problem matchers, editor jump-to-error) parses.
                 with _report_kind("WARNING"):
-                    print(f"{prefix}:{f}")
+                    print(f"{finding_prefix}:{f}")
         else:
             n_errors += 1
             if not suppress:
                 with _report_kind("ERROR"):
-                    print(f"{prefix}:{f}")
+                    print(f"{finding_prefix}:{f}")
     return n_errors, n_warnings
 
 

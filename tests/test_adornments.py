@@ -12,6 +12,7 @@ import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import docutils.nodes
 import pytest
 from _support import _BAD_BLOCK, _GOOD_BLOCK, _git, _rst
 
@@ -622,8 +623,10 @@ def test_single_top_level_two_sections_flagged(tmp_path: Path) -> None:
     )
     violations = _formatting.check_single_top_level(p)
     assert len(violations) == 1
-    assert violations[0].severity == "WARNING"
-    assert "Second" not in violations[0].text or "'#'" in violations[0].text
+    assert violations[0].severity == "ERROR"
+    assert violations[0].fixable is False
+    assert "'Second'" in violations[0].text
+    assert "'First'" in violations[0].text
     assert violations[0].lineno == 8  # the second occurrence's own title line
 
 
@@ -714,6 +717,50 @@ def test_single_top_level_repeated_subsection_char_not_flagged(tmp_path: Path) -
         """,
     )
     assert _formatting.check_single_top_level(p) == []
+
+
+@pytest.mark.integration
+def test_single_top_level_hint_repair_shape_converges(tmp_path: Path) -> None:
+    """A human-chosen wrapper title plus an unused placeholder is fixable."""
+    p = _rst(
+        tmp_path,
+        """\
+        Page title
+        ~~~~~~~~~
+
+        #####
+        First
+        #####
+
+        ######
+        Second
+        ######
+        """,
+    )
+
+    assert _formatting.check_single_top_level(p) == []
+    assert _formatting.fix_structure(p, True)
+    assert _formatting.check_single_top_level(p) == []
+    assert [(entry.depth, entry.char, entry.title) for entry in _document.build_outline(p)] == [
+        (1, "#", "Page title"),
+        (2, "*", "First"),
+        (2, "*", "Second"),
+    ]
+
+
+@pytest.mark.integration
+def test_single_top_level_counts_extension_generated_section_without_line(tmp_path: Path) -> None:
+    p = _rst(tmp_path, "#######\nTitle\n#######\n")
+    document = _document.Document(p, tmp_path)
+    generated = docutils.nodes.section(ids=["generated"])
+    generated += docutils.nodes.title("", "Generated")
+    document.doctree += generated
+
+    findings = _formatting.check_single_top_level(p, doc=document)
+
+    assert len(findings) == 1
+    assert findings[0].lineno == 0
+    assert "Generated" in findings[0].text
 
 
 @pytest.mark.integration
@@ -2280,14 +2327,14 @@ def test_skip_fixable_suppresses_hierarchy_error(
 
 
 @pytest.mark.integration
-def test_skip_fixable_preserves_single_top_level_warnings(
+def test_skip_fixable_preserves_single_top_level_errors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A second top-level title is not --fix-fixable (which section should
     demote is a content decision), so --skip-fixable must not swallow it —
-    same precedent as directive WARNINGs."""
+    so severity and fixability must remain independent."""
     p = _rst(
         tmp_path,
         """\
@@ -2303,14 +2350,17 @@ def test_skip_fixable_preserves_single_top_level_warnings(
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--skip-fixable", str(p)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
-    assert exc.value.code == 0
+    assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "top-level" in out
-    assert "WARNING:" in out
+    assert "ERROR:" in out
+    assert "nine-character" in out
+    assert "unused" in out
+    assert "check_rst fix" in out
 
 
 @pytest.mark.integration
-def test_cli_json_single_top_level_warning_included(
+def test_cli_json_single_top_level_error_is_non_fixable(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -2325,7 +2375,7 @@ def test_cli_json_single_top_level_warning_included(
         cli.main()
     data = json.loads(capsys.readouterr().out)
     findings = data["files"][0]["findings"]
-    assert any(f["severity"] == "WARNING" and "top-level" in f["text"] for f in findings)
+    assert any(f["severity"] == "ERROR" and f["fixable"] is False and "top-level" in f["text"] for f in findings)
 
 
 @pytest.mark.integration

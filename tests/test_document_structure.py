@@ -88,6 +88,57 @@ def test_bare_outline_exposes_include_boundary_and_foreign_blocks(tmp_path: Path
 
 
 @pytest.mark.integration
+def test_single_top_level_uses_included_heading_source(tmp_path: Path) -> None:
+    """An included peer title is an effective second title at its physical source."""
+    root = tmp_path / "index.rst"
+    root.write_text(
+        "#####\nIndex\n#####\n\n.. include:: fragment.rst\n",
+        encoding="utf-8",
+    )
+    fragment = tmp_path / "fragment.rst"
+    fragment.write_text("########\nIncluded\n########\n", encoding="utf-8")
+
+    findings = _formatting.check_single_top_level(
+        root,
+        doc=_document.Document(root, tmp_path),
+    )
+
+    assert len(findings) == 1
+    assert findings[0].severity == "ERROR"
+    assert findings[0].source == "fragment.rst"
+    assert findings[0].lineno == 2
+    assert "Included" in findings[0].text
+
+
+@pytest.mark.integration
+def test_cli_single_top_level_include_uses_compiler_style_physical_location(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "index.rst"
+    root.write_text(
+        "#######\nIndex\n#######\n\n.. include:: fragment.rst\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "fragment.rst").write_text(
+        "##########\nIncluded\n##########\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst", "check", "--skip-fixable", str(root)],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "fragment.rst:2: ERROR: second effective top-level title 'Included'" in output
+
+
+@pytest.mark.integration
 def test_outline_sibling_depth_resets_after_nested_child(tmp_path: Path) -> None:
     """A sibling section after a nested child must return to the parent's depth."""
     p = _rst(

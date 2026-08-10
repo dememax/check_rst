@@ -37,14 +37,16 @@ IMPORTANT OPTIONS
    output.  See :manpage:`check_rst-json(5)`.
 
 ``--skip-fixable``
-   Hide ERRORs that ``fix`` can resolve while keeping semantic WARNINGs.  This
-   is the recommended first pass before mutation.
+   Hide findings that ``fix`` can resolve while keeping WARNINGs and
+   non-fixable ERRORs.  This is the recommended first pass before mutation.
 
 ``--no-warnings``
    Hide WARNING findings while continuing to count and report ERRORs.
 
 ``--no-adornments``, ``--no-directives``
-   Disable the corresponding Phase 1 checks.  Phase 0 remains enabled.
+   Disable the corresponding checks.  ``--no-adornments`` includes title
+   geometry, hierarchy, and effective single-title enforcement.  Phase 0
+   remains enabled.
 
 ``--no-toctree``
    Do not recurse through ``toctree`` directives in verified mode.

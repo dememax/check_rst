@@ -40,6 +40,10 @@ and lists.  Outline IDs are stable document-and-title identities with an
 occurrence suffix only when required.  Statistics distinguish unrequested
 word analysis from requested-but-unavailable analysis.
 
+Every finding declares ``severity`` and ``fixable`` independently.  ``source``
+is null for the selected root or identifies a physical or synthetic composed
+source; line 0 means no honest editable coordinate survived transformation.
+
 *************
 COMPOSITION
 *************

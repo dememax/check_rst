@@ -56,6 +56,7 @@ from ._sphinx import (
     partition_composed_entries,
 )
 from ._types import (
+    Finding,
     FixPlan,
     LocalEntry,
     MergedEntry,
@@ -264,20 +265,22 @@ def _run_phase1(
         if not args.no_adornments:
             adornment_v = check_adornments(path, whole_file, doc=document)
             hierarchy_v = check_hierarchy(path, doc=document)
-            single_top_v = check_single_top_level(path, doc=document)
+            # Verified mode must use Sphinx's effective parse (extensions,
+            # source mutation, includes, and HTML-resolved conditions), so its
+            # single-title check runs in Phase 2 after the environment exists.
+            single_top_v = check_single_top_level(path, doc=document) if args.sphinx_src is None else []
             all_v = adornment_v + hierarchy_v + single_top_v
             if args.skip_fixable:
-                # All ERROR-level findings here are resolved by --fix; suppress
-                # them from output and exit code. The non-preferred-adornment-
-                # char WARNING (check_hierarchy) and the single-top-level-title
-                # WARNING (check_single_top_level) need human judgment same as
-                # bold/rubric warnings, so unlike ERRORs they still show through.
-                errors_v = [f for f in all_v if f.severity == Severity.ERROR]
-                warnings_v = [f for f in all_v if f.severity == Severity.WARNING]
-                state.suppressed_fixable[path] += len(errors_v)
+                # Severity and repairability are independent.  Suppress only
+                # findings explicitly owned by the deterministic fixer; a
+                # non-fixable structural ERROR still affects the exit status.
+                fixable_v = [finding for finding in all_v if finding.fixable]
+                visible_v = [finding for finding in all_v if not finding.fixable]
+                state.suppressed_fixable[path] += len(fixable_v)
                 if args.json:
-                    state.json_records[path]["findings"].extend(warnings_v)
-                _, w = _print_findings(warnings_v, pstr, args.no_warnings, suppress_findings)
+                    state.json_records[path]["findings"].extend(visible_v)
+                e, w = _print_findings(visible_v, pstr, args.no_warnings, suppress_findings)
+                state.total_errors += e
                 state.total_warnings += w
                 if not all_v and not args.diff and not args.quiet:
                     print(f"✓ {pstr}: adornments + hierarchy OK")
@@ -475,11 +478,29 @@ def _run_sphinx_phases(
                     continue
                 bare_filename_v = check_bare_filenames(env, bare_filename_docname, bare_filename_doc)
                 multiple_toctree_v = check_multiple_toctree_parents(env, [path], anomalies=toctree_anomalies)
+                single_top_v: list[Finding] = []
+                if not args.no_adornments:
+                    get_doctree = getattr(env, "get_doctree", None)
+                    effective_doctree = (
+                        _sphinx.resolve_html_structure(env, bare_filename_docname)
+                        if callable(get_doctree)
+                        else bare_filename_doc.doctree
+                    )
+                    single_top_v = check_single_top_level(
+                        path,
+                        doc=bare_filename_doc,
+                        doctree=effective_doctree,
+                        source_root=args.sphinx_src,
+                        root_transformed=_source_was_transformed(env, bare_filename_docname),
+                    )
                 if args.json:
                     state.json_records[path]["findings"].extend(bare_filename_v)
                     state.json_records[path]["findings"].extend(multiple_toctree_v)
+                    state.json_records[path]["findings"].extend(single_top_v)
                 _, w = _print_findings(bare_filename_v, str(path), args.no_warnings, suppress_findings)
                 state.total_warnings += w  # WARNING-only, never affects state.total_errors
+                e, _ = _print_findings(single_top_v, str(path), args.no_warnings, suppress_findings)
+                state.total_errors += e
                 _, w = _print_findings(
                     multiple_toctree_v,
                     str(path),

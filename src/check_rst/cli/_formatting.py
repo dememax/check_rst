@@ -18,6 +18,7 @@ from . import _helpers
 from ._document import (
     Document,
     _resolve_document,
+    build_outline,
 )
 from ._helpers import (
     _DOCUTILS_MIN_ADORNMENT_LEN,
@@ -77,10 +78,9 @@ def _title_char_events(lines: list[str]) -> list[tuple[int, str]]:
     mis-promoting a stray short line during --fix, and has nothing to do
     with whether docutils itself already sees a real title there).
 
-    THE shared event scan: _first_appearance_adornments collapses this to
-    one entry per distinct char (first occurrence only); check_single_top_level
-    needs every occurrence, not just the first, so both derive from this one
-    scan rather than duplicating it.
+    Shared by the hierarchy discovery helpers below: one collapses this to
+    first appearances, while the other follows every occurrence to recover
+    established nesting depth.
     """
     events: list[tuple[int, str]] = []  # (0-based line index, char)
     for block in iter_title_blocks(lines):
@@ -168,7 +168,14 @@ def _established_depths(lines: list[str]) -> list[tuple[str, int, int]]:
     return result
 
 
-def check_single_top_level(path: pathlib.Path, doc: Document | None = None) -> list[Finding]:
+def check_single_top_level(
+    path: pathlib.Path,
+    doc: Document | None = None,
+    *,
+    doctree: docutils.nodes.document | None = None,
+    source_root: pathlib.Path | None = None,
+    root_transformed: bool = False,
+) -> list[Finding]:
     """A document may have only one level-1 title — it is the document's
     own title, and Sphinx/docutils only promote a top-level section to
     that role when it is the SOLE one (Max, 2026-07-23: "the level-1
@@ -181,31 +188,41 @@ def check_single_top_level(path: pathlib.Path, doc: Document | None = None) -> l
     sections as separate top-level entries instead of one: a real, silent
     defect, not a style preference.
 
-    WARNING, not ERROR: unlike adornment/hierarchy violations, --fix
-    cannot resolve this on its own (demoting one of the sections is a
-    real content decision), so this follows check_directives' severity
-    convention — ERROR is reserved for what --fix actually fixes.
+    ERROR and non-fixable are independent facts: the effective structure is
+    invalid even though choosing the page title is an author decision.
+    ``--skip-fixable`` therefore retains this finding.
 
-    The "level-1" character is whichever one is THIS document's own
-    first-appearing adornment (via _title_char_events), not hardcoded to
-    '#' — the same convention check_hierarchy itself uses.
+    Consume docutils' effective section tree, not the root source's adornment
+    characters.  Parsed includes can contribute peer sections with their own
+    physical source coordinates; a verified caller can additionally supply a
+    Sphinx doctree after resolving builder conditions.
     """
-    events = _title_char_events(_resolve_document(path, doc).lines)
-    if not events:
+    document = _resolve_document(path, doc)
+    entries = build_outline(
+        path,
+        doc=document,
+        doctree=doctree,
+        source_root=source_root,
+        root_transformed=root_transformed,
+    )
+    top_level = [entry for entry in entries if entry.depth == 1]
+    if len(top_level) < 2:
         return []
-    level1_char = events[0][1]
-    occurrences = [(idx, char) for idx, char in events if char == level1_char]
+
+    first = top_level[0]
     return [
         Finding(
-            idx + 1,
-            Severity.WARNING,
-            f"second top-level {char!r} title — a document may have "
-            "only one: it is the document's own title, and a second "
-            "one leaves neither promoted (confirmed: the file's "
-            "toctree entry then shows both as separate top-level "
-            "entries)",
+            lineno=(entry.lineno if entry.provenance is None or entry.provenance.exact else 0),
+            severity=Severity.ERROR,
+            text=(
+                f"second effective top-level title {entry.title!r} follows "
+                f"{first.title!r} ({entry.char!r} adornment) — a document may have only one title; "
+                "multiple titles leave none promoted as the document title"
+            ),
+            source=entry.provenance.source if entry.provenance is not None else None,
+            fixable=False,
         )
-        for idx, char in occurrences[1:]
+        for entry in top_level[1:]
     ]
 
 
@@ -225,7 +242,7 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
     ranges: list[tuple[int, int]] | None = None if whole_file else doc.ranges
 
     def err(lineno: int, text: str) -> Finding:
-        return Finding(lineno=lineno, severity=Severity.ERROR, text=text)
+        return Finding(lineno=lineno, severity=Severity.ERROR, text=text, fixable=True)
 
     findings: list[Finding] = []
 
@@ -408,6 +425,7 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
                     f"hierarchy level {depth} is {remap[char]!r} — established "
                     f"nesting depth must follow the hierarchy from '#' down "
                     f"(--fix remaps {char!r} to {remap[char]!r})",
+                    fixable=True,
                 )
             )
     return findings
