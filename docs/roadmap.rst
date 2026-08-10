@@ -1727,3 +1727,26 @@ for words and chars — and the same evening, the dependency scan found the
 filtering already in-tree (sphinx.search stopwords + snowballstemmer), so the
 meaningful version shipped as "top prose words" at the doctree layer; the
 decline stands for the raw Phase 0 layer, where it belongs.
+
+=======================================================
+Splitting ``_helpers.py`` into smaller domain modules
+=======================================================
+
+(evaluated 2026-08-10, from the 8-agent review of the interrupted-period
+work, f0676f0..ba4813d, which called it a "dumping ground"): checked by
+line count first — at 750 lines it is not actually an outlier, sitting
+below 6 of the other 11 ``cli/`` modules (``_pipeline.py`` 808,
+``_list_table.py`` 818, ``_sphinx.py`` 819, ``_formatting.py`` 984,
+``_reports.py`` 1036, ``_document.py`` 1058).  The real complaint is
+cohesion, not size: it mixes six unrelated concerns (Git operations,
+adornment/hierarchy policy constants, source hygiene/normalization,
+title-block iteration, doctree-node helpers, enum-marker rendering)
+that never call into each other, so a split along those lines would be
+mechanically safe — but there is no single obviously-correct shape (two
+files or six are both defensible), and it would touch the import lines
+of every other ``cli/`` module.  Put to the project owner directly
+rather than picked unilaterally; the decision was to leave it as-is,
+consistent with AGENTS.md's caution against decomposing a module
+outside a mechanical change or one already protected by characterization
+tests.  Revisit if it actually grows past its current mid-pack size, or
+if a 7th unrelated concern gets added to it.
