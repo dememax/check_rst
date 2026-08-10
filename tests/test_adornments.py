@@ -10,12 +10,16 @@ import os
 import subprocess
 import textwrap
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from _support import _BAD_BLOCK, _GOOD_BLOCK, _git, _rst
 
 from check_rst import cli
 from check_rst.cli import _document, _formatting, _helpers, _sphinx, _types
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 _APPENDED_THIRD_LEVEL = textwrap.dedent("""
     ----------------------
@@ -1363,34 +1367,146 @@ def test_cli_fix_short_titles_converge_with_no_inconsistent_style(
     assert "Inconsistent title style" not in result.stdout + result.stderr
 
 
+def _hierarchy_chain_block(ch: str, title: str) -> str:
+    """One title block (`ch` repeated to the title's width) — the shared
+    building block for every linear-chain hierarchy test below."""
+    adorn = ch * (len(title) + 2)
+    return f"{adorn}\n{title}\n{adorn}"
+
+
+def _hierarchy_chain_doc(chars: Sequence[str]) -> str:
+    """A strictly linear chain of len(chars) titles, one distinct character
+    per level, each nested exactly one level deeper than the last — the
+    skeleton every "any permutation of characters converges to the
+    standard order" case below builds on.
+
+    This skeleton can NEVER exercise the sibling-branching bug fixed
+    alongside this test (see
+    test_fix_hierarchy_sibling_branch_does_not_corrupt_an_already_correct_child):
+    a linear chain's first-appearance ORDER and nesting DEPTH always
+    coincide by construction — level 1 is always seen first, level 2
+    second, and so on — for every possible assignment of characters to
+    slots. Misalignment between order and depth only appears once a
+    document branches (two sibling subtrees independently reaching the
+    same depth via different characters), which no permutation of THIS
+    skeleton's characters can ever produce. That is exactly why the
+    sibling-branch case has its own, separate, non-permuted test rather
+    than being folded into the permutations here (confirmed live,
+    2026-08-10: the project owner asked directly whether "a good
+    permutation" of this skeleton should be able to reproduce that bug —
+    it cannot, for the topology reason above).
+    """
+    titles = [f"Level {i}" for i in range(1, len(chars) + 1)]
+    return "\n\n".join(_hierarchy_chain_block(ch, t) for ch, t in zip(chars, titles, strict=True)) + "\n"
+
+
+def _swapped(chars: str, i: int, j: int) -> tuple[str, ...]:
+    """`chars` as a tuple with positions i and j exchanged — builds an
+    "almost entirely correct" hierarchy case for the corner-case test
+    below."""
+    out = list(chars)
+    out[i], out[j] = out[j], out[i]
+    return tuple(out)
+
+
+def _assert_hierarchy_structurally_correct(p: Path) -> None:
+    """No ERROR-severity hierarchy finding remains — the structure (order,
+    no skipped levels) is correct. A WARNING for a valid-but-not-preferred
+    character (see PREFERRED_HIERARCHY) is expected and correct once a
+    chain runs past the 6 preferred characters, which every depth-10 case
+    below deliberately does — unlike the old depth-6-only test, this can
+    no longer assert an empty findings list."""
+    findings = _formatting.check_hierarchy(p)
+    assert all(f.severity != _types.Severity.ERROR for f in findings), findings
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize("perm", list(itertools.permutations(_HIERARCHY_CHARS)))
 def test_fix_hierarchy_any_permutation_converges_to_standard_order(tmp_path: Path, perm: tuple[str, ...]) -> None:
-    """Exhaustive: for every one of the 6! = 720 orderings of the 6 project
-    adornment characters, fix_structure converges to the exact same single
-    canonical result (#*=-^" in document order) — a mechanical remap keyed
-    only on first-appearance order, independent of which characters the
-    document originally happened to use for each level.
+    """Exhaustive: for every one of the 6! = 720 orderings of the 6
+    preferred characters at levels 1-6 of a depth-10 linear chain (levels
+    7-10 fixed at HIERARCHY's own next 4 characters, already correct),
+    fix_structure converges to the exact same single canonical depth-10
+    result (HIERARCHY[:10] in document order) — a mechanical remap keyed
+    only on each character's first-appearance DEPTH, independent of which
+    characters the document originally happened to use for each level.
+
+    Extended from depth 6 to depth 10, 2026-08-10, at the project owner's
+    request, once the sibling-branch bug below showed that first-appearance
+    order and nesting depth can disagree once a document branches: this
+    skeleton is still purely linear (see _hierarchy_chain_doc's docstring
+    for why that can't reach the branching case itself), but extending its
+    depth past the 6 preferred characters exercises the remap against the
+    other 26 valid-but-not-preferred HIERARCHY characters too, which the
+    depth-6 version never touched. Full 10! exhaustive enumeration
+    (3,628,800 cases) is infeasible; only the 6 preferred levels are
+    exhaustively permuted here — the other corner cases (non-preferred-only,
+    reversed, already-correct, interleaved, mostly-correct-with-a-few-swaps)
+    are covered by the separate parametrized test right below instead of by
+    brute enumeration.
     """
     assert _helpers.PREFERRED_HIERARCHY == _HIERARCHY_CHARS
     assert _helpers.HIERARCHY[: len(_HIERARCHY_CHARS)] == _HIERARCHY_CHARS
 
-    titles = [f"Level {i}" for i in range(1, len(_HIERARCHY_CHARS) + 1)]
-
-    def block(ch: str, title: str) -> str:
-        adorn = ch * (len(title) + 2)
-        return f"{adorn}\n{title}\n{adorn}"
-
-    original = "\n\n".join(block(ch, t) for ch, t in zip(perm, titles, strict=True)) + "\n"
-    expected = "\n\n".join(block(ch, t) for ch, t in zip(_HIERARCHY_CHARS, titles, strict=True)) + "\n"
+    tail = _helpers.HIERARCHY[len(_HIERARCHY_CHARS) : 10]
+    original_chars = perm + tuple(tail)
+    expected_chars = tuple(_helpers.HIERARCHY[:10])
 
     p = tmp_path / "test.rst"
-    p.write_text(original, encoding="utf-8")
+    p.write_text(_hierarchy_chain_doc(original_chars), encoding="utf-8")
 
     _formatting.fix_structure(p, True)
 
-    assert p.read_text(encoding="utf-8") == expected
-    assert _formatting.check_hierarchy(p) == []
+    assert p.read_text(encoding="utf-8") == _hierarchy_chain_doc(expected_chars)
+    _assert_hierarchy_structurally_correct(p)
+
+
+_HIERARCHY_10 = _helpers.HIERARCHY[:10]
+_NON_PREFERRED_10 = _helpers.HIERARCHY[6:16]
+
+_HIERARCHY_10_CORNER_CASES = [
+    pytest.param(tuple(_HIERARCHY_10), id="already_preferred_order"),
+    pytest.param(tuple(_NON_PREFERRED_10), id="only_non_preferred_canonical_order"),
+    pytest.param(tuple(reversed(_NON_PREFERRED_10)), id="only_non_preferred_reversed"),
+    pytest.param(tuple(reversed(_HIERARCHY_10)), id="fully_reversed_standard_order"),
+    pytest.param(
+        tuple(itertools.chain.from_iterable(zip(_helpers.HIERARCHY[:5], _helpers.HIERARCHY[6:11], strict=True))),
+        id="mixed_interleaved_preferred_and_non_preferred",
+    ),
+    pytest.param(_swapped(_HIERARCHY_10, 2, 3), id="mostly_correct_one_adjacent_swap"),
+    pytest.param(_swapped(_HIERARCHY_10, 0, 9), id="mostly_correct_one_distant_swap"),
+    pytest.param(
+        (*_helpers.HIERARCHY[:5], _helpers.HIERARCHY[20], *_helpers.HIERARCHY[6:10]),
+        id="mostly_correct_single_substitution",
+    ),
+]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("chars", _HIERARCHY_10_CORNER_CASES)
+def test_fix_hierarchy_depth_ten_corner_cases_converge_to_standard_order(
+    tmp_path: Path, chars: tuple[str, ...]
+) -> None:
+    """Depth-10 corner cases the 720-case exhaustive test above can't reach
+    on its own (it only ever permutes the 6 preferred characters, holding
+    levels 7-10 fixed): documents using only non-preferred characters,
+    already in the correct order, fully reversed, interleaved
+    preferred/non-preferred, and — closest in spirit to the real sagui bug,
+    short of its branching topology (see _hierarchy_chain_doc's docstring)
+    — a chain that is ALREADY almost entirely correct with just one or two
+    characters wrong. Every case shares the same linear-chain skeleton as
+    the test above, and every one must converge to the identical depth-10
+    canonical result.
+    """
+    assert len(set(chars)) == 10, "corner case must use 10 distinct characters"
+
+    p = tmp_path / "test.rst"
+    p.write_text(_hierarchy_chain_doc(chars), encoding="utf-8")
+
+    _formatting.fix_structure(p, True)
+
+    assert p.read_text(encoding="utf-8") == _hierarchy_chain_doc(tuple(_helpers.HIERARCHY[:10]))
+    _assert_hierarchy_structurally_correct(p)
 
 
 @pytest.mark.integration
