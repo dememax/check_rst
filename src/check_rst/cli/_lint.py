@@ -9,13 +9,6 @@ import unicodedata
 from typing import TYPE_CHECKING
 
 import docutils.nodes
-import docutils.parsers.rst
-import docutils.parsers.rst.languages
-import docutils.parsers.rst.languages.en
-import docutils.parsers.rst.states
-import docutils.parsers.rst.tableparser
-import docutils.statemachine
-import docutils.utils
 
 if TYPE_CHECKING:
     import pathlib
