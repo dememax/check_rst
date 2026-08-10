@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 
 from ._types import (
+    _NON_PROSE_NODE_TYPES,
     BlockCorrection,
     Finding,
     FixCounts,
@@ -660,6 +661,32 @@ def _block_depth(node: docutils.nodes.Node) -> int:
             depth += 1
         n = n.parent
     return depth
+
+
+def _has_non_prose_ancestor(
+    text_node: docutils.nodes.Node,
+    extra_types: tuple[type[docutils.nodes.Node], ...] = (),
+) -> bool:
+    """Is *text_node* (a docutils Text node) nested inside a literal_block,
+    comment, raw passthrough, generated topic, or system_message —
+    apparatus the tool must never treat as author-written prose?
+
+    Found by code review: this exact ancestor walk was copy-pasted
+    identically into three call sites (Document.prose_text,
+    check_homoglyphs, check_bare_filenames), each starting at
+    text_node.parent and climbing to the document root checking
+    isinstance against _NON_PROSE_NODE_TYPES. check_bare_filenames
+    alone widens the skip-set further (reference/pending_xref, so a
+    filename already inside a real cross-reference is never flagged as
+    a MISSING one) — *extra_types* exists for exactly that one caller;
+    every other caller passes none.
+    """
+    node: docutils.nodes.Node | None = text_node.parent
+    while node is not None:
+        if isinstance(node, (*_NON_PROSE_NODE_TYPES, *extra_types)):
+            return True
+        node = node.parent
+    return False
 
 
 def _int_to_alpha(n: int) -> str:

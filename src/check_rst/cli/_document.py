@@ -21,6 +21,7 @@ from ._helpers import (
     _changed_line_ranges,
     _enum_marker,
     _findall_node_types,
+    _has_non_prose_ancestor,
     _indented_extent,
     _inline_node_line,
     _is_adornment,
@@ -30,7 +31,6 @@ from ._helpers import (
 )
 from ._types import (
     _INLINE_CONTAINER_TYPES,
-    _NON_PROSE_NODE_TYPES,
     AdmonitionEntry,
     BlockQuoteEntry,
     CodeBlockEntry,
@@ -151,19 +151,12 @@ class _DocumentProseMixin(_DocumentCore):
         unknown: docutils' error vocabulary, not Max's.  Found by the
         semantic-vs-deterministic comparison the test method prescribes:
         the AI reads the repetitions, the tool counts, disagreement is a
-        bug on one side or the other.  _NON_PROSE_NODE_TYPES (shared with
-        check_homoglyphs) is exactly this skip-list.
+        bug on one side or the other.  _has_non_prose_ancestor (shared
+        with check_homoglyphs) is exactly this skip-list.
         """
         parts: list[str] = []
         for text_node in self.doctree.findall(docutils.nodes.Text):
-            node: docutils.nodes.Node | None = text_node.parent
-            skipped = False
-            while node is not None:
-                if isinstance(node, _NON_PROSE_NODE_TYPES):
-                    skipped = True
-                    break
-                node = node.parent
-            if not skipped:
+            if not _has_non_prose_ancestor(text_node):
                 parts.append(str(text_node))
         return "\n".join(parts)
 

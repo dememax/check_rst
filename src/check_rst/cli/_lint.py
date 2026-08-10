@@ -32,13 +32,13 @@ from ._document import (
 from ._helpers import (
     _enclosing_section_title,
     _findall_node_types,
+    _has_non_prose_ancestor,
     _in_scope,
     _inline_node_line,
     _node_line,
 )
 from ._types import (
     _INLINE_CONTAINER_TYPES,
-    _NON_PROSE_NODE_TYPES,
     Finding,
     Severity,
 )
@@ -141,7 +141,7 @@ def check_homoglyphs(path: pathlib.Path, doc: Document | None = None) -> list[Fi
     _homoglyph_words_in for the precise rule).
 
     Scans the same author-facing prose Text nodes as Document.prose_text
-    (_NON_PROSE_NODE_TYPES) — code, comments, raw passthrough, and
+    (_has_non_prose_ancestor) — code, comments, raw passthrough, and
     generated topics are apparatus, not something an author "wrote" as
     prose, so a confusable-looking identifier inside a code-block must
     never be flagged.  Unlike check_directives' bold/rubric exemption,
@@ -158,14 +158,7 @@ def check_homoglyphs(path: pathlib.Path, doc: Document | None = None) -> list[Fi
     document = _resolve_document(path, doc)
     findings: list[Finding] = []
     for text_node in document.doctree.findall(docutils.nodes.Text):
-        node: docutils.nodes.Node | None = text_node.parent
-        skipped = False
-        while node is not None:
-            if isinstance(node, _NON_PROSE_NODE_TYPES):
-                skipped = True
-                break
-            node = node.parent
-        if skipped:
+        if _has_non_prose_ancestor(text_node):
             continue
         s = str(text_node)
         base_line = _node_line(text_node)

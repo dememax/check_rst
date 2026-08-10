@@ -31,11 +31,11 @@ from ._document import (
 from ._helpers import (
     CALL_COUNTS,
     _block_depth,
+    _has_non_prose_ancestor,
     _indented_extent,
     _node_line,
 )
 from ._types import (
-    _NON_PROSE_NODE_TYPES,
     AdmonitionEntry,
     BlockQuoteEntry,
     CodeBlockEntry,
@@ -617,12 +617,14 @@ def check_bare_filenames(
     Otherwise lists every remaining candidate, never guesses a single one.
 
     Scans the same author-facing prose Text nodes as check_homoglyphs
-    (_NON_PROSE_NODE_TYPES) — deliberately including inline literal spans
+    (_has_non_prose_ancestor) — deliberately including inline literal spans
     (unlike a literal_block): the real evidence is a filename wrapped in
     double backticks as the author's own emphasis, not captured code
     output.  WARNING, not ERROR: converting to a real cross-reference is a
     content decision (which role, which target syntax), never
-    auto-fixable.
+    auto-fixable. Also widens the skip-set with reference/pending_xref
+    (via _has_non_prose_ancestor's extra_types) so a filename already
+    inside a real cross-reference is never flagged as a MISSING one.
     """
     by_basename: dict[str, list[str]] = {}
     for d in env.found_docs:
@@ -638,17 +640,7 @@ def check_bare_filenames(
     get_doctree = getattr(env, "get_doctree", None)
     sphinx_doctree = get_doctree(docname) if callable(get_doctree) else doc.doctree
     for text_node in sphinx_doctree.findall(docutils.nodes.Text):
-        node: docutils.nodes.Node | None = text_node.parent
-        skipped = False
-        while node is not None:
-            if isinstance(
-                node,
-                (*_NON_PROSE_NODE_TYPES, docutils.nodes.reference, pending_xref),
-            ):
-                skipped = True
-                break
-            node = node.parent
-        if skipped:
+        if _has_non_prose_ancestor(text_node, extra_types=(docutils.nodes.reference, pending_xref)):
             continue
         s = str(text_node)
         base_line = _node_line(text_node)

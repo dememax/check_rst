@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import docutils.nodes
+import docutils.utils
 import pytest
 from _support import _rst
 
@@ -45,6 +47,56 @@ if TYPE_CHECKING:
 )
 def test_is_adornment(line: str, expected: bool) -> None:
     assert _helpers._is_adornment(line) == expected
+
+
+@pytest.mark.unit
+def test_has_non_prose_ancestor_true_for_each_base_skip_type() -> None:
+    """Direct test of the shared ancestor walk extracted (code review) out
+    of three copy-pasted call sites — Document.prose_text,
+    check_homoglyphs, check_bare_filenames. A Text node nested inside any
+    of the base non-prose container types is flagged regardless of how
+    many plain layers (a bare paragraph here) sit in between."""
+    containers: tuple[docutils.nodes.Element, ...] = (
+        docutils.nodes.literal_block(),
+        docutils.nodes.comment(),
+        docutils.nodes.raw("", ""),
+        docutils.nodes.topic(),
+        docutils.nodes.system_message(),
+    )
+    for container in containers:
+        paragraph = docutils.nodes.paragraph()
+        text = docutils.nodes.Text("hello")
+        paragraph.append(text)
+        container.append(paragraph)
+        assert _helpers._has_non_prose_ancestor(text), container
+
+
+@pytest.mark.unit
+def test_has_non_prose_ancestor_false_for_ordinary_prose() -> None:
+    """A Text node nested only inside ordinary containers (no non-prose
+    ancestor anywhere up to the root) is real prose — not skipped."""
+    document = docutils.utils.new_document("test")
+    paragraph = docutils.nodes.paragraph()
+    emphasis = docutils.nodes.emphasis()
+    text = docutils.nodes.Text("hello")
+    emphasis.append(text)
+    paragraph.append(emphasis)
+    document.append(paragraph)
+    assert not _helpers._has_non_prose_ancestor(text)
+
+
+@pytest.mark.unit
+def test_has_non_prose_ancestor_extra_types_only_apply_when_passed() -> None:
+    """extra_types is opt-in per call, not a global change to the base
+    skip-set: check_bare_filenames alone widens it with reference/
+    pending_xref, so the same Text node must be prose for one caller and
+    non-prose for the other, from the identical doctree shape."""
+    reference = docutils.nodes.reference()
+    text = docutils.nodes.Text("guide.rst")
+    reference.append(text)
+
+    assert not _helpers._has_non_prose_ancestor(text)
+    assert _helpers._has_non_prose_ancestor(text, extra_types=(docutils.nodes.reference,))
 
 
 @pytest.mark.integration
