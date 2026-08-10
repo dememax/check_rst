@@ -67,6 +67,9 @@ Global options must precede the command. The working directory is the
 project root unless --config selects another project; --no-config skips
 configuration discovery; --sphinx-src enables verified Phase 2 and 3.
 
+check, fix, and outline also accept --max-output-lines to cap report
+length without affecting exit status; see each command's own --help.
+
 Exit status: 0 no ERROR; 1 one or more ERRORs. Preview commands diff and
 list-table also return 1 when files would change. 2 command-line usage error.
 
@@ -373,6 +376,19 @@ def _add_scope_flags(parser: argparse.ArgumentParser, *, outline: bool = False) 
     )
 
 
+_QUIET_HELP = "suppress progress output; findings and the final summary line still print"
+
+
+def _add_quiet_flag(parser: argparse.ArgumentParser) -> None:
+    """--quiet, on its own — shared by every verb that has it (check/fix/
+    diff/outline via _add_quiet_verbose_words below, and list-table, which
+    needs --quiet without --verbose/--word-samples since it runs no Phase 1
+    lint pass of its own). One wording, sourced from _QUIET_HELP, so the
+    two call sites can't drift the way they once did (found by code
+    review: list-table's own copy had silently lost "findings and")."""
+    parser.add_argument("--quiet", action="store_true", help=_QUIET_HELP)
+
+
 def _add_quiet_verbose_words(parser: argparse.ArgumentParser) -> None:
     """--quiet/--verbose/--word-samples — shared by check/fix/diff/outline."""
     parser.add_argument(
@@ -380,11 +396,7 @@ def _add_quiet_verbose_words(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="extra detail on bold/rubric WARNINGs, plus footer and outline statistics",
     )
-    parser.add_argument(
-        "--quiet",
-        action="store_true",
-        help="suppress progress output; findings and the final summary line still print",
-    )
+    _add_quiet_flag(parser)
     parser.add_argument(
         "--word-samples",
         type=int,
@@ -462,11 +474,7 @@ def _build_list_table_parent() -> argparse.ArgumentParser:
         help="files to convert tables in, checked in full; omit to auto-detect changed/untracked *.rst",
     )
     _add_scope_flags(parent)
-    parent.add_argument(
-        "--quiet",
-        action="store_true",
-        help="suppress progress output; the final summary line still prints",
-    )
+    _add_quiet_flag(parent)
     parent.add_argument(
         "--apply",
         action="store_true",
@@ -851,16 +859,19 @@ def _validate_diff_json_args(args: argparse.Namespace) -> None:
 
 
 def _validate_hierarchy_args(args: argparse.Namespace) -> None:
-    """hierarchy reports runtime constants and never selects a project."""
+    """hierarchy reports runtime constants and never selects a project.
+    --no-config is deliberately not in this rejection list, same reasoning
+    as _validate_diff_json_args: it asks the tool NOT to do something
+    hierarchy was never going to do anyway (read a project config) — a
+    harmless no-op, not an incompatible combination worth rejecting."""
     active = [
         flag
         for flag, value in (
             ("--config", args.config),
-            ("--no-config", args.no_config),
             ("--sphinx-src", args.sphinx_src),
             ("--build-dir", args.build_dir),
         )
-        if value is not None and value is not False
+        if value is not None
     ]
     if active:
         _cli_fail(f"hierarchy is self-contained — incompatible argument(s): {', '.join(active)}")

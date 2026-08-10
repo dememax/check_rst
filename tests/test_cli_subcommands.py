@@ -95,6 +95,17 @@ def test_hierarchy_verb_is_self_contained() -> None:
 
 
 @pytest.mark.unit
+def test_hierarchy_allows_no_config() -> None:
+    """Same reasoning as test_diff_json_allows_no_config: --no-config asks
+    the tool NOT to do something hierarchy was never going to do anyway
+    (read a project config) — a harmless no-op, not an incompatible
+    combination worth rejecting. Was inconsistent with diff-json's own,
+    already-tested conclusion until this fix."""
+    args = _parse(["--no-config", "hierarchy"])
+    cli._validate_hierarchy_args(args)  # must not raise
+
+
+@pytest.mark.unit
 def test_diff_json_verb_requires_exactly_two_positionals() -> None:
     parser = cli._build_cli_parser()
     with pytest.raises(SystemExit) as exc:
@@ -577,3 +588,24 @@ def test_list_table_rejects_sphinx_mode_flags(flag: str) -> None:
 def test_list_table_allows_config() -> None:
     args = _parse(["--config", "x.toml", "list-table", "file.rst"])
     cli._validate_list_table_args(args)  # must not raise
+
+
+@pytest.mark.unit
+def test_list_table_quiet_help_matches_shared_wording() -> None:
+    """list-table's --quiet used to be redeclared inline in
+    _build_list_table_parent with independently-editable, already-drifted
+    wording ("...summary line still prints" vs. the shared helper's
+    "...summary line still print"). Both parsers must now source the exact
+    same string, not two copies that can drift again."""
+    shared_help = next(a for a in cli._build_full_parent()._actions if "--quiet" in a.option_strings).help
+    list_table_help = next(a for a in cli._build_list_table_parent()._actions if "--quiet" in a.option_strings).help
+    assert shared_help == list_table_help
+
+
+@pytest.mark.unit
+def test_top_level_help_mentions_report_length_limiting() -> None:
+    """--max-output-lines lives only on check/fix/outline's own --help
+    (docs/roadmap.rst's "full" shape minus diff) and was previously
+    undiscoverable from bare `check_rst --help` — a one-line pointer on the
+    top-level page is enough for a reader to know to look further."""
+    assert "--max-output-lines" in cli._TOP_LEVEL_HELP
