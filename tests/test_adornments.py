@@ -1394,6 +1394,63 @@ def test_fix_hierarchy_any_permutation_converges_to_standard_order(tmp_path: Pat
 
 
 @pytest.mark.integration
+def test_fix_hierarchy_sibling_branch_does_not_corrupt_an_already_correct_child(tmp_path: Path) -> None:
+    """Real bug, found live (sagui, 2026-08-10, re-syncing a pandoc-converted
+    document): two `*`-level sibling sections, each with exactly one child
+    heading. The first sibling's child is still in pandoc's own native
+    style (underline-only, '~' -- not yet promoted to this project's
+    convention). The second sibling's child was freshly hand-authored
+    using the objectively CORRECT character for its depth ('=') directly,
+    exactly per this project's own "declare intent with the correct
+    character" workflow (docs/guide.rst).
+
+    _compute_hierarchy_remap has no concept of nesting depth -- only
+    first-appearance ORDER. Since '~' (destined to become '=', correct for
+    this shared depth) appears earlier in raw document order than the
+    already-correct '=' on the second sibling's child, the remap assigns
+    '~' -> '=' (right, by luck of position) and then has NO SLOT left for
+    the already-correct '=' except '-' (rank 4) -- silently corrupting an
+    already-valid heading into one that skips a level. A real Sphinx build
+    of the "fixed" output then rejects it: "Inconsistent title style: skip
+    from level 2 to 4." Minimal repro, confirmed by direct computation
+    (_compute_hierarchy_remap on the two-sibling shape alone returns
+    {'~': '=', '=': '-'}) before writing this test.
+    """
+    p = _rst(
+        tmp_path,
+        """
+        #####
+        Title
+        #####
+
+        *********
+        Section A
+        *********
+
+        ~~~~~~
+        Sub A1
+        ~~~~~~
+
+        *********
+        Section B
+        *********
+
+        ==========
+        Composants
+        ==========
+        """,
+    )
+
+    _formatting.fix_structure(p, True)
+
+    fixed = p.read_text(encoding="utf-8")
+    assert "==========\nComposants\n==========" in fixed, (
+        "the already-correct '=' heading must survive fix unchanged, not be remapped to '-'"
+    )
+    assert _formatting.check_hierarchy(p) == []
+
+
+@pytest.mark.integration
 def test_diff_structure_hierarchy_returns_diff(tmp_path: Path) -> None:
     """diff_structure returns a unified diff when hierarchy fixes are needed."""
     p = _rst(

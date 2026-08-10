@@ -128,6 +128,52 @@ def _first_appearance_adornments(lines: list[str]) -> list[tuple[str, int]]:
     return list(seen.items())
 
 
+def _established_depths(lines: list[str]) -> list[tuple[str, int, int]]:
+    """Return (char, 1-based lineno, established nesting depth) for each
+    distinct adornment character's first appearance as a title, in
+    document order — the nesting-depth-aware replacement for treating
+    first-appearance ORDER as if it were always nesting DEPTH.
+
+    Mirrors docutils' own real title-level inference exactly (the same
+    rule already named, from the checking side, in docs/roadmap.rst's
+    docutils-asymmetry entries): reusing an already-established character
+    always RETURNS to its established depth, whatever the current nesting
+    position; a brand-new character becomes exactly one level deeper than
+    whatever title was most recently processed.  A single running
+    ``current_depth`` plus a permanent char->depth dict is sufficient to
+    replicate this — no explicit stack of open sections needed, since a
+    "return to an established level" never needs to know exactly which
+    deeper sections it closes, only what level it returns to.
+
+    Found live (sagui, 2026-08-10, re-syncing a pandoc-converted document):
+    two `*`-level sibling sections, each with exactly one child heading —
+    the first child still in pandoc's own native, not-yet-promoted style
+    (an underline-only char never before seen); the second child already
+    hand-authored correctly, using this project's own actual canonical
+    character for that shared depth.  Both children establish the SAME
+    depth (each is the first, and only, child of a `*`-level section) but
+    _first_appearance_adornments's flat, order-only view had no way to
+    know that — it assigned them two DIFFERENT ranks purely because one
+    heading's text happened to sit earlier in the file, silently
+    corrupting the already-correct second one.  This function's depth
+    tracking naturally converges both characters onto the SAME target
+    rank; the already-correct one becomes an identity mapping (excluded
+    from _compute_hierarchy_remap's returned pairs), the not-yet-promoted
+    one gets remapped onto it.
+    """
+    established: dict[str, int] = {}
+    current_depth = 0
+    result: list[tuple[str, int, int]] = []
+    for idx, char in _title_char_events(lines):
+        if char in established:
+            current_depth = established[char]
+        else:
+            current_depth += 1
+            established[char] = current_depth
+            result.append((char, idx + 1, current_depth))
+    return result
+
+
 def check_single_top_level(path: pathlib.Path, doc: Document | None = None) -> list[Finding]:
     """A document may have only one level-1 title — it is the document's
     own title, and Sphinx/docutils only promote a top-level section to
@@ -322,17 +368,20 @@ def _compute_adornment_fixes(lines: list[str], ranges: list[tuple[int, int]] | N
 
 
 def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Finding]:
-    """Verify first-appearance adornment order is a prefix of HIERARCHY.
+    """Verify each adornment char's established nesting depth is a prefix
+    of HIERARCHY.
 
     Always whole-file — hierarchy is a document-level property.
 
     THE rule is _compute_hierarchy_remap's: the document's distinct
-    adornment characters, in first-appearance order, must equal
-    HIERARCHY[:n] exactly — starting at '#', no skipped or reordered
-    ranks.  The check consumes the very remap --fix applies, so the two
-    cannot disagree: every ERROR here is exactly one remapped character
-    there, and a document with no ERRORs is left unmodified by
-    the fixer (fix_structure).  (The previous transition-only check validated
+    adornment characters, by ESTABLISHED NESTING DEPTH (_established_depths
+    — not raw first-appearance order; the two differ once sibling subtrees
+    are involved, see that function's docstring), must equal HIERARCHY[:n]
+    exactly — starting at '#', no skipped or reordered ranks.  The check
+    consumes the very remap --fix applies, so the two cannot disagree:
+    every ERROR here is exactly one remapped character there, and a
+    document with no ERRORs is left unmodified by the fixer
+    (fix_structure).  (The previous transition-only check validated
     consecutive rank steps but never the starting rank, so a document
     offset from the top — e.g. '*'-only — passed the check yet was
     silently rewritten by --fix; found 2026-07-18 while evaluating
@@ -347,7 +396,7 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
     remap = _compute_hierarchy_remap(lines)
     findings: list[Finding] = []
 
-    for level, (char, lineno) in enumerate(_first_appearance_adornments(lines), 1):
+    for char, lineno, depth in _established_depths(lines):
         if char not in PREFERRED_HIERARCHY:
             findings.append(
                 Finding(
@@ -361,8 +410,8 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
                 Finding(
                     lineno,
                     Severity.ERROR,
-                    f"adornment {char!r} is this document's level {level}, but "
-                    f"hierarchy level {level} is {remap[char]!r} — first-appearance "
+                    f"adornment {char!r} is this document's level {depth}, but "
+                    f"hierarchy level {depth} is {remap[char]!r} — first-appearance "
                     f"order must follow the hierarchy from '#' down "
                     f"(--fix remaps {char!r} to {remap[char]!r})",
                 )
@@ -373,13 +422,25 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
 def _compute_hierarchy_remap(lines: list[str]) -> dict[str, str]:
     """Return a char→char mapping that corrects hierarchy violations.
 
-    Extracts the first-appearance order of adornment chars from *lines*,
-    computes the correct order (HIERARCHY[:n]), and returns the non-identity
-    pairs.  Returns an empty dict when no remapping is needed.
+    Extracts each adornment char's ESTABLISHED NESTING DEPTH from *lines*
+    (_established_depths — nesting-depth-aware, not the same as raw
+    first-appearance order once sibling subtrees are involved) and maps
+    each one directly to HIERARCHY[depth - 1], returning only the
+    non-identity pairs.  Returns an empty dict when no remapping is needed.
 
     THE single definition of the hierarchy rule: check_hierarchy derives
     its ERROR findings from this same mapping (one ERROR per pair), so the
     check and --fix cannot disagree about what is a violation.
+
+    Depth-indexed lookup rather than a positional zip against the
+    established chars in scan order matters specifically when two
+    DIFFERENT characters establish the SAME depth via independent sibling
+    subtrees (found live, sagui, 2026-08-10 — see _established_depths):
+    a positional zip would give them two different target ranks purely by
+    which one's text came first; depth-indexed lookup gives them the SAME
+    target rank, exactly as two subtrees at the same conceptual depth
+    should end up.  An already-correct character mapping to its own
+    depth's HIERARCHY slot is an identity pair and is never included.
 
     Applies uniformly across all of HIERARCHY (all 32 valid RST adornment
     characters), not just PREFERRED_HIERARCHY's 6 — a deliberate choice: a
@@ -390,12 +451,7 @@ def _compute_hierarchy_remap(lines: list[str]) -> dict[str, str]:
     was already established behavior for the preferred 6; this extends it
     uniformly rather than special-casing non-preferred characters).
     """
-    seen_chars = [char for char, _ in _first_appearance_adornments(lines)]
-
-    correct = list(HIERARCHY[: len(seen_chars)])
-    if seen_chars == correct:
-        return {}
-    return {old: new for old, new in zip(seen_chars, correct, strict=True) if old != new}
+    return {char: HIERARCHY[depth - 1] for char, _, depth in _established_depths(lines) if char != HIERARCHY[depth - 1]}
 
 
 def _compute_structure_fixes(lines: list[str], ranges: list[tuple[int, int]] | None) -> list[str]:
