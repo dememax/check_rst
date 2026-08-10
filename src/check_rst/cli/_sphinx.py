@@ -431,6 +431,7 @@ def _expand_toctrees(
     depth_offset: int,
     path: tuple[str, ...],
     seen: set[str],
+    doctree: docutils.nodes.document | None = None,
 ) -> list[ToctreeEntry | OutlineEntry]:
     """Flatten every toctree directive found in *docname* (used only when
     recursing INTO a child document — its own toctree directives, if
@@ -439,10 +440,18 @@ def _expand_toctrees(
     this level; only find_toctrees' own root call needs clusters).
 
     env.get_doctree(docname), never document.doctree — see find_toctrees.
+    Pass an already-fetched *doctree* when the caller has one in hand
+    (see _expand_one_toctree, which fetches it once for build_outline
+    and would otherwise make this function fetch the exact same document
+    a second time — env.get_doctree() unpickles fresh from disk on every
+    call, with no cache of its own, so a second fetch is a real, avoidable
+    read, not just a style nit). Only find_toctrees' own root call has no
+    prior fetch to reuse, hence the default.
     """
     from sphinx.addnodes import toctree as toctree_node_cls
 
-    doctree = env.get_doctree(docname)
+    if doctree is None:
+        doctree = env.get_doctree(docname)
     entries: list[ToctreeEntry | OutlineEntry] = []
     for node in doctree.findall(toctree_node_cls):
         entries.extend(_expand_one_toctree(node, env, document, depth_offset, path, seen))
@@ -521,6 +530,7 @@ def _expand_one_toctree(
                 depth_offset=toctree_depth,
                 path=(*path, child_docname),
                 seen=seen,
+                doctree=child_doctree,
             )
         )
     return entries

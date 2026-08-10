@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import collections
 import json
 import subprocess
 import sys
@@ -1006,6 +1007,42 @@ def test_multiple_toctree_check_survives_persistent_cache_rerun(tmp_path: Path) 
 
     findings = _sphinx.check_multiple_toctree_parents(env, [parent])
     assert len(findings) == 1
+
+
+@pytest.mark.integration
+def test_toctree_child_doctree_is_fetched_only_once_per_encounter(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Found by code review: _expand_one_toctree fetched a child
+    document's doctree once (to build its own outline entries via
+    build_outline) and then a SECOND time, redundantly, inside
+    _expand_toctrees's own recursive scan for that same child's toctree
+    directives -- for every included child, leaf or not, since
+    env.get_doctree() unpickles a fresh document object from disk on
+    every single call (BuildEnvironment keeps no doctree cache of its
+    own) rather than reusing the one _expand_one_toctree already has in
+    hand.
+    """
+    (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
+    parent = rst_repo / "index.rst"
+    parent.write_text("Index\n=====\n\n.. toctree::\n\n   child\n", encoding="utf-8")
+    (rst_repo / "child.rst").write_text("Child\n=====\n", encoding="utf-8")
+
+    env, _warnings = _sphinx._build_sphinx_env(rst_repo, rst_repo / "_build", files=[parent])
+
+    calls: collections.Counter[str] = collections.Counter()
+    real_get_doctree = env.get_doctree
+
+    def counting_get_doctree(docname: str) -> docutils.nodes.document:
+        calls[docname] += 1
+        doctree: docutils.nodes.document = real_get_doctree(docname)
+        return doctree
+
+    monkeypatch.setattr(env, "get_doctree", counting_get_doctree)
+
+    _sphinx.find_toctrees(env, "index")
+
+    assert calls["child"] == 1, f"child.rst's doctree was fetched {calls['child']} time(s), expected exactly 1"
 
 
 @pytest.mark.integration
