@@ -1311,6 +1311,17 @@ def test_first_appearance_adornments_sees_short_underline_only_titles() -> None:
 
 
 @pytest.mark.unit
+def test_hierarchy_error_describes_the_depth_aware_rule(tmp_path: Path) -> None:
+    p = _rst(tmp_path, "Title\n=====\n")
+
+    findings = _formatting.check_hierarchy(p)
+
+    assert len(findings) == 1
+    assert "established nesting depth must follow the hierarchy" in findings[0].text
+    assert "first-appearance order" not in findings[0].text
+
+
+@pytest.mark.unit
 def test_compute_structure_fixes_does_not_collide_short_titles() -> None:
     """The full regression: composing the fix must not remap a later,
     correctly-ranked character into collision with an earlier, short,

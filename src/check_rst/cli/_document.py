@@ -535,6 +535,10 @@ _TABLE_DIRECTIVE_RE = re.compile(r"\.\.\s+(table|list-table|csv-table)::")
 _TABLE_DIRECTIVE_KIND = {"table": "table", "list-table": "list", "csv-table": "csv"}
 
 
+_CAPTIONLESS_CSV_MARKER_RE = re.compile(r"^(?P<marker>[ \t]*(?:(?:[*+-]|\d+[.)])[ \t]+)*\.\.\s+csv-table::)[ \t]*$")
+_CSV_LOCATION_CAPTION_PREFIX = "check-rst-csv-location-"
+
+
 _GRID_TABLE_BORDER_RE = re.compile(r"^[ \t]*\+[-+]+\+[ \t]*$")
 
 
@@ -738,21 +742,59 @@ def _directive_body_end(lines: list[str], marker_idx: int) -> int:
     collapses to the same placeholder value, never the row's real position),
     so the only remaining signal is the marker's own indentation.
     """
+    marker_match = _TABLE_DIRECTIVE_RE.search(lines[marker_idx])
+    marker_indent = (
+        marker_match.start() if marker_match is not None else len(lines[marker_idx]) - len(lines[marker_idx].lstrip())
+    )
     end = marker_idx + 1
     i = marker_idx + 1
     while i < len(lines):
         line = lines[i]
         if not line.strip():
             nxt = i + 1
-            if nxt >= len(lines) or not (len(lines[nxt]) - len(lines[nxt].lstrip())):
+            while nxt < len(lines) and not lines[nxt].strip():
+                nxt += 1
+            if nxt >= len(lines) or len(lines[nxt]) - len(lines[nxt].lstrip()) <= marker_indent:
                 break
             i += 1
             continue
-        if not (len(line) - len(line.lstrip())):
+        if len(line) - len(line.lstrip()) <= marker_indent:
             break
         end = i + 1
         i += 1
     return end
+
+
+def _captionless_csv_marker_lines(path: pathlib.Path, lines: list[str]) -> list[int]:
+    """Return real captionless csv-table marker lines, excluding identical
+    text that RST parsed inside literal/comment content.
+
+    Older supported Docutils releases do not attach the directive line to a
+    captionless CSV table node.  Raw regex scanning cannot recover it safely:
+    documentation commonly quotes ``.. csv-table::`` inside code blocks.  A
+    location-only parse gives every marker-shaped line a unique temporary
+    caption; only syntactically active directives then produce table titles
+    carrying those tokens.  Source geometry is unchanged, and the caller uses
+    only the recovered line numbers.
+    """
+    probe_lines = list(lines)
+    for index, line in enumerate(probe_lines):
+        match = _CAPTIONLESS_CSV_MARKER_RE.match(line)
+        if match is not None:
+            probe_lines[index] = f"{match.group('marker')} {_CSV_LOCATION_CAPTION_PREFIX}{index + 1}"
+
+    probe = _helpers._parse_rst(path, "\n".join(probe_lines))
+    marker_lines: list[int] = []
+    for table in probe.findall(docutils.nodes.table):
+        if not table.children or not isinstance(table.children[0], docutils.nodes.title):
+            continue
+        title = table.children[0].astext()
+        if not title.startswith(_CSV_LOCATION_CAPTION_PREFIX):
+            continue
+        suffix = title.removeprefix(_CSV_LOCATION_CAPTION_PREFIX)
+        if suffix.isdecimal():
+            marker_lines.append(int(suffix))
+    return marker_lines
 
 
 def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEntry]:
@@ -770,6 +812,7 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
     lines = document.lines
     entries: list[TableEntry] = []
     csv_table_search_from = 0  # 0-based; advances past each resolved entry
+    captionless_csv_markers: list[int] | None = None
     for table in document.doctree.findall(docutils.nodes.table):
         depth = _block_depth(table)
 
@@ -794,27 +837,23 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
         # so `anchor` here is meaningless and _table_kind_and_start finds
         # nothing recognizable nearby, landing on its own ultimate
         # "table"/anchor fallback. The only remaining signal is the raw
-        # ``.. csv-table::`` marker itself: scan forward from the last
-        # resolved entry (correct for interleaving with other table kinds,
-        # since both this scan and the doctree walk proceed in document
-        # order) for the next one. KNOWN, ACCEPTED limitation: two
+        # ``.. csv-table::`` marker itself: recover syntactically active
+        # markers with a location-only probe parse, then scan forward from
+        # the last resolved entry (correct for interleaving with other table
+        # kinds, since both this scan and the doctree walk proceed in document
+        # order) for the next one. Two
         # captionless csv-tables placed back-to-back with nothing resolvable
         # between them would still be told apart correctly (each consumes
-        # the next marker in order), but this rescue is deliberately
-        # narrow — it never fires unless _table_kind_and_start's own
-        # fallback and a captionless table both agree nothing else fits.
+        # the next parsed marker in order). This rescue is deliberately narrow
+        # — it never fires unless _table_kind_and_start's own fallback and a
+        # captionless table both agree nothing else fits.
         if kind == "table" and start == anchor and caption is None:
-            marker_idx = next(
-                (
-                    i
-                    for i in range(csv_table_search_from, len(lines))
-                    if (m := _TABLE_DIRECTIVE_RE.match(lines[i].strip())) and m.group(1) == "csv-table"
-                ),
-                None,
-            )
-            rescued_csv_marker_idx = marker_idx
-            if marker_idx is not None:
-                kind, start = "csv", marker_idx + 1
+            if captionless_csv_markers is None:
+                captionless_csv_markers = _captionless_csv_marker_lines(path, lines)
+            marker_line = next((line for line in captionless_csv_markers if line > csv_table_search_from), None)
+            rescued_csv_marker_idx = marker_line - 1 if marker_line is not None else None
+            if marker_line is not None:
+                kind, start = "csv", marker_line
         else:
             rescued_csv_marker_idx = None
 

@@ -404,8 +404,8 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
                     lineno,
                     Severity.ERROR,
                     f"adornment {char!r} is this document's level {depth}, but "
-                    f"hierarchy level {depth} is {remap[char]!r} — first-appearance "
-                    f"order must follow the hierarchy from '#' down "
+                    f"hierarchy level {depth} is {remap[char]!r} — established "
+                    f"nesting depth must follow the hierarchy from '#' down "
                     f"(--fix remaps {char!r} to {remap[char]!r})",
                 )
             )

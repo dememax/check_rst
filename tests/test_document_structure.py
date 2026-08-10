@@ -8,6 +8,7 @@ import json
 import textwrap
 from typing import TYPE_CHECKING
 
+import docutils.nodes
 import pytest
 from _support import _GOOD_BLOCK, _rst
 
@@ -1838,6 +1839,71 @@ def test_tables_csv_table_detected(tmp_path: Path) -> None:
     assert e.caption == "CSV Caption"
     assert e.dims == (2, 2)
     assert e.preview == "H1 H2 a b"  # both rows chained, header first
+
+
+@pytest.mark.integration
+def test_captionless_csv_fallback_ignores_marker_text_in_literal_blocks(tmp_path: Path) -> None:
+    """The compatibility path for a table node without its own source line
+    must locate a parsed directive, not an earlier marker-shaped literal."""
+    p = _rst(
+        tmp_path,
+        """\
+        Title
+        =====
+
+        .. code-block:: rst
+
+           .. csv-table::
+              :header: "Fake"
+
+              "not", "a real table"
+
+        .. csv-table::
+           :header: "A", "B"
+
+           "1", "2"
+        """,
+    )
+    document = _document.Document(p)
+    for table in document.doctree.findall(docutils.nodes.table):
+        table.line = None
+
+    entries = _document.find_tables(p, document)
+
+    assert len(entries) == 1
+    assert (entries[0].lineno, entries[0].end) == (11, 14)
+
+
+@pytest.mark.integration
+def test_captionless_csv_fallback_stops_at_its_relative_directive_indent(tmp_path: Path) -> None:
+    """A nested directive ends before following prose at its marker's own
+    indentation, even though that prose remains indented within a list."""
+    p = _rst(
+        tmp_path,
+        """\
+        Title
+        =====
+
+        * Item
+
+          .. csv-table::
+             :header: "A", "B"
+
+             "1", "2"
+
+          This paragraph belongs to the list item, not to the CSV directive.
+
+        * Next item
+        """,
+    )
+    document = _document.Document(p)
+    for table in document.doctree.findall(docutils.nodes.table):
+        table.line = None
+
+    entries = _document.find_tables(p, document)
+
+    assert len(entries) == 1
+    assert (entries[0].lineno, entries[0].end) == (6, 9)
 
 
 @pytest.mark.integration
