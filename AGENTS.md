@@ -111,11 +111,23 @@ PYTHONPATH=src python3.14 -m check_rst check
 
 Review semantic WARNINGs in the first pass. Never suppress them merely to
 make the validation loop quiet. In a dirty worktree containing unrelated RST
-edits, use the same `--git-scope` allowlist on all three commands.
+edits, use the same `--git-scope` allowlist on all three commands — see
+`docs/guide.rst`, "History protection: bare mode and selective Git scope",
+for exactly what stays whole-file regardless of scope.
 
 `fix`, explicit filenames, and recursive scopes can modify source. Inspect
 Git state and preview uncertain or foreign content with `diff` before
 writing. Preserve unrelated user changes.
+
+Never bound or filter check_rst's own output with `head`/`tail`/`grep` —
+apply `docs/guide.rst`'s own "Piping anti-patterns" to this repository's
+validation loop first, not only to what the tool checks for others.
+
+When intentionally introducing a bad edit to confirm a check fires against
+this repository's own real content — not a `tmp_path` fixture — use `git
+stash` or a temporary branch, never an in-place edit with manual cleanup: a
+cleanup command like `grep -v "^$"` can silently alter unrelated content
+(blank lines, whitespace) and leave the worktree dirty after the test.
 
 ## Packaging and compatibility
 
@@ -127,6 +139,15 @@ only with corresponding test evidence.
 Verified Sphinx mode loads the selected project's `conf.py` and extensions,
 which execute Python code. Document and preserve the trust boundary: use it
 only with trusted projects.
+
+A breaking CLI change fails an un-updated downstream wrapper with a
+distinctive, diagnosable signature rather than a silent fallback — e.g. the
+subcommand redesign made a stale `check_rst --fix-only` call exit with
+argparse's own "the following arguments are required: COMMAND", confirmed
+live against a downstream project's own wrapper. Call this signature out in
+the commit or release notes for any breaking change, so a consumer hitting
+it afterward can rule out a version mismatch before suspecting a real
+formatting defect.
 
 ## Documentation structure
 
