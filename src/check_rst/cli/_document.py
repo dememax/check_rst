@@ -584,20 +584,30 @@ def _table_kind_and_start(lines: list[str], anchor: int) -> tuple[str, int]:
 
     A directive's own line IS the anchor when there's a caption (docutils
     sets a '.. table:: Caption' title's .line to the directive's own
-    line — confirmed directly).  Without a caption, the anchor is either
-    still inside an indented directive body (scan upward past the
-    indentation to the marker) or somewhere in a raw grid/simple table
-    (scan upward, INCLUSIVE of the anchor itself, through consecutive
-    border/rule lines to the topmost one) — inclusive because which line
-    docutils locates here is version-dependent: confirmed directly that
-    docutils 0.23 (gl63) sets the <table> node's OWN .line to the TOP
-    border, while this host's docutils leaves it unset and the first
-    locatable line is the header content row one line below the border;
-    scanning inclusive of the anchor handles both without caring which
-    one this docutils build gave us.  KNOWN, ACCEPTED limitation: a
-    captionless, headerless directive table (no thead, no title) can't be
-    told apart from this scan if its body's own indentation is ambiguous;
-    falls back to kind='table' at the anchor itself.
+    line — confirmed directly).  Without a caption, the anchor is
+    somewhere in a raw grid/simple table (scan upward, INCLUSIVE of the
+    anchor itself, through consecutive border/rule lines to the topmost
+    one) — inclusive because which line docutils locates here is
+    version-dependent: confirmed directly that docutils 0.23 (gl63) sets
+    the <table> node's OWN .line to the TOP border, while this host's
+    docutils leaves it unset and the first locatable line is the header
+    content row one line below the border; scanning inclusive of the
+    anchor handles both without caring which one this docutils build gave
+    us.  A grid/simple table found this way can ALSO be wrapped in a
+    captionless directive of its own — the two are not mutually
+    exclusive, so the scan continues upward past the topmost border,
+    skipping the directive's own blank/option lines, to check for an
+    enclosing ``.. table::``/``.. csv-table::``/``.. list-table::``
+    marker at lesser indentation; only a genuinely bare table (no
+    enclosing directive found) returns "grid"/"simple" at the border
+    (found live: a captionless ``.. table:: :widths: auto`` wrapping a
+    grid table used to return "grid" at the border, silently discarding
+    the directive's own options during list-table conversion).  KNOWN,
+    ACCEPTED limitation: a captionless, headerless directive table (no
+    thead, no title, no recognizable border either — i.e. anchor lands
+    directly on content with no enclosing marker findable within its own
+    indentation) can't be told apart from this scan; falls back to
+    kind='table' at the anchor itself.
     """
     anchor_idx = anchor - 1
     if not (0 <= anchor_idx < len(lines)):
@@ -633,23 +643,33 @@ def _table_kind_and_start(lines: list[str], anchor: int) -> tuple[str, int]:
     while i >= 0 and (_GRID_TABLE_BORDER_RE.match(lines[i]) or _SIMPLE_TABLE_RULE_RE.match(lines[i])):
         top = i
         i -= 1
-    if top is not None:
-        kind = "grid" if lines[top].lstrip().startswith("+") else "simple"
-        return kind, top + 1
 
-    anchor_indent = len(anchor_line) - len(anchor_line.lstrip())
-    i = anchor_idx - 1
+    # Bare-table fallback if no enclosing directive is found below: the
+    # border's own top (grid/simple), or the anchor itself (nothing
+    # recognizable nearby at all).
+    if top is not None:
+        bare_kind = "grid" if lines[top].lstrip().startswith("+") else "simple"
+        bare_start = top + 1
+        body_indent = len(lines[top]) - len(lines[top].lstrip())
+        search_from = top - 1
+    else:
+        bare_kind = "table"
+        bare_start = anchor
+        body_indent = len(anchor_line) - len(anchor_line.lstrip())
+        search_from = anchor_idx - 1
+
+    i = search_from
     while i >= 0:
         line = lines[i]
         if not line.strip():
             i -= 1
             continue
-        if len(line) - len(line.lstrip()) >= anchor_indent:
+        if len(line) - len(line.lstrip()) >= body_indent:
             i -= 1
             continue
         m = _TABLE_DIRECTIVE_RE.match(line.strip())
-        return (_TABLE_DIRECTIVE_KIND[m.group(1)], i + 1) if m else ("table", anchor)
-    return "table", anchor
+        return (_TABLE_DIRECTIVE_KIND[m.group(1)], i + 1) if m else (bare_kind, bare_start)
+    return bare_kind, bare_start
 
 
 def _table_end(lines: list[str], last_content_line: int, start_line: int | None = None) -> int:
@@ -714,6 +734,34 @@ def _table_end(lines: list[str], last_content_line: int, start_line: int | None 
     return end
 
 
+def _directive_body_end(lines: list[str], marker_idx: int) -> int:
+    """1-based end line of the indented block belonging to the directive
+    whose marker sits at *marker_idx* (0-based) — a plain indentation-block
+    extent, the same rule every directive body in this grammar follows.
+    Used specifically to recover a captionless csv-table's extent (see
+    find_tables' csv-table rescue): unlike grid/simple tables or list-table,
+    none of its synthesized cell content carries real .line info to extend
+    from (confirmed by direct probe — every locatable descendant line
+    collapses to the same placeholder value, never the row's real position),
+    so the only remaining signal is the marker's own indentation.
+    """
+    end = marker_idx + 1
+    i = marker_idx + 1
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip():
+            nxt = i + 1
+            if nxt >= len(lines) or not (len(lines[nxt]) - len(lines[nxt].lstrip())):
+                break
+            i += 1
+            continue
+        if not (len(line) - len(line.lstrip())):
+            break
+        end = i + 1
+        i += 1
+    return end
+
+
 def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEntry]:
     """Return every table in *path*, in document order.
 
@@ -728,6 +776,7 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
     document = _resolve_document(path, doc)
     lines = document.lines
     entries: list[TableEntry] = []
+    csv_table_search_from = 0  # 0-based; advances past each resolved entry
     for table in document.doctree.findall(docutils.nodes.table):
         depth = _block_depth(table)
 
@@ -745,6 +794,37 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
 
         kind, start = _table_kind_and_start(lines, anchor)
 
+        # A captionless csv-table's content is synthesized from parsed CSV
+        # data with no real source correspondence: every cell paragraph
+        # reports the SAME placeholder .line (confirmed by direct probe:
+        # always 1, regardless of the table's real position or row count),
+        # so `anchor` here is meaningless and _table_kind_and_start finds
+        # nothing recognizable nearby, landing on its own ultimate
+        # "table"/anchor fallback. The only remaining signal is the raw
+        # ``.. csv-table::`` marker itself: scan forward from the last
+        # resolved entry (correct for interleaving with other table kinds,
+        # since both this scan and the doctree walk proceed in document
+        # order) for the next one. KNOWN, ACCEPTED limitation: two
+        # captionless csv-tables placed back-to-back with nothing resolvable
+        # between them would still be told apart correctly (each consumes
+        # the next marker in order), but this rescue is deliberately
+        # narrow — it never fires unless _table_kind_and_start's own
+        # fallback and a captionless table both agree nothing else fits.
+        if kind == "table" and start == anchor and caption is None:
+            marker_idx = next(
+                (
+                    i
+                    for i in range(csv_table_search_from, len(lines))
+                    if (m := _TABLE_DIRECTIVE_RE.match(lines[i].strip())) and m.group(1) == "csv-table"
+                ),
+                None,
+            )
+            rescued_csv_marker_idx = marker_idx
+            if marker_idx is not None:
+                kind, start = "csv", marker_idx + 1
+        else:
+            rescued_csv_marker_idx = None
+
         tgroup = next(table.findall(docutils.nodes.tgroup), None)
         cols = tgroup.get("cols", 0) if tgroup is not None else 0
         table_rows = list(table.findall(docutils.nodes.row))
@@ -757,9 +837,16 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
         all_cells = [c.astext() for row in table_rows for c in row.children if isinstance(c, docutils.nodes.entry)]
         preview = _outline_preview(" ".join(all_cells))
 
-        content_lines = [n.line for n in table.findall() if isinstance(n.line, int)]
-        last_content_line = max(content_lines) if content_lines else start
-        end = _table_end(lines, last_content_line, start)
+        if rescued_csv_marker_idx is not None:
+            # None of this table's content lines are real (see above) —
+            # _table_end's own content-line-driven extension has nothing
+            # trustworthy to start from either.
+            end = _directive_body_end(lines, rescued_csv_marker_idx)
+        else:
+            content_lines = [n.line for n in table.findall() if isinstance(n.line, int)]
+            last_content_line = max(content_lines) if content_lines else start
+            end = _table_end(lines, last_content_line, start)
+        csv_table_search_from = max(csv_table_search_from, end)
 
         entries.append(TableEntry(start, depth, kind, (rows, cols), caption, preview, end))
     return entries
