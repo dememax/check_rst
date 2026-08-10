@@ -1763,6 +1763,34 @@ def test_heuristic_code_blocks_depth_ignores_enclosing_list_item(
 
 
 @pytest.mark.integration
+def test_heuristic_nested_code_block_range_stops_before_list_item_sibling(
+    tmp_path: Path,
+) -> None:
+    p = _rst(
+        tmp_path,
+        """\
+        Title
+        =====
+
+        * Item
+
+          .. code-block:: text
+
+             payload
+
+          Following prose in the list item.
+
+        * Next item
+        """,
+    )
+
+    entry = _document.find_code_blocks_heuristic(p)[0]
+
+    assert entry.end == 8
+    assert entry.preview == "payload"
+
+
+@pytest.mark.integration
 def test_code_blocks_depth_accounts_for_enclosing_list_item(
     build_sphinx_env: BuildSphinxEnv,
 ) -> None:

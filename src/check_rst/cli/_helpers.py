@@ -5,9 +5,13 @@
 from __future__ import annotations
 
 import collections
+import contextlib
+import os
 import pathlib
 import re
+import stat
 import subprocess
+import tempfile
 import unicodedata
 from typing import TYPE_CHECKING, NoReturn
 
@@ -44,6 +48,40 @@ CALL_COUNTS: collections.Counter[str] = collections.Counter()
 
 
 _JSON_SCHEMA_VERSION = 1
+
+
+def _atomic_write_bytes(path: pathlib.Path, data: bytes) -> None:
+    """Replace *path* with *data* without exposing a partial destination.
+
+    The temporary file lives beside the destination so ``os.replace`` stays
+    on one filesystem.  Resolve a symlink first: the historical in-place
+    writers updated its target, and an atomic rename over the link itself
+    would silently change that contract.  The existing permission bits are
+    copied before the candidate is flushed and made visible.
+    """
+    destination = path.resolve(strict=True) if path.is_symlink() else path
+    metadata = destination.stat()
+    fd, temporary_name = tempfile.mkstemp(
+        dir=destination.parent,
+        prefix=f".{destination.name}.check_rst-",
+        suffix=".tmp",
+    )
+    temporary = pathlib.Path(temporary_name)
+    descriptor_open = True
+    try:
+        os.fchmod(fd, stat.S_IMODE(metadata.st_mode))
+        with os.fdopen(fd, "wb") as stream:
+            descriptor_open = False
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, destination)
+    except BaseException:
+        if descriptor_open:
+            os.close(fd)
+        with contextlib.suppress(FileNotFoundError):
+            temporary.unlink()
+        raise
 
 
 def _freeze_node_attribute(value: object) -> object:
@@ -164,13 +202,25 @@ def _git_worktree_root(project_root: pathlib.Path | None = None) -> pathlib.Path
     return pathlib.Path(result.stdout.rstrip("\n"))
 
 
-def _indented_extent(lines: list[str], start: int) -> int:
-    """Return the last line (1-based) of the indented block anchored at
-    1-based *start*: following lines that are blank or indented belong to
-    the block; the extent ends at the last indented non-blank line.
-    Shared by blockquote and code-block range computation — the same
-    arithmetic previously re-derived by hand to feed sed/Read ranges.
+def _indented_extent(
+    lines: list[str],
+    start: int,
+    *,
+    allow_same_indent: bool = False,
+) -> int:
+    """Return the final content line in the block anchored at *start*.
+
+    Directive bodies and list-item continuations must be deeper than their
+    marker's source column.  A block quote is different: all its source lines
+    share the quote's already-indented column, so its caller opts into equal
+    indentation.  Blank separators extend a candidate only when later content
+    still satisfies that relative indentation predicate.
     """
+    if not 1 <= start <= len(lines):
+        return start
+
+    anchor = lines[start - 1]
+    anchor_indent = len(anchor.expandtabs(8)) - len(anchor.lstrip(" \t").expandtabs(8))
     end = start
     i = start  # 0-based index of the line AFTER start
     while i < len(lines):
@@ -178,7 +228,8 @@ def _indented_extent(lines: list[str], start: int) -> int:
         if not line.strip():
             i += 1
             continue
-        if line.startswith((" ", "\t")):
+        indent = len(line.expandtabs(8)) - len(line.lstrip(" \t").expandtabs(8))
+        if indent > anchor_indent or (allow_same_indent and indent == anchor_indent):
             end = i + 1
             i += 1
             continue

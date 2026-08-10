@@ -17,6 +17,22 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+@pytest.mark.unit
+def test_apply_fix_plan_refuses_to_overwrite_source_changed_after_planning(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "document.rst"
+    path.write_text("######\nTitle\n######\n", encoding="utf-8")
+    plan = _formatting._plan_fix(path, True, include_structure=True)
+    external_edit = "Externally edited.\n"
+    path.write_text(external_edit, encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="source changed after fix planning"):
+        _formatting._apply_fix_plan(plan)
+
+    assert path.read_text(encoding="utf-8") == external_edit
+
+
 @pytest.mark.integration
 def test_hygiene_clean_file_no_findings_unchanged(tmp_path: Path) -> None:
     """A clean LF-only file yields no hygiene findings and is never rewritten."""

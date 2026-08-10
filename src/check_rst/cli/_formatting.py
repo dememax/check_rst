@@ -23,6 +23,7 @@ from ._helpers import (
     _DOCUTILS_MIN_ADORNMENT_LEN,
     HIERARCHY,
     PREFERRED_HIERARCHY,
+    _atomic_write_bytes,
     _canonical_title,
     _changed_line_ranges,
     _in_scope,
@@ -64,7 +65,7 @@ def fix_hygiene(path: pathlib.Path) -> bool:
     normalized, _ = _normalize_source(raw)
     if normalized == raw:
         return False
-    path.write_bytes(normalized.encode("utf-8"))
+    _atomic_write_bytes(path, normalized.encode("utf-8"))
     return True
 
 
@@ -503,10 +504,9 @@ def fix_structure(
     if new_lines == lines:
         return False
 
-    path.write_text(
-        "\n".join(new_lines) + ("\n" if trailing_newline else ""),
-        encoding="utf-8",
-        newline="\n",
+    _atomic_write_bytes(
+        path,
+        ("\n".join(new_lines) + ("\n" if trailing_newline else "")).encode("utf-8"),
     )
     return True
 
@@ -613,7 +613,7 @@ def _plan_fix(
     original = _read_source(path)
     normalized, _findings, counts = _normalize_source_detailed(original)
     ranges = None if whole_file or not include_structure else _changed_line_ranges(path, project_root)
-    editorial_fixed, _space_counts = _normalize_text_spaces(
+    editorial_fixed, space_counts = _normalize_text_spaces(
         path,
         normalized,
         collapse_titles=collapse_title_spaces,
@@ -621,8 +621,9 @@ def _plan_fix(
     )
     structure_fixed = _apply_structure_to_text(editorial_fixed, ranges) if include_structure else editorial_fixed
     fixed = structure_fixed
+    blank_lines_removed = 0
     if include_blank_lines:
-        fixed, _removed = _normalize_blank_lines(path, fixed)
+        fixed, blank_lines_removed = _normalize_blank_lines(path, fixed)
     counts = counts.with_structural_lines(
         _changed_line_count(editorial_fixed, structure_fixed) if include_structure else 0
     )
@@ -641,13 +642,22 @@ def _plan_fix(
     if converged != fixed:
         raise RuntimeError("deterministic fix plan did not converge in one pass")
 
-    return FixPlan(path=path, original=original, fixed=fixed, counts=counts)
+    return FixPlan(
+        path=path,
+        original=original,
+        fixed=fixed,
+        counts=counts,
+        text_space_counts=space_counts,
+        blank_lines_removed=blank_lines_removed,
+    )
 
 
 def _apply_fix_plan(plan: FixPlan) -> FixResult:
     """Write one precomputed plan and return its structured result."""
     if plan.changed:
-        plan.path.write_bytes(plan.fixed.encode("utf-8"))
+        if plan.path.read_bytes() != plan.original.encode("utf-8"):
+            raise RuntimeError("source changed after fix planning; file left untouched")
+        _atomic_write_bytes(plan.path, plan.fixed.encode("utf-8"))
     return FixResult(path=plan.path, changed=plan.changed, counts=plan.counts)
 
 
@@ -762,7 +772,7 @@ def fix_blank_lines(path: pathlib.Path) -> int:
     text = _read_normalized(path)
     normalized, removed = _normalize_blank_lines(path, text)
     if removed:
-        path.write_text(normalized, encoding="utf-8", newline="\n")
+        _atomic_write_bytes(path, normalized.encode("utf-8"))
     return removed
 
 
@@ -980,5 +990,5 @@ def fix_text_spaces(
         single_space_prose=single_space_prose,
     )
     if counts.total:
-        path.write_text(normalized, encoding="utf-8", newline="\n")
+        _atomic_write_bytes(path, normalized.encode("utf-8"))
     return counts

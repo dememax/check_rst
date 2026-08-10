@@ -1268,6 +1268,22 @@ def test_diff_json_dumps_unchanged_file_reports_unchanged_status() -> None:
 
 
 @pytest.mark.unit
+def test_diff_json_dumps_reports_a_file_error_transition() -> None:
+    old = _json_dump()
+    old["files"][0]["error"] = "not valid UTF-8"
+    new = _json_dump()
+
+    diff = _reports._diff_json_dumps(old, new)
+
+    assert diff["files"]["doc.rst"]["status"] == "changed"
+    assert diff["files"]["doc.rst"]["error"] == {
+        "old": "not valid UTF-8",
+        "new": None,
+    }
+    assert "error: 'not valid UTF-8' -> None" in _reports._format_json_diff(diff)
+
+
+@pytest.mark.unit
 def test_diff_json_dumps_added_and_removed_files() -> None:
     old = _json_dump(path="a.rst")
     new = _json_dump(path="b.rst")
@@ -1352,6 +1368,103 @@ def test_cli_diff_json_missing_file_errors_cleanly(
         ("[]", "top level must be an object"),
         ("{}", "missing required key"),
         ('{"files": [], "summary": {}}', "summary missing"),
+        (
+            json.dumps(
+                {
+                    "files": [{"path": "doc.rst", "outline": [{}], "findings": []}],
+                    "summary": {"files_checked": 1, "errors": 0, "warnings": 0},
+                }
+            ),
+            "files[0].outline[0] missing 'id'",
+        ),
+        (
+            json.dumps(
+                {
+                    "files": [
+                        {
+                            "path": "doc.rst",
+                            "outline": [],
+                            "findings": [{"severity": "WARNING"}],
+                        }
+                    ],
+                    "summary": {"files_checked": 1, "errors": 0, "warnings": 1},
+                }
+            ),
+            "files[0].findings[0] missing 'text'",
+        ),
+        (
+            json.dumps(
+                {
+                    "files": [None],
+                    "summary": {"files_checked": 1, "errors": 0, "warnings": 0},
+                }
+            ),
+            "files[0] must be an object",
+        ),
+        (
+            json.dumps(
+                {
+                    "files": [{"path": 1, "outline": [], "findings": []}],
+                    "summary": {"files_checked": 1, "errors": 0, "warnings": 0},
+                }
+            ),
+            "files[0].path must be a string",
+        ),
+        (
+            json.dumps(
+                {
+                    "files": [
+                        {"path": "doc.rst", "outline": [], "findings": []},
+                        {"path": "doc.rst", "outline": [], "findings": []},
+                    ],
+                    "summary": {"files_checked": 2, "errors": 0, "warnings": 0},
+                }
+            ),
+            "files[1].path duplicates 'doc.rst'",
+        ),
+        (
+            json.dumps(
+                {
+                    "files": [{"path": "doc.rst", "outline": [], "findings": [], "error": None}],
+                    "summary": {"files_checked": 1, "errors": 1, "warnings": 0},
+                }
+            ),
+            "files[0].error must be a string",
+        ),
+        (
+            json.dumps(
+                {
+                    "files": [
+                        {
+                            "path": "doc.rst",
+                            "outline": [{"id": 1, "depth": 1, "char": "#"}],
+                            "findings": [],
+                        }
+                    ],
+                    "summary": {"files_checked": 1, "errors": 0, "warnings": 0},
+                }
+            ),
+            "files[0].outline[0].id must be a string",
+        ),
+        (
+            json.dumps(
+                {
+                    "files": [{"path": "doc.rst", "outline": [], "findings": [None]}],
+                    "summary": {"files_checked": 1, "errors": 0, "warnings": 1},
+                }
+            ),
+            "files[0].findings[0] must be an object",
+        ),
+        (
+            json.dumps(
+                {
+                    "files": [{"path": "doc.rst", "outline": [], "findings": []}],
+                    "summary": {"files_checked": 1, "errors": 0, "warnings": 0},
+                    "sphinx_findings": {},
+                }
+            ),
+            "sphinx_findings must be an array",
+        ),
     ],
 )
 def test_cli_diff_json_rejects_malformed_or_wrong_schema_cleanly(
@@ -1377,6 +1490,36 @@ def test_cli_diff_json_rejects_malformed_or_wrong_schema_cleanly(
     out = capsys.readouterr().out
     assert message in out
     assert "Traceback" not in out
+
+
+@pytest.mark.integration
+def test_cli_diff_json_accepts_its_own_invalid_utf8_error_dump(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "invalid.rst"
+    source.write_bytes(b"Title\n\xff\n")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(source)])
+
+    with pytest.raises(SystemExit) as check_exit:
+        cli.main()
+
+    assert check_exit.value.code == 1
+    dump_text = capsys.readouterr().out
+    dump = json.loads(dump_text)
+    assert dump["files"][0]["outline"] == []
+    old = tmp_path / "old.json"
+    new = tmp_path / "new.json"
+    old.write_text(dump_text, encoding="utf-8")
+    new.write_text(dump_text, encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "diff-json", str(old), str(new)])
+
+    with pytest.raises(SystemExit) as diff_exit:
+        cli.main()
+
+    assert diff_exit.value.code == 0
+    assert f"{source}: unchanged" in capsys.readouterr().out
 
 
 @pytest.mark.unit

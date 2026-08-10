@@ -15,7 +15,7 @@ import re
 import shutil
 import sys
 import tempfile
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import docutils.nodes
 
@@ -871,23 +871,64 @@ def _load_json_dump(path: pathlib.Path) -> dict[str, Any]:
             print(f"check_rst: {path}: summary {key!r} must be an integer")
             raise SystemExit(1)
 
+    def schema_error(message: str) -> NoReturn:
+        print(f"check_rst: {path}: {message}")
+        raise SystemExit(1)
+
+    def validate_finding(record: object, label: str) -> None:
+        if not isinstance(record, dict):
+            schema_error(f"{label} must be an object")
+        for key in ("severity", "text"):
+            if key not in record:
+                schema_error(f"{label} missing {key!r}")
+            if not isinstance(record[key], str):
+                schema_error(f"{label}.{key} must be a string")
+
+    seen_paths: set[str] = set()
     for i, file_record in enumerate(data["files"]):
         if not isinstance(file_record, dict):
-            print(f"check_rst: {path}: files[{i}] must be an object")
-            raise SystemExit(1)
+            schema_error(f"files[{i}] must be an object")
         for key in ("path", "outline", "findings"):
             if key not in file_record:
-                print(f"check_rst: {path}: files[{i}] missing {key!r}")
-                raise SystemExit(1)
+                schema_error(f"files[{i}] missing {key!r}")
         if not isinstance(file_record["path"], str):
-            print(f"check_rst: {path}: files[{i}].path must be a string")
-            raise SystemExit(1)
+            schema_error(f"files[{i}].path must be a string")
+        if file_record["path"] in seen_paths:
+            schema_error(f"files[{i}].path duplicates {file_record['path']!r}")
+        seen_paths.add(file_record["path"])
         if not isinstance(file_record["outline"], list):
-            print(f"check_rst: {path}: files[{i}].outline must be an array")
-            raise SystemExit(1)
+            schema_error(f"files[{i}].outline must be an array")
         if not isinstance(file_record["findings"], list):
-            print(f"check_rst: {path}: files[{i}].findings must be an array")
-            raise SystemExit(1)
+            schema_error(f"files[{i}].findings must be an array")
+        if "error" in file_record and not isinstance(file_record["error"], str):
+            schema_error(f"files[{i}].error must be a string")
+
+        seen_ids: set[str] = set()
+        for j, entry in enumerate(file_record["outline"]):
+            label = f"files[{i}].outline[{j}]"
+            if not isinstance(entry, dict):
+                schema_error(f"{label} must be an object")
+            for key in ("id", "depth", "char"):
+                if key not in entry:
+                    schema_error(f"{label} missing {key!r}")
+            if not isinstance(entry["id"], str):
+                schema_error(f"{label}.id must be a string")
+            if not isinstance(entry["depth"], int) or isinstance(entry["depth"], bool):
+                schema_error(f"{label}.depth must be an integer")
+            if not isinstance(entry["char"], str):
+                schema_error(f"{label}.char must be a string")
+            if entry["id"] in seen_ids:
+                schema_error(f"{label}.id duplicates {entry['id']!r}")
+            seen_ids.add(entry["id"])
+
+        for j, finding in enumerate(file_record["findings"]):
+            validate_finding(finding, f"files[{i}].findings[{j}]")
+
+    if "sphinx_findings" in data:
+        if not isinstance(data["sphinx_findings"], list):
+            schema_error("sphinx_findings must be an array")
+        for i, finding in enumerate(data["sphinx_findings"]):
+            validate_finding(finding, f"sphinx_findings[{i}]")
 
     return data
 
@@ -946,8 +987,9 @@ def _diff_json_dumps(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]
         new_findings = collections.Counter(finding_key(f) for f in n.get("findings", []))
         added_findings = list((new_findings - old_findings).elements())
         resolved_findings = list((old_findings - new_findings).elements())
+        error_changed = o.get("error") != n.get("error")
 
-        changed = bool(added_ids or removed_ids or changed_ids or added_findings or resolved_findings)
+        changed = bool(added_ids or removed_ids or changed_ids or added_findings or resolved_findings or error_changed)
         files_diff[path] = {
             "status": "changed" if changed else "unchanged",
             "outline": {
@@ -959,6 +1001,7 @@ def _diff_json_dumps(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]
                 "added": [{"severity": s, "text": t} for s, t in added_findings],
                 "resolved": [{"severity": s, "text": t} for s, t in resolved_findings],
             },
+            "error": {"old": o.get("error"), "new": n.get("error")} if error_changed else None,
         }
 
     def sphinx_finding_key(finding: dict[str, Any]) -> tuple[str, str]:
@@ -1033,4 +1076,6 @@ def _format_json_diff(diff: dict[str, Any]) -> str:
                 lines.append(f"    + {f['severity']}: {f['text']}")
             for f in findings["resolved"]:
                 lines.append(f"    - {f['severity']}: {f['text']}")
+        if fd.get("error") is not None:
+            lines.append(f"  error: {fd['error']['old']!r} -> {fd['error']['new']!r}")
     return "\n".join(lines)

@@ -104,6 +104,8 @@ class FixPlan:
     original: str
     fixed: str
     counts: FixCounts
+    text_space_counts: TextSpaceCounts
+    blank_lines_removed: int
 
     @property
     def changed(self) -> bool:

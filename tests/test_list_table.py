@@ -1201,6 +1201,77 @@ def test_cli_list_table_apply_writes_file_and_exits_0(
 
 
 @pytest.mark.integration
+def test_cli_list_table_invalid_utf8_is_a_clean_per_file_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = tmp_path / "invalid.rst"
+    p.write_bytes(b"Title\n\xff\n")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", str(p)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert f"{p}:2: ERROR: not valid UTF-8" in out
+    assert "Traceback" not in out
+    assert "1 file(s) checked, 1 error(s)" in out
+
+
+@pytest.mark.integration
+def test_cli_list_table_read_failure_is_a_clean_per_file_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = tmp_path / "document.rst"
+    p.write_text("Title\n=====\n", encoding="utf-8")
+
+    def fail_read(*_args: object) -> None:
+        raise OSError("simulated read failure")
+
+    monkeypatch.setattr(cli, "_plan_list_table_file", fail_read)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", str(p)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert f"{p}:1: ERROR: cannot read input: simulated read failure" in out
+    assert "1 file(s) checked, 1 error(s)" in out
+
+
+@pytest.mark.integration
+def test_cli_list_table_write_failure_is_clean_and_preserves_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = tmp_path / "doc.rst"
+    original = "Title\n#####\n\n" + _LIST_TABLE_GRID
+    p.write_text(original, encoding="utf-8")
+
+    def fail_write(_path: object, _data: object) -> None:
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr(cli, "_atomic_write_bytes", fail_write)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", "--apply", str(p)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert p.read_text(encoding="utf-8") == original
+    out = capsys.readouterr().out
+    assert f"{p}:1: ERROR: cannot write converted source: simulated write failure" in out
+    assert "0 file(s) converted" in out
+    assert "0 table(s) converted" in out
+
+
+@pytest.mark.integration
 def test_cli_apply_writes_proven_tables_despite_an_ordinary_refusal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

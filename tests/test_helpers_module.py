@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import docutils.nodes
@@ -16,6 +17,64 @@ from check_rst.cli import _helpers, _lint
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+@pytest.mark.unit
+def test_atomic_write_failure_preserves_destination_and_removes_temporary_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed final replace cannot expose a partial candidate or temp file."""
+    destination = tmp_path / "document.rst"
+    original = b"original source\n"
+    destination.write_bytes(original)
+
+    def fail_replace(_source: object, _destination: object) -> None:
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        _helpers._atomic_write_bytes(destination, b"replacement source\n")
+
+    assert destination.read_bytes() == original
+    assert list(tmp_path.iterdir()) == [destination]
+
+
+@pytest.mark.unit
+def test_atomic_write_preserves_mode_and_updates_a_symlink_target(tmp_path: Path) -> None:
+    target = tmp_path / "target.rst"
+    target.write_bytes(b"original\n")
+    target.chmod(0o640)
+    link = tmp_path / "link.rst"
+    link.symlink_to(target)
+
+    _helpers._atomic_write_bytes(link, b"replacement\n")
+
+    assert link.is_symlink()
+    assert target.read_bytes() == b"replacement\n"
+    assert target.stat().st_mode & 0o777 == 0o640
+
+
+@pytest.mark.unit
+def test_indented_extent_is_relative_to_anchor_but_can_continue_block_quote_indent() -> None:
+    directive = [
+        "  .. code-block:: text",
+        "",
+        "     payload",
+        "",
+        "  sibling prose",
+        "* next item",
+    ]
+    quote = [
+        "    first quote line",
+        "    second quote line",
+        "",
+        "  sibling prose",
+    ]
+
+    assert _helpers._indented_extent(directive, 1) == 3
+    assert _helpers._indented_extent(quote, 1, allow_same_indent=True) == 2
 
 
 @pytest.mark.unit

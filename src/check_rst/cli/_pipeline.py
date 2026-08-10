@@ -20,14 +20,12 @@ if TYPE_CHECKING:
 from . import _reports, _sphinx
 from ._document import Document, build_outline
 from ._formatting import (
+    _apply_fix_plan,
+    _plan_fix,
     check_adornments,
     check_hierarchy,
     check_single_top_level,
     diff_fixes,
-    fix_blank_lines,
-    fix_hygiene,
-    fix_structure,
-    fix_text_spaces,
 )
 from ._helpers import _JSON_SCHEMA_VERSION
 from ._lint import check_directives, check_homoglyphs, check_nested_inline_markup
@@ -53,6 +51,7 @@ from ._sphinx import (
     find_toctrees,
 )
 from ._types import (
+    FixPlan,
     LocalEntry,
     MergedEntry,
     OutlineEntry,
@@ -94,6 +93,47 @@ class _PipelineState:
     would_change: set[str] = dataclasses.field(default_factory=set)
     suppressed_fixable: collections.Counter[pathlib.Path] = dataclasses.field(default_factory=collections.Counter)
     sphinx_findings_json: list[dict[str, Any]] | None = None
+    fix_plans: dict[pathlib.Path, FixPlan] = dataclasses.field(default_factory=dict)
+
+
+def _plan_normal_fixes(
+    args: argparse.Namespace,
+    files: list[pathlib.Path],
+    whole_file: bool,
+    project_root: pathlib.Path,
+    state: _PipelineState,
+) -> None:
+    """Plan the complete full-pipeline fix selection before any write."""
+    for path in files:
+        try:
+            state.fix_plans[path] = _plan_fix(
+                path,
+                whole_file,
+                include_structure=not args.no_adornments,
+                include_blank_lines=args.normalize_blank_lines,
+                collapse_title_spaces=args.collapse_title_spaces,
+                single_space_prose=args.single_space_prose,
+                project_root=project_root,
+            )
+        except UnicodeDecodeError as exc:
+            err_line = exc.object.count(b"\n", 0, exc.start) + 1
+            _emit_report_line(
+                f"{path}:{err_line}: ERROR: not valid UTF-8 ({exc.reason} at byte offset {exc.start})",
+                "ERROR",
+            )
+            state.total_errors += 1
+        except OSError as exc:
+            _emit_report_line(f"check_rst: {path}: ERROR: cannot read input: {exc}", "ERROR")
+            state.total_errors += 1
+        except RuntimeError as exc:
+            _emit_report_line(f"check_rst: {path}: ERROR: {exc}", "ERROR")
+            state.total_errors += 1
+
+    if state.total_errors:
+        _emit_final_status(
+            f"check_rst: {len(files)} file(s) selected, {state.total_errors} input error(s), 0 file(s) fixed"
+        )
+        raise SystemExit(1)
 
 
 def _run_phase1(
@@ -118,6 +158,7 @@ def _run_phase1(
                 state.json_records[path] = {
                     "path": str(path),
                     "error": "file not found",
+                    "outline": [],
                     "findings": [],
                 }
             else:
@@ -131,15 +172,17 @@ def _run_phase1(
         # Phase 0 — byte hygiene, before anything parses the file.  Always
         # whole-file (a line-ending policy can't be diff-scoped), independent
         # of --no-adornments, and every finding is --fix-able, so
-        # --skip-fixable suppresses them all.  In --fix mode this write MUST
-        # come first: the other fixers re-read the file from disk.
+        # --skip-fixable suppresses them all.  In --fix mode the complete
+        # selection was already planned without writes; this original-state
+        # Document supplies the hygiene progress category before the composed
+        # candidate is installed atomically below.
         # Phase 0 is also where a non-UTF-8 file surfaces: a clean per-file
         # ERROR, never a UnicodeDecodeError traceback (found by probe,
         # 2026-07-18 — same traceback-instead-of-diagnostic class as the
         # not-a-git-repo case).
         document = Document(path, project_root)
         if args.json:
-            state.json_records[path] = {"path": pstr, "findings": []}
+            state.json_records[path] = {"path": pstr, "outline": [], "findings": []}
         try:
             hygiene_v = document.hygiene
         except UnicodeDecodeError as exc:
@@ -163,10 +206,24 @@ def _run_phase1(
             state.total_errors += 1
             continue
         if args.fix:
-            if fix_hygiene(path):
+            plan = state.fix_plans[path]
+            try:
+                _apply_fix_plan(plan)
+            except (OSError, RuntimeError) as exc:
+                _emit_report_line(f"check_rst: {path}: ERROR: cannot write fix: {exc}", "ERROR")
+                state.total_errors += 1
+                continue
+            if plan.changed:
                 state.fixed_files.add(pstr)
-                if not args.quiet:
-                    print(f"✓ {pstr}: hygiene fix applied (line endings / BOM / trailing whitespace)")
+            if not args.quiet and hygiene_v:
+                print(f"✓ {pstr}: hygiene fix applied (line endings / BOM / trailing whitespace)")
+            if not args.quiet and plan.text_space_counts.total:
+                print(f"✓ {pstr}: {plan.text_space_counts.describe()}")
+            if not args.quiet and plan.counts.structural_lines:
+                print(f"✓ {pstr}: adornment/hierarchy fix applied")
+            if not args.quiet and plan.blank_lines_removed:
+                noun = _plural(plan.blank_lines_removed, "line")
+                print(f"✓ {pstr}: {plan.blank_lines_removed} redundant blank {noun} removed")
         elif hygiene_v:
             if args.skip_fixable:
                 state.suppressed_fixable[path] += len(hygiene_v)
@@ -178,17 +235,6 @@ def _run_phase1(
                 e, w = _print_findings(hygiene_v, pstr, args.no_warnings, suppress_findings)
                 state.total_errors += e
                 state.total_warnings += w
-
-        if args.fix and (args.collapse_title_spaces or args.single_space_prose):
-            text_space_counts = fix_text_spaces(
-                path,
-                collapse_titles=args.collapse_title_spaces,
-                single_space_prose=args.single_space_prose,
-            )
-            if text_space_counts.total:
-                state.fixed_files.add(pstr)
-                if not args.quiet:
-                    print(f"✓ {pstr}: {text_space_counts.describe()}")
 
         if args.diff:
             ds = diff_fixes(
@@ -205,22 +251,8 @@ def _run_phase1(
                 print(ds, end="")
             elif not args.quiet:
                 print(f"  {pstr}: no hygiene/adornment/hierarchy fixes needed")
-        elif not args.no_adornments and args.fix:
-            if fix_structure(path, whole_file, project_root=project_root):
-                state.fixed_files.add(pstr)
-                if not args.quiet:
-                    print(f"✓ {pstr}: adornment/hierarchy fix applied")
-
-        if args.fix and args.normalize_blank_lines:
-            removed_blank_lines = fix_blank_lines(path)
-            if removed_blank_lines:
-                state.fixed_files.add(pstr)
-                if not args.quiet:
-                    noun = _plural(removed_blank_lines, "line")
-                    print(f"✓ {pstr}: {removed_blank_lines} redundant blank {noun} removed")
-
         if args.fix:
-            # Fixers wrote to disk — the facade's explicit lifecycle:
+            # The composed fix plan wrote to disk — the facade's explicit lifecycle:
             # construct a fresh Document for the post-fix checks and stats.
             document = Document(path, project_root)
 
@@ -792,6 +824,9 @@ def _run_check_pipeline(
         print(_format_runtime(runtime_metadata))
 
     state = _PipelineState()
+
+    if args.fix:
+        _plan_normal_fixes(args, files, whole_file, project_root, state)
 
     _run_phase1(args, files, whole_file, project_root, word_samples, suppress_findings, state)
     _run_sphinx_phases(args, files, project_root, word_samples, suppress_findings, state)

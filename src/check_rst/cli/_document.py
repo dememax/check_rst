@@ -414,7 +414,14 @@ def find_block_quotes(path: pathlib.Path, doc: Document | None = None) -> list[B
         depth = _block_depth(bq)
         preview = _outline_preview(bq.astext())
         start = _node_line(bq)
-        entries.append(BlockQuoteEntry(start, depth, preview, _indented_extent(document.lines, start)))
+        entries.append(
+            BlockQuoteEntry(
+                start,
+                depth,
+                preview,
+                _indented_extent(document.lines, start, allow_same_indent=True),
+            )
+        )
     return entries
 
 

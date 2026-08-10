@@ -22,6 +22,7 @@ from ._formatting import _plan_fix, diff_fixes
 from ._helpers import (
     HIERARCHY,
     PREFERRED_HIERARCHY,
+    _atomic_write_bytes,
     _git_worktree_root,
     _unmerged_files,
 )
@@ -146,7 +147,7 @@ def _run_fix_only(
     for plan in plans:
         try:
             result = _formatting._apply_fix_plan(plan)
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:
             _emit_report_line(
                 f"check_rst: {plan.path}: ERROR: cannot write fix: {exc}",
                 "ERROR",
@@ -202,7 +203,20 @@ def _run_list_table(
         print(f"  Action: {issue.action}")
 
     for path in files:
-        result = _plan_list_table_file(path, only, skip)
+        try:
+            result = _plan_list_table_file(path, only, skip)
+        except UnicodeDecodeError as exc:
+            err_line = exc.object.count(b"\n", 0, exc.start) + 1
+            _emit_report_line(
+                f"check_rst: {path}:{err_line}: ERROR: not valid UTF-8 ({exc.reason} at byte offset {exc.start})",
+                "ERROR",
+            )
+            fatal_files += 1
+            continue
+        except OSError as exc:
+            _emit_report_line(f"check_rst: {path}:1: ERROR: cannot read input: {exc}", "ERROR")
+            fatal_files += 1
+            continue
         if result.fatal is not None:
             print_issue(path, result.fatal, fatal=True)
             fatal_files += 1
@@ -223,14 +237,23 @@ def _run_list_table(
                 print(f"check_rst: {path}: no eligible tables to convert")
             continue
         would_change += 1
-        converted_tables += len(result.converted)
         if apply:
-            path.write_bytes(result.candidate.encode("utf-8"))
+            try:
+                _atomic_write_bytes(path, result.candidate.encode("utf-8"))
+            except OSError as exc:
+                _emit_report_line(
+                    f"check_rst: {path}:1: ERROR: cannot write converted source: {exc}",
+                    "ERROR",
+                )
+                fatal_files += 1
+                continue
+            converted_tables += len(result.converted)
             converted_files += 1
             if not quiet:
                 converted = ", ".join(str(ordinal) for ordinal in result.converted)
                 print(f"check_rst: {path}: converted table(s) {converted}")
         else:
+            converted_tables += len(result.converted)
             print(
                 "".join(
                     difflib.unified_diff(

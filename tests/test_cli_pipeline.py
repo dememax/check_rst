@@ -12,7 +12,7 @@ import pytest
 from _support import _BAD_BLOCK, _GOOD_BLOCK, _git
 
 from check_rst import cli
-from check_rst.cli import _formatting, _helpers, _reports, _sphinx
+from check_rst.cli import _formatting, _helpers, _pipeline, _reports, _sphinx
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -879,6 +879,60 @@ def test_cli_fix_only_plans_all_inputs_before_writing_invalid_utf8(
     assert any(f"{invalid}:2: ERROR: not valid UTF-8" in line for line in lines)
     assert not any(": fixed —" in line for line in lines)
     assert lines[-1] == ("check_rst: 2 file(s) processed, 1 error(s), 0 file(s) fixed [fast]")
+
+
+@pytest.mark.integration
+def test_cli_normal_fix_plans_all_inputs_before_writing_invalid_utf8(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The full fix pipeline shares fast fix's complete-selection preflight."""
+    fixable = rst_repo / "fixable.rst"
+    invalid = rst_repo / "invalid.rst"
+    original = b"######\nTitle\n######\n"
+    fixable.write_bytes(original)
+    invalid.write_bytes(b"Title\n\xff\n")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "fix", str(fixable), str(invalid)],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert fixable.read_bytes() == original
+    lines = capsys.readouterr().out.splitlines()
+    assert any(f"{invalid}:2: ERROR: not valid UTF-8" in line for line in lines)
+    assert not any("fix applied" in line for line in lines)
+    assert lines[-1] == "check_rst: 2 file(s) selected, 1 input error(s), 0 file(s) fixed"
+
+
+@pytest.mark.integration
+def test_cli_normal_fix_write_failure_is_clean_and_keeps_final_status(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    document = rst_repo / "test.rst"
+    original = _BAD_BLOCK
+    document.write_text(original, encoding="utf-8")
+
+    def fail_write(_plan: object) -> None:
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(_pipeline, "_apply_fix_plan", fail_write)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", str(document)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert document.read_text(encoding="utf-8") == original
+    lines = capsys.readouterr().out.splitlines()
+    assert any("ERROR: cannot write fix: read-only filesystem" in line for line in lines)
+    assert lines[-1].startswith("check_rst: 1 file(s) checked, 1 error(s), 0 warning(s), 0 file(s) fixed")
 
 
 @pytest.mark.integration
