@@ -25,6 +25,7 @@ from ._types import (
     Severity,
     TableEntry,
     ToctreeEntry,
+    _plural,
 )
 
 
@@ -233,26 +234,25 @@ def _print_outline_entries(
             f"{depth} " + "/".join(repr(c) for c in chars) + f" ({level_counts[depth]})"
             for depth, chars in sorted(level_chars.items())
         )
-        plural = "s" if total_sections != 1 else ""
-        print(f"  levels: {legend}, {total_sections} section{plural} total")
+        print(f"  levels: {legend}, {total_sections} {_plural(total_sections, 'section')} total")
     if verbose and (n_code or n_quotes or n_tables or n_admonitions or n_comments or n_lists or n_toctrees or n_cycles):
         block_parts = []
         if n_code:
-            block_parts.append(f"{n_code} code block{'s' if n_code != 1 else ''}")
+            block_parts.append(f"{n_code} {_plural(n_code, 'code block')}")
         if n_quotes:
-            block_parts.append(f"{n_quotes} blockquote{'s' if n_quotes != 1 else ''}")
+            block_parts.append(f"{n_quotes} {_plural(n_quotes, 'blockquote')}")
         if n_tables:
-            block_parts.append(f"{n_tables} table{'s' if n_tables != 1 else ''}")
+            block_parts.append(f"{n_tables} {_plural(n_tables, 'table')}")
         if n_admonitions:
-            block_parts.append(f"{n_admonitions} admonition{'s' if n_admonitions != 1 else ''}")
+            block_parts.append(f"{n_admonitions} {_plural(n_admonitions, 'admonition')}")
         if n_comments:
-            block_parts.append(f"{n_comments} comment{'s' if n_comments != 1 else ''}")
+            block_parts.append(f"{n_comments} {_plural(n_comments, 'comment')}")
         if n_lists:
-            block_parts.append(f"{n_lists} list{'s' if n_lists != 1 else ''}")
+            block_parts.append(f"{n_lists} {_plural(n_lists, 'list')}")
         if n_toctrees:
-            block_parts.append(f"{n_toctrees} toctree{'s' if n_toctrees != 1 else ''}")
+            block_parts.append(f"{n_toctrees} {_plural(n_toctrees, 'toctree')}")
         if n_cycles:
-            block_parts.append(f"{n_cycles} toctree cycle{'s' if n_cycles != 1 else ''}")
+            block_parts.append(f"{n_cycles} {_plural(n_cycles, 'toctree cycle')}")
         print(f"  blocks: {', '.join(block_parts)}")
 
     for entry in shown:
@@ -305,19 +305,19 @@ def _print_outline_entries(
                 nested_code = nested_quotes = nested_tables = 0
                 nested_admonitions = nested_comments = nested_lists = nested_toctrees = 0
             if nested_code:
-                extra.append(f"{nested_code} code block{'s' if nested_code != 1 else ''}")
+                extra.append(f"{nested_code} {_plural(nested_code, 'code block')}")
             if nested_quotes:
-                extra.append(f"{nested_quotes} blockquote{'s' if nested_quotes != 1 else ''}")
+                extra.append(f"{nested_quotes} {_plural(nested_quotes, 'blockquote')}")
             if nested_tables:
-                extra.append(f"{nested_tables} table{'s' if nested_tables != 1 else ''}")
+                extra.append(f"{nested_tables} {_plural(nested_tables, 'table')}")
             if nested_admonitions:
-                extra.append(f"{nested_admonitions} admonition{'s' if nested_admonitions != 1 else ''}")
+                extra.append(f"{nested_admonitions} {_plural(nested_admonitions, 'admonition')}")
             if nested_comments:
-                extra.append(f"{nested_comments} comment{'s' if nested_comments != 1 else ''}")
+                extra.append(f"{nested_comments} {_plural(nested_comments, 'comment')}")
             if nested_toctrees:
-                extra.append(f"{nested_toctrees} toctree{'s' if nested_toctrees != 1 else ''}")
+                extra.append(f"{nested_toctrees} {_plural(nested_toctrees, 'toctree')}")
             if nested_lists:
-                extra.append(f"{nested_lists} list{'s' if nested_lists != 1 else ''}")
+                extra.append(f"{nested_lists} {_plural(nested_lists, 'list')}")
             print(f"  {entry.formatted(extra)}")
         else:
             print(f"  {entry}")
@@ -328,12 +328,12 @@ def _print_outline_entries(
             reasons.append(f"--outline-depth {depth_limit}")
         if sections_only:
             reasons.append("--sections-only")
-        plural = "y" if hidden == 1 else "ies"
+        noun = _plural(hidden, "entry", "entries")
         # "deeper" is only accurate when depth is the sole possible cause
         # (sections_only unset) — preserves the exact pre-existing wording
         # for that case; a kind-filtered entry isn't necessarily deeper.
-        label = "entr" if sections_only else "deeper entr"
-        print(f"  ({hidden} {label}{plural} hidden — {', '.join(reasons)})")
+        label = noun if sections_only else f"deeper {noun}"
+        print(f"  ({hidden} {label} hidden — {', '.join(reasons)})")
     if not entries:
         print("  (no sections)")
 

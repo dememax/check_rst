@@ -60,6 +60,7 @@ from ._types import (
     TableEntry,
     ToctreeEntry,
     WordStatsUnavailable,
+    _plural,
 )
 
 
@@ -597,8 +598,7 @@ def _context_entry_label(candidate: ContextMatch) -> str:
         return f'section "{entry.title}"'
     if isinstance(entry, ListEntry):
         if entry.item_count is not None:
-            plural = "s" if entry.item_count != 1 else ""
-            return f"{entry.kind} list ({entry.marker!r}, {entry.item_count} item{plural})"
+            return f"{entry.kind} list ({entry.marker!r}, {entry.item_count} {_plural(entry.item_count, 'item')})"
         text = entry.marker if entry.kind == "definition" else entry.preview
         return f'{candidate.kind} "{text}"'
     if isinstance(entry, CodeBlockEntry):

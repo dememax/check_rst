@@ -15,6 +15,24 @@ if TYPE_CHECKING:
     import pathlib
 
 
+def _plural(count: int, singular: str, plural: str | None = None) -> str:
+    """The noun correctly inflected for *count*: *singular* when count == 1,
+    else *plural* (default: *singular* + 's').
+
+    Found by code review: ~20 call sites across this file and _output.py/
+    _pipeline.py/_reports.py each independently reimplemented
+    ``"s" if n != 1 else ""`` glued onto a noun by hand, or an irregular
+    equivalent ("entry"/"entries", "y"/"ies" appended to a shared stem).
+    Defined here rather than in _helpers.py (the more natural home for a
+    generic string helper): most call sites are this module's own
+    dataclass __str__/describe/formatted methods, and _helpers.py already
+    imports FROM _types.py — the reverse import would cycle.
+    """
+    if count == 1:
+        return singular
+    return plural if plural is not None else f"{singular}s"
+
+
 class Severity(enum.StrEnum):
     """Finding.severity's two levels. A StrEnum (not a plain Enum): members
     compare equal to and format identically to the plain "ERROR"/"WARNING"
@@ -164,11 +182,9 @@ class TextSpaceCounts:
         """Return stable, grammatical non-zero editorial categories."""
         parts: list[str] = []
         if self.title_runs:
-            noun = "run" if self.title_runs == 1 else "runs"
-            parts.append(f"{self.title_runs} title space {noun} collapsed")
+            parts.append(f"{self.title_runs} title space {_plural(self.title_runs, 'run')} collapsed")
         if self.prose_runs:
-            noun = "run" if self.prose_runs == 1 else "runs"
-            parts.append(f"{self.prose_runs} prose space {noun} collapsed")
+            parts.append(f"{self.prose_runs} prose space {_plural(self.prose_runs, 'run')} collapsed")
         return ", ".join(parts)
 
 
@@ -273,8 +289,7 @@ class OutlineEntry:
         base = f"{indent}{pos}:{self.char} {self.title}"
         parts = []
         if self.children:
-            plural = "s" if self.children != 1 else ""
-            parts.append(f"{self.children} subsection{plural}")
+            parts.append(f"{self.children} {_plural(self.children, 'subsection')}")
         if extra:
             parts.extend(extra)
         if parts:
@@ -450,8 +465,7 @@ class ListEntry:
         indent = "    " * (self.depth - 1)
         pos = f"{self.lineno}-{self.end}" if self.end > self.lineno else f"{self.lineno}"
         if self.item_count is not None:
-            plural = "s" if self.item_count != 1 else ""
-            return f"{indent}{pos}: {self.kind} list ({self.marker!r}, {self.item_count} item{plural})"
+            return f"{indent}{pos}: {self.kind} list ({self.marker!r}, {self.item_count} {_plural(self.item_count, 'item')})"
         base = f'{indent}{pos}: "{self.marker}"' if self.kind == "definition" else f"{indent}{pos}: {self.marker}"
         return f"{base}: {self.preview}" if self.preview else base
 
@@ -661,7 +675,7 @@ class ToctreeEntry:
                 "ancestor on this branch, not descending further"
             )
         maxdepth_label = "unlimited" if self.maxdepth < 0 else str(self.maxdepth)
-        noun = "entry" if self.item_count == 1 else "entries"
+        noun = _plural(self.item_count, "entry", "entries")
         return f"{indent}{pos}: toctree ({self.item_count} {noun}, maxdepth={maxdepth_label})"
 
     def __contains__(self, item: object) -> bool:

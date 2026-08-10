@@ -59,6 +59,7 @@ from ._types import (
     Severity,
     ToctreeEntry,
     WordStatsUnavailable,
+    _plural,
 )
 
 
@@ -215,7 +216,7 @@ def _run_phase1(
             if removed_blank_lines:
                 state.fixed_files.add(pstr)
                 if not args.quiet:
-                    noun = "line" if removed_blank_lines == 1 else "lines"
+                    noun = _plural(removed_blank_lines, "line")
                     print(f"✓ {pstr}: {removed_blank_lines} redundant blank {noun} removed")
 
         if args.fix:
