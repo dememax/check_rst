@@ -1566,6 +1566,98 @@ def test_fix_hierarchy_sibling_branch_does_not_corrupt_an_already_correct_child(
     assert _formatting.check_hierarchy(p) == []
 
 
+_MULTIWAY_BRANCH_ORDERS = list(itertools.permutations(("A", "B", "C")))
+
+_MULTIWAY_BRANCH_CHARACTER_SETS = [
+    pytest.param(
+        {
+            "root": ("#",),
+            "fork": ("*",),
+            "A": ("~",),
+            "B": ("=", "-"),
+            "C": ("^", '"', "!"),
+        },
+        id="mirrors_the_real_bug_preferred_plus_one_not_yet_promoted",
+    ),
+    pytest.param(
+        {
+            "root": ("#",),
+            "fork": ("*",),
+            "A": ("!",),
+            "B": ("$", "%"),
+            "C": ("&", "'", "("),
+        },
+        id="all_branch_local_characters_non_preferred",
+    ),
+]
+
+
+def _multiway_branch_doc(order: Sequence[str], chars: dict[str, tuple[str, ...]]) -> str:
+    """One root title, then — in `order` — three sibling sections all
+    correctly reusing `chars["fork"]` (so all three are genuinely
+    recognized as the SAME real depth, exactly as true sibling headings
+    must: docutils infers depth from character reuse, not from visual
+    tree position — see the sibling-branch test above), each followed by
+    its own descending chain of new, never-before-seen characters going 1,
+    2, and 3 levels deeper respectively ("A" shallowest, "C" deepest).
+
+    This is the general, multi-way form of that same test's two-sibling
+    shape: branches "A"/"B"/"C"'s first descendants all collide at the
+    same real depth (three-way, not just two), and "B"/"C"'s second
+    descendants collide one level deeper again (two-way) — regardless of
+    which order the three branches are laid out in the file, which is
+    exactly the axis the original bug was sensitive to (it keyed the
+    remap on raw first-appearance ORDER).
+    """
+    parts = [_hierarchy_chain_block(chars["root"][0], "Root")]
+    for name in order:
+        parts.append(_hierarchy_chain_block(chars["fork"][0], f"Branch {name}"))
+        branch_chars = chars[name]
+        titles = [f"Branch {name} Level {i}" for i in range(1, len(branch_chars) + 1)]
+        parts.extend(_hierarchy_chain_block(ch, t) for ch, t in zip(branch_chars, titles, strict=True))
+    return "\n\n".join(parts) + "\n"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("order", _MULTIWAY_BRANCH_ORDERS)
+@pytest.mark.parametrize("chars", _MULTIWAY_BRANCH_CHARACTER_SETS)
+def test_fix_hierarchy_multiway_branch_collisions_converge_regardless_of_branch_order(
+    tmp_path: Path, chars: dict[str, tuple[str, ...]], order: tuple[str, ...]
+) -> None:
+    """Generalizes the single hand-picked sibling-branch case above: three
+    sibling branches ("A" 1 level deep, "B" 2, "C" 3) collide three-way at
+    their shared first-descendant depth and two-way one level deeper,
+    exhaustively over all 3! = 6 orders the branches can appear in the
+    file — the axis the original bug was actually sensitive to — crossed
+    with two different character assignments for extra confidence.
+
+    Deliberately does NOT exhaustively permute character identity the way
+    the linear-chain test does: _established_depths never branches on a
+    character's identity, only on "have I seen this exact character
+    before" (a dict lookup), so for a fixed document layout the result is
+    invariant under relabeling which literal character fills which slot —
+    permuting labels here would add cases without adding coverage.
+    Permuting file ORDER does add coverage, because the bug this guards
+    against was specifically about raw scan position leaking into the
+    remap.
+    """
+    expected_chars: dict[str, tuple[str, ...]] = {
+        "root": (_helpers.HIERARCHY[0],),
+        "fork": (_helpers.HIERARCHY[1],),
+        "A": (_helpers.HIERARCHY[2],),
+        "B": (_helpers.HIERARCHY[2], _helpers.HIERARCHY[3]),
+        "C": (_helpers.HIERARCHY[2], _helpers.HIERARCHY[3], _helpers.HIERARCHY[4]),
+    }
+
+    p = tmp_path / "test.rst"
+    p.write_text(_multiway_branch_doc(order, chars), encoding="utf-8")
+
+    _formatting.fix_structure(p, True)
+
+    assert p.read_text(encoding="utf-8") == _multiway_branch_doc(order, expected_chars)
+    _assert_hierarchy_structurally_correct(p)
+
+
 @pytest.mark.integration
 def test_diff_structure_hierarchy_returns_diff(tmp_path: Path) -> None:
     """diff_structure returns a unified diff when hierarchy fixes are needed."""
