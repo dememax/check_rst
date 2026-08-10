@@ -40,6 +40,23 @@ and lists.  Outline IDs are stable document-and-title identities with an
 occurrence suffix only when required.  Statistics distinguish unrequested
 word analysis from requested-but-unavailable analysis.
 
+*************
+COMPOSITION
+*************
+
+Each file record declares ``structure_stage``.  Its value is currently
+``parser-effective``.  ``includes`` contains parsed include control points and
+``conditionals`` contains unresolved ``only``/``ifconfig`` containers.
+
+An entry originating outside the root source has a ``provenance`` object.
+``source`` identifies the physical or synthetic owner, ``origin`` identifies
+how it entered the effective document, ``include_chain`` records every include
+edge, and ``exact`` states whether the reported coordinates still correspond
+to editable physical text.  Consumers must not propose a source edit when
+``exact`` is false.  An included section's stable ``id`` is based on its
+physical source without the ``.rst`` suffix, not on the document that included
+it.
+
 ************
 COMPARISON
 ************

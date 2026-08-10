@@ -580,7 +580,12 @@ def analyze_block(block: TitleBlock) -> BlockCorrection:
 _DOCUTILS_MIN_ADORNMENT_LEN = 2
 
 
-def _parse_rst(path: pathlib.Path, text: str | None = None) -> docutils.nodes.document:
+def _parse_rst(
+    path: pathlib.Path,
+    text: str | None = None,
+    *,
+    track_composition: bool = False,
+) -> docutils.nodes.document:
     """Parse an RST source file into a docutils document tree.
 
     text, when given, is the already-normalized source (Document facade) —
@@ -591,7 +596,16 @@ def _parse_rst(path: pathlib.Path, text: str | None = None) -> docutils.nodes.do
     settings.halt_level = 5  # never halt on parse errors
     settings.report_level = 5  # suppress system messages to stderr
     doc = docutils.utils.new_document(str(path), settings)
-    docutils.parsers.rst.Parser().parse(text if text is not None else _read_normalized(path), doc)
+    source = text if text is not None else _read_normalized(path)
+    if track_composition:
+        # Imported lazily: _composition owns parser instrumentation while
+        # _helpers remains the low-level parse home used by formatters too.
+        from ._composition import tracked_docutils_include
+
+        with tracked_docutils_include():
+            docutils.parsers.rst.Parser().parse(source, doc)
+    else:
+        docutils.parsers.rst.Parser().parse(source, doc)
     return doc
 
 

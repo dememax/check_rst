@@ -18,7 +18,9 @@ from ._types import (
     BlockQuoteEntry,
     CodeBlockEntry,
     CommentEntry,
+    ConditionalEntry,
     Finding,
+    IncludeEntry,
     ListEntry,
     MergedEntry,
     OutlineEntry,
@@ -192,6 +194,9 @@ def _print_outline_entries(
     n_lists = 0
     n_toctrees = 0
     n_cycles = 0
+    n_includes = 0
+    n_include_cycles = 0
+    n_conditionals = 0
     for entry in entries:
         if isinstance(entry, OutlineEntry):
             # Cross-file headings (entry.docname set) are excluded from
@@ -212,6 +217,13 @@ def _print_outline_entries(
                 n_cycles += 1
             else:
                 n_toctrees += 1
+        elif isinstance(entry, IncludeEntry):
+            if entry.cycle is not None:
+                n_include_cycles += 1
+            else:
+                n_includes += 1
+        elif isinstance(entry, ConditionalEntry):
+            n_conditionals += 1
         elif isinstance(entry, CodeBlockEntry):
             n_code += 1
         elif isinstance(entry, BlockQuoteEntry):
@@ -235,7 +247,19 @@ def _print_outline_entries(
             for depth, chars in sorted(level_chars.items())
         )
         print(f"  levels: {legend}, {total_sections} {_plural(total_sections, 'section')} total")
-    if verbose and (n_code or n_quotes or n_tables or n_admonitions or n_comments or n_lists or n_toctrees or n_cycles):
+    if verbose and (
+        n_code
+        or n_quotes
+        or n_tables
+        or n_admonitions
+        or n_comments
+        or n_lists
+        or n_toctrees
+        or n_cycles
+        or n_includes
+        or n_include_cycles
+        or n_conditionals
+    ):
         block_parts = []
         if n_code:
             block_parts.append(f"{n_code} {_plural(n_code, 'code block')}")
@@ -253,6 +277,12 @@ def _print_outline_entries(
             block_parts.append(f"{n_toctrees} {_plural(n_toctrees, 'toctree')}")
         if n_cycles:
             block_parts.append(f"{n_cycles} {_plural(n_cycles, 'toctree cycle')}")
+        if n_includes:
+            block_parts.append(f"{n_includes} {_plural(n_includes, 'include')}")
+        if n_include_cycles:
+            block_parts.append(f"{n_include_cycles} {_plural(n_include_cycles, 'include cycle')}")
+        if n_conditionals:
+            block_parts.append(f"{n_conditionals} {_plural(n_conditionals, 'conditional')}")
         print(f"  blocks: {', '.join(block_parts)}")
 
     for entry in shown:
@@ -277,29 +307,54 @@ def _print_outline_entries(
             if entry.docname is None:
                 section_end = max(entry.end, entry.lineno)
                 nested_code = sum(
-                    1 for e in entries if isinstance(e, CodeBlockEntry) and entry.lineno <= e.lineno <= section_end
+                    1
+                    for e in entries
+                    if isinstance(e, CodeBlockEntry)
+                    and e.provenance == entry.provenance
+                    and entry.lineno <= e.lineno <= section_end
                 )
                 nested_quotes = sum(
-                    1 for e in entries if isinstance(e, BlockQuoteEntry) and entry.lineno <= e.lineno <= section_end
+                    1
+                    for e in entries
+                    if isinstance(e, BlockQuoteEntry)
+                    and e.provenance == entry.provenance
+                    and entry.lineno <= e.lineno <= section_end
                 )
                 nested_tables = sum(
-                    1 for e in entries if isinstance(e, TableEntry) and entry.lineno <= e.lineno <= section_end
+                    1
+                    for e in entries
+                    if isinstance(e, TableEntry)
+                    and e.provenance == entry.provenance
+                    and entry.lineno <= e.lineno <= section_end
                 )
                 nested_admonitions = sum(
-                    1 for e in entries if isinstance(e, AdmonitionEntry) and entry.lineno <= e.lineno <= section_end
+                    1
+                    for e in entries
+                    if isinstance(e, AdmonitionEntry)
+                    and e.provenance == entry.provenance
+                    and entry.lineno <= e.lineno <= section_end
                 )
                 nested_comments = sum(
-                    1 for e in entries if isinstance(e, CommentEntry) and entry.lineno <= e.lineno <= section_end
+                    1
+                    for e in entries
+                    if isinstance(e, CommentEntry)
+                    and e.provenance == entry.provenance
+                    and entry.lineno <= e.lineno <= section_end
                 )
                 nested_lists = sum(
                     1
                     for e in entries
                     if isinstance(e, ListEntry)
+                    and e.provenance == entry.provenance
                     and (e.item_count is not None or e.kind == "definition")
                     and entry.lineno <= e.lineno <= section_end
                 )
                 nested_toctrees = sum(
-                    1 for e in entries if isinstance(e, ToctreeEntry) and entry.lineno <= e.lineno <= section_end
+                    1
+                    for e in entries
+                    if isinstance(e, ToctreeEntry)
+                    and e.provenance == entry.provenance
+                    and entry.lineno <= e.lineno <= section_end
                 )
             else:
                 nested_code = nested_quotes = nested_tables = 0

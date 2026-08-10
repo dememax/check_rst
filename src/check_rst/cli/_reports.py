@@ -15,7 +15,7 @@ import re
 import shutil
 import sys
 import tempfile
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import docutils.nodes
 
@@ -38,30 +38,57 @@ from ._sphinx import (
     _docname_for,
     _findings_from_sphinx_output,
     _merge_toctree_clusters,
+    _source_was_transformed,
     check_bare_filenames,
     check_multiple_toctree_parents,
     find_code_blocks,
+    find_conditionals,
+    find_includes,
     find_incoming_references,
     find_references,
     find_toctrees,
+    nest_composed_clusters,
+    partition_composed_entries,
 )
 from ._types import (
     AdmonitionEntry,
     BlockQuoteEntry,
     CodeBlockEntry,
     CommentEntry,
+    ConditionalEntry,
     ContextMatch,
     Finding,
+    IncludeEntry,
     ListEntry,
     LocalEntry,
     OutlineEntry,
     ReferenceEntry,
+    SourceProvenance,
     StopwordsUnavailable,
     TableEntry,
     ToctreeEntry,
     WordStatsUnavailable,
     _plural,
 )
+
+
+def _entry_asdict(entry: object) -> dict[str, Any]:
+    """Serialize a structural dataclass without private ordering machinery."""
+    value: dict[str, Any] = dataclasses.asdict(cast("Any", entry))
+    value.pop("site", None)
+    provenance = value.get("provenance")
+    if provenance is None:
+        value.pop("provenance", None)
+    elif isinstance(provenance, dict):
+        provenance.pop("order", None)
+        chain = provenance.get("include_chain", [])
+        if isinstance(chain, (list, tuple)):
+            for site in chain:
+                if isinstance(site, dict):
+                    site.pop("line_offset", None)
+                    site.pop("end_line", None)
+                    site.pop("order", None)
+    return value
 
 
 def _format_references(
@@ -358,6 +385,9 @@ def _json_file_model(
     word_samples: int,
     outline_entries: list[OutlineEntry] | None = None,
     toctree_entries: list[ToctreeEntry] | None = None,
+    include_entries: list[IncludeEntry] | None = None,
+    conditional_entries: list[ConditionalEntry] | None = None,
+    structure_stage: str = "parser-effective",
     project_root: pathlib.Path | None = None,
 ) -> dict[str, Any]:
     """The per-file document model for --json: outline with stable ids,
@@ -378,19 +408,20 @@ def _json_file_model(
     outline = []
     outline_id_counts: collections.Counter[str] = collections.Counter()
     for entry in outline_entries if outline_entries is not None else document.outline:
-        d = dataclasses.asdict(entry)
+        d = _entry_asdict(entry)
         # A cross-file heading's own Sphinx docname (entry.docname) IS its
         # stable identifier already — never re-derived from this file's
         # own `docname`, which would collide every cross-file entry onto
         # this document's id.
-        base_id = f"{entry.docname or docname}:{entry.title}"
+        source_id = entry.provenance.source.removesuffix(".rst") if entry.provenance is not None else None
+        base_id = f"{entry.docname or source_id or docname}:{entry.title}"
         outline_id_counts[base_id] += 1
         occurrence = outline_id_counts[base_id]
         d["id"] = base_id if occurrence == 1 else f"{base_id}#{occurrence}"
         outline.append(d)
     toctrees = []
     for toctree_entry in toctree_entries or []:
-        toctrees.append(dataclasses.asdict(toctree_entry))
+        toctrees.append(_entry_asdict(toctree_entry))
     # top_words/rare_words null + word_stats_error set is an explicit,
     # typed failure signal (never a bare null with no reason) — see
     # StopwordsUnavailable.  null with word_stats_error also null means
@@ -410,14 +441,17 @@ def _json_file_model(
         top_words = rare_words = None
         word_stats_error = None
     return {
+        "structure_stage": structure_stage,
         "outline": outline,
         "toctrees": toctrees,
-        "code_blocks": [dataclasses.asdict(e) for e in code_blocks],
-        "block_quotes": [dataclasses.asdict(e) for e in document.block_quotes],
-        "tables": [dataclasses.asdict(e) for e in document.tables],
-        "admonitions": [dataclasses.asdict(e) for e in document.admonitions],
-        "comments": [dataclasses.asdict(e) for e in document.comments],
-        "lists": [dataclasses.asdict(e) for e in document.lists],
+        "includes": [_entry_asdict(e) for e in include_entries or []],
+        "conditionals": [_entry_asdict(e) for e in conditional_entries or []],
+        "code_blocks": [_entry_asdict(e) for e in code_blocks],
+        "block_quotes": [_entry_asdict(e) for e in document.block_quotes],
+        "tables": [_entry_asdict(e) for e in document.tables],
+        "admonitions": [_entry_asdict(e) for e in document.admonitions],
+        "comments": [_entry_asdict(e) for e in document.comments],
+        "lists": [_entry_asdict(e) for e in document.lists],
         "stats": {
             "lines": len(document.lines),
             "empty_lines": sum(1 for line in document.lines if not line.strip()),
@@ -511,15 +545,18 @@ def _context_candidates(entries: list[object], local_docname: str) -> list[Conte
     for index, entry in enumerate(entries):
         explicit_docname = getattr(entry, "docname", None)
         source_docname = explicit_docname if isinstance(explicit_docname, str) and explicit_docname else local_docname
+        provenance = getattr(entry, "provenance", None)
+        source = provenance.source if isinstance(provenance, SourceProvenance) else None
+        selector_owner = source.removesuffix(".rst") if source is not None else source_docname
         kind = _generic_entry_kind(entry)
-        universal_base = f"{source_docname}:{_entry_slug(kind)}@{_entry_lineno(entry)}"
+        universal_base = f"{selector_owner}:{_entry_slug(kind)}@{_entry_lineno(entry)}"
         universal_counts[universal_base] += 1
         universal_occurrence = universal_counts[universal_base]
         universal_selector = universal_base if universal_occurrence == 1 else f"{universal_base}#{universal_occurrence}"
 
         selector = universal_selector
         if isinstance(entry, OutlineEntry):
-            section_base = f"{source_docname}:{entry.title}"
+            section_base = f"{selector_owner}:{entry.title}"
             section_counts[section_base] += 1
             occurrence = section_counts[section_base]
             selector = section_base if occurrence == 1 else f"{section_base}#{occurrence}"
@@ -533,6 +570,7 @@ def _context_candidates(entries: list[object], local_docname: str) -> list[Conte
                 kind=kind,
                 source_docname=source_docname,
                 match_texts=_entry_string_values(entry),
+                source=source,
             )
         )
     return candidates
@@ -764,6 +802,8 @@ def _run_context_query(
             code_blocks = document.code_blocks_heuristic
             outline = document.outline
             clusters: list[list[ToctreeEntry | OutlineEntry]] = []
+            include_entries = document.includes
+            conditional_entries: list[ConditionalEntry] = []
         else:
             env, warning_text = _build_sphinx_env_checked(sphinx_src, actual_build_dir, files=[path])
             local = _docname_for(env, path)
@@ -771,28 +811,39 @@ def _run_context_query(
                 print(f"check_rst: {path}: not part of the --sphinx-src project")
                 return 1
             local_docname = local
-            code_blocks = find_code_blocks(env, local_docname, document.lines)
-            outline = build_outline(path, doc=document, doctree=env.get_doctree(local_docname))
+            code_blocks = find_code_blocks(env, local_docname, document.lines, document)
+            outline = build_outline(
+                path,
+                doc=document,
+                doctree=env.get_doctree(local_docname),
+                source_root=sphinx_src,
+                root_transformed=_source_was_transformed(env, local_docname),
+            )
             clusters = [] if no_toctree else find_toctrees(env, local_docname, document)
+            include_entries = find_includes(env, local_docname, document)
+            conditional_entries = find_conditionals(env, local_docname, document)
             sphinx_findings.extend(_findings_from_sphinx_output(warning_text, [path], project_root))
             sphinx_findings.extend(check_bare_filenames(env, local_docname, document))
             sphinx_findings.extend(check_multiple_toctree_parents(env, [path]))
 
-        local_entries: list[LocalEntry] = sorted(
-            [
-                *outline,
-                *code_blocks,
-                *document.block_quotes,
-                *document.tables,
-                *document.admonitions,
-                *document.comments,
-                *document.lists,
-            ],
-            key=_entry_lineno,
-        )
+        composed_entries: list[LocalEntry] = [
+            *outline,
+            *include_entries,
+            *conditional_entries,
+            *code_blocks,
+            *document.block_quotes,
+            *document.tables,
+            *document.admonitions,
+            *document.comments,
+            *document.lists,
+        ]
+        local_entries, include_clusters = partition_composed_entries(composed_entries)
+        nested_includes, root_toctrees = nest_composed_clusters(include_clusters, clusters)
+        structural_clusters = [*nested_includes, *root_toctrees]
+        structural_clusters.sort(key=lambda cluster: cluster[0].lineno if cluster else 0)
         entries: list[object] = []
-        if clusters:
-            entries.extend(_merge_toctree_clusters(local_entries, clusters))
+        if structural_clusters:
+            entries.extend(_merge_toctree_clusters(local_entries, structural_clusters))
         else:
             entries.extend(local_entries)
         candidates = _context_candidates(entries, local_docname)
@@ -807,7 +858,16 @@ def _run_context_query(
         selected = matches[0]
         source_path = path
         selected_document = document
-        if env is not None and selected.source_docname != local_docname:
+        selected_is_fragment = selected.source is not None
+        if selected.source is not None:
+            candidate_path = pathlib.Path(selected.source)
+            source_path = (
+                candidate_path if candidate_path.is_absolute() else (sphinx_src or project_root) / candidate_path
+            )
+            selected_document = Document(source_path, project_root)
+            if env is not None:
+                sphinx_findings = _findings_from_sphinx_output(warning_text, [source_path], project_root)
+        elif env is not None and selected.source_docname != local_docname:
             source_path = pathlib.Path(env.doc2path(selected.source_docname))
             selected_document = Document(source_path, project_root)
             sphinx_findings = _findings_from_sphinx_output(warning_text, [source_path], project_root)
@@ -815,8 +875,14 @@ def _run_context_query(
             sphinx_findings.extend(check_multiple_toctree_parents(env, [source_path]))
 
         findings = _context_findings(selected_document) + sphinx_findings
-        outgoing = find_references(env, selected.source_docname) if env is not None else None
-        incoming = find_incoming_references(env, selected.source_docname) if env is not None else None
+        outgoing = (
+            find_references(env, selected.source_docname) if env is not None and not selected_is_fragment else None
+        )
+        incoming = (
+            find_incoming_references(env, selected.source_docname)
+            if env is not None and not selected_is_fragment
+            else None
+        )
         print(
             _format_context(
                 source_path,

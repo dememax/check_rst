@@ -11,7 +11,7 @@ import pathlib
 import re
 import subprocess
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import docutils.nodes
 
@@ -22,11 +22,22 @@ if TYPE_CHECKING:
 
 
 from . import _helpers
+from ._composition import (
+    CompositionIndex,
+    instrument_sphinx_include,
+    mark_include_read_after,
+    mark_include_read_before,
+    mark_source_read_after,
+    mark_source_read_before,
+)
 from ._document import (
     Document,
     _outline_preview,
     _resolve_document,
     build_outline,
+)
+from ._document import (
+    find_includes as find_document_includes,
 )
 from ._helpers import (
     CALL_COUNTS,
@@ -34,15 +45,19 @@ from ._helpers import (
     _has_non_prose_ancestor,
     _indented_extent,
     _node_line,
+    _read_source,
 )
 from ._types import (
     CodeBlockEntry,
+    ConditionalEntry,
     Finding,
+    IncludeEntry,
     LocalEntry,
     MergedEntry,
     OutlineEntry,
     ReferenceEntry,
     Severity,
+    SourceProvenance,
     ToctreeEntry,
 )
 
@@ -144,6 +159,16 @@ def _build_sphinx_env(
             status=io.StringIO(),
             warning=warning_stream,
         )
+        # The real Include directive erases its own control point while
+        # inserting parsed input.  Wrap the class only inside Sphinx's own
+        # registry namespace and leave standard comment markers in the
+        # doctree; this preserves exact repeated/nested invocation order
+        # without changing rendered output.
+        instrument_sphinx_include()
+        app.connect("include-read", mark_include_read_before, priority=-sys.maxsize)
+        app.connect("include-read", mark_include_read_after, priority=sys.maxsize)
+        app.connect("source-read", mark_source_read_before, priority=-sys.maxsize)
+        app.connect("source-read", mark_source_read_after, priority=sys.maxsize)
         if files:
             checked_paths = tuple(path.resolve() for path in files)
 
@@ -178,6 +203,12 @@ def _build_sphinx_env_checked(
         detail = " ".join(str(exc).splitlines())
         print(f"check_rst: Sphinx environment build failed: {type(exc).__name__}: {detail}")
         raise SystemExit(1) from exc
+
+
+def _source_was_transformed(env: sphinx.environment.BuildEnvironment, docname: str) -> bool:
+    """Return whether a ``source-read`` listener changed this root source."""
+    transformed: set[str] = getattr(env, "_check_rst_transformed_sources", set())
+    return docname in transformed
 
 
 def _docname_for(env: sphinx.environment.BuildEnvironment, path: pathlib.Path) -> str | None:
@@ -414,11 +445,204 @@ def find_toctrees(
     # level of recursion, including the root docname itself, not only
     # the children — document.doctree is used only for .lines below.
     doctree = env.get_doctree(docname)
+    composition = CompositionIndex(
+        doctree,
+        document.path,
+        pathlib.Path(env.srcdir),
+        root_transformed=_source_was_transformed(env, docname),
+    )
     seen = {docname}
     return [
-        _expand_one_toctree(node, env, document, depth_offset=0, path=(docname,), seen=seen)
+        _expand_one_toctree(
+            node,
+            env,
+            document,
+            depth_offset=0,
+            path=(docname,),
+            seen=seen,
+            composition=composition,
+        )
         for node in doctree.findall(toctree_node_cls)
     ]
+
+
+def _composition_source_lines(
+    composition: CompositionIndex,
+    provenance: SourceProvenance | None,
+    document: Document,
+) -> list[str]:
+    if provenance is None:
+        return document.lines
+    if not provenance.exact:
+        return []
+    path = composition.source_path(provenance, document.path)
+    if path is None:
+        return []
+    try:
+        return _read_source(path).splitlines()
+    except OSError, UnicodeError:
+        return []
+
+
+def find_includes(
+    env: sphinx.environment.BuildEnvironment,
+    docname: str,
+    doc: Document | None = None,
+    *,
+    doctree: docutils.nodes.document | None = None,
+) -> list[IncludeEntry]:
+    """Return every parsed include edge, including visible cycle refusals.
+
+    Sphinx and Docutils normally erase an include directive after inserting
+    its input.  ``_build_sphinx_env`` instruments the registered directive
+    with inert comment markers, giving repeated and nested inclusions distinct
+    identities without changing rendered output.
+    """
+    document = _resolve_document(pathlib.Path(env.doc2path(docname)), doc)
+    tree = env.get_doctree(docname) if doctree is None else doctree
+    return find_document_includes(
+        document.path,
+        doc=document,
+        doctree=tree,
+        source_root=pathlib.Path(env.srcdir),
+        root_transformed=_source_was_transformed(env, docname),
+    )
+
+
+def find_conditionals(
+    env: sphinx.environment.BuildEnvironment,
+    docname: str,
+    doc: Document | None = None,
+    *,
+    doctree: docutils.nodes.document | None = None,
+) -> list[ConditionalEntry]:
+    """Return condition-bearing containers from the parser-effective tree.
+
+    ``env.get_doctree`` is stored before builder post-transforms resolve
+    ``only`` and ``ifconfig``.  Reporting them as ``builder-dependent`` is an
+    honesty condition: the dummy builder's tags must not be mistaken for the
+    consuming project's eventual HTML/LaTeX/etc. structure.
+    """
+    from sphinx.addnodes import only as only_node
+
+    document = _resolve_document(pathlib.Path(env.doc2path(docname)), doc)
+    tree = env.get_doctree(docname) if doctree is None else doctree
+    composition = CompositionIndex(
+        tree,
+        document.path,
+        pathlib.Path(env.srcdir),
+        root_transformed=_source_was_transformed(env, docname),
+    )
+    entries: list[ConditionalEntry] = []
+    for node in tree.findall():
+        if isinstance(node, only_node):
+            kind = "only"
+        elif node.__class__.__module__ == "sphinx.ext.ifconfig" and node.__class__.__name__ == "ifconfig":
+            kind = "ifconfig"
+        else:
+            continue
+        provenance = composition.provenance(node)
+        logical_line = _node_line(node)
+        lineno = composition.physical_line(node, logical_line)
+        lines = _composition_source_lines(composition, provenance, document)
+        end = _indented_extent(lines, lineno) if lines else lineno
+        entries.append(
+            ConditionalEntry(
+                lineno=lineno,
+                depth=_block_depth(node),
+                kind=kind,
+                expression=str(node.get("expr", "")),
+                end=end,
+                provenance=provenance,
+            )
+        )
+    return entries
+
+
+def _composed_entry_order(entry: MergedEntry) -> tuple[int, ...]:
+    """Return a cross-source order key anchored by every include site."""
+    if isinstance(entry, IncludeEntry) and (entry.provenance is None or not entry.provenance.include_chain):
+        return (-1,)
+    provenance = getattr(entry, "provenance", None)
+    nested_sites = provenance.include_chain[1:] if provenance is not None else ()
+    anchors = tuple(site.lineno for site in nested_sites)
+    rank = 0 if isinstance(entry, (IncludeEntry, ToctreeEntry)) else 1
+    site = getattr(entry, "site", None)
+    order = provenance.order if provenance is not None else getattr(site, "order", 0)
+    return (*anchors, entry.lineno, rank, order)
+
+
+def partition_composed_entries(
+    entries: list[LocalEntry],
+) -> tuple[list[LocalEntry], list[list[LocalEntry]]]:
+    """Separate root-owned entries from per-root-include ordered clusters.
+
+    Foreign physical line numbers are never sortable against the root file's
+    coordinates.  This is the include equivalent of toctree clustering: each
+    root include is anchored at its directive line, while its nested controls
+    and headings retain expanded-doctree order inside that indivisible cluster.
+    """
+    root_entries: list[LocalEntry] = []
+    clusters_by_site: dict[object, list[LocalEntry]] = {}
+
+    for entry in entries:
+        if not isinstance(entry, IncludeEntry):
+            continue
+        if (entry.provenance is None or not entry.provenance.include_chain) and entry.site is not None:
+            clusters_by_site[entry.site] = [entry]
+
+    for entry in entries:
+        if isinstance(entry, IncludeEntry) and (entry.provenance is None or not entry.provenance.include_chain):
+            continue
+        provenance = getattr(entry, "provenance", None)
+        if provenance is not None and provenance.include_chain:
+            cluster = clusters_by_site.get(provenance.include_chain[0])
+            if cluster is not None:
+                cluster.append(entry)
+                continue
+        root_entries.append(entry)
+
+    root_entries.sort(key=lambda entry: entry.lineno)
+    clusters = [sorted(cluster, key=_composed_entry_order) for cluster in clusters_by_site.values()]
+    clusters.sort(key=lambda cluster: cluster[0].lineno)
+    return root_entries, clusters
+
+
+def nest_composed_clusters(
+    include_clusters: list[list[LocalEntry]],
+    foreign_clusters: list[list[ToctreeEntry | OutlineEntry]],
+) -> tuple[list[list[MergedEntry]], list[list[MergedEntry]]]:
+    """Nest toctrees owned by included sources inside their include cluster."""
+    by_root_site: dict[object, list[list[MergedEntry]]] = {}
+    root_foreign: list[list[MergedEntry]] = []
+    for cluster in foreign_clusters:
+        if not cluster:
+            continue
+        container = cluster[0]
+        provenance = getattr(container, "provenance", None)
+        widened = cast("list[MergedEntry]", cluster)
+        if provenance is not None and provenance.include_chain:
+            by_root_site.setdefault(provenance.include_chain[0], []).append(widened)
+        else:
+            root_foreign.append(widened)
+
+    composed: list[list[MergedEntry]] = []
+    for include_cluster in include_clusters:
+        if not include_cluster:
+            continue
+        root = include_cluster[0]
+        root_site = root.site if isinstance(root, IncludeEntry) else None
+        units: list[list[MergedEntry]] = [[entry] for entry in include_cluster]
+        if root_site is not None:
+            units.extend(by_root_site.pop(root_site, ()))
+        units.sort(key=lambda unit: _composed_entry_order(unit[0]))
+        composed.append([entry for unit in units for entry in unit])
+
+    # Never silently discard a branch if an old cached doctree lacks the
+    # matching include marker needed to reconstruct its nesting.
+    for unmatched in by_root_site.values():
+        root_foreign.extend(unmatched)
+    return composed, root_foreign
 
 
 def _expand_toctrees(
@@ -429,6 +653,7 @@ def _expand_toctrees(
     path: tuple[str, ...],
     seen: set[str],
     doctree: docutils.nodes.document | None = None,
+    composition: CompositionIndex | None = None,
 ) -> list[ToctreeEntry | OutlineEntry]:
     """Flatten every toctree directive found in *docname* (used only when
     recursing INTO a child document — its own toctree directives, if
@@ -449,9 +674,16 @@ def _expand_toctrees(
 
     if doctree is None:
         doctree = env.get_doctree(docname)
+    if composition is None:
+        composition = CompositionIndex(
+            doctree,
+            document.path,
+            pathlib.Path(env.srcdir),
+            root_transformed=_source_was_transformed(env, docname),
+        )
     entries: list[ToctreeEntry | OutlineEntry] = []
     for node in doctree.findall(toctree_node_cls):
-        entries.extend(_expand_one_toctree(node, env, document, depth_offset, path, seen))
+        entries.extend(_expand_one_toctree(node, env, document, depth_offset, path, seen, composition))
     return entries
 
 
@@ -462,16 +694,18 @@ def _expand_one_toctree(
     depth_offset: int,
     path: tuple[str, ...],
     seen: set[str],
+    composition: CompositionIndex,
 ) -> list[ToctreeEntry | OutlineEntry]:
     """Expand a single ``toctree`` doctree node: its own container entry,
     the headings of every document it includes, and — recursively —
     each of those documents' own toctrees, in turn."""
-    lines = document.lines
     local_depth = _block_depth(node)
     toctree_depth = depth_offset + local_depth
     includefiles = list(node.get("includefiles", ()))
     maxdepth = node.get("maxdepth", -1)
-    start = _node_line(node)
+    provenance = composition.provenance(node)
+    start = composition.physical_line(node, _node_line(node))
+    lines = _composition_source_lines(composition, provenance, document)
     end = _indented_extent(lines, start) if includefiles else start
     # path[0] is the document the caller asked to outline.  Provenance is
     # emitted only after crossing that file boundary: stamping the root too
@@ -485,6 +719,7 @@ def _expand_one_toctree(
             maxdepth,
             end,
             docname=source_docname,
+            provenance=provenance,
         )
     ]
 
@@ -496,13 +731,25 @@ def _expand_one_toctree(
                     toctree_depth + 1,
                     cycle=child_docname,
                     docname=source_docname,
+                    provenance=provenance,
                 )
             )
             continue
 
         child_path = pathlib.Path(env.doc2path(child_docname))
         child_doctree = env.get_doctree(child_docname)
-        child_headings = build_outline(child_path, doctree=child_doctree)
+        child_composition = CompositionIndex(
+            child_doctree,
+            child_path,
+            pathlib.Path(env.srcdir),
+            root_transformed=_source_was_transformed(env, child_docname),
+        )
+        child_headings = build_outline(
+            child_path,
+            doctree=child_doctree,
+            source_root=pathlib.Path(env.srcdir),
+            root_transformed=_source_was_transformed(env, child_docname),
+        )
         for h in child_headings:
             entries.append(
                 dataclasses.replace(
@@ -528,6 +775,7 @@ def _expand_one_toctree(
                 path=(*path, child_docname),
                 seen=seen,
                 doctree=child_doctree,
+                composition=child_composition,
             )
         )
     return entries
@@ -535,9 +783,9 @@ def _expand_one_toctree(
 
 def _merge_toctree_clusters(
     local_entries: list[LocalEntry],
-    clusters: list[list[ToctreeEntry | OutlineEntry]],
+    clusters: Iterable[Iterable[MergedEntry]],
 ) -> list[MergedEntry]:
-    """Splice each toctree cluster from find_toctrees into *local_entries*
+    """Splice each foreign-coordinate cluster into *local_entries*
     (already sorted by lineno) at its own container's position, WITHOUT
     re-sorting the cluster's own contents by their raw line number — a
     cross-file heading's .lineno is a position in ANOTHER file, not
@@ -547,7 +795,8 @@ def _merge_toctree_clusters(
     """
     merged: list[MergedEntry] = []
     idx = 0
-    for cluster in clusters:
+    for source_cluster in clusters:
+        cluster = list(source_cluster)
         if not cluster:
             continue
         anchor = cluster[0].lineno
@@ -643,6 +892,7 @@ def find_code_blocks(
     env: sphinx.environment.BuildEnvironment,
     docname: str,
     lines: list[str] | None = None,
+    document: Document | None = None,
 ) -> list[CodeBlockEntry]:
     """Return every real code-block in document *docname*, in document order.
 
@@ -661,16 +911,30 @@ def find_code_blocks(
     docutils' fuzzy (and sometimes None) .line for the same node kind.
     """
     doc = env.get_doctree(docname)
+    root_path = pathlib.Path(env.doc2path(docname))
+    owner = _resolve_document(root_path, document)
+    composition = CompositionIndex(
+        doc,
+        root_path,
+        pathlib.Path(env.srcdir),
+        root_transformed=_source_was_transformed(env, docname),
+    )
     entries: list[CodeBlockEntry] = []
     for node in doc.findall(docutils.nodes.literal_block):
         lang = node.get("language")
         if lang is None:
             continue
         depth = _block_depth(node)
-        lineno = node.line if isinstance(node.line, int) else 0
-        end = _indented_extent(lines, lineno) if lines and lineno else 0
+        logical_line = node.line if isinstance(node.line, int) else 0
+        provenance = composition.provenance(node)
+        lineno = composition.physical_line(node, logical_line)
+        source_lines = _composition_source_lines(composition, provenance, owner)
+        if provenance is None and lines is not None:
+            source_lines = lines
+        should_compute_end = lines is not None or provenance is not None
+        end = _indented_extent(source_lines, lineno) if should_compute_end and source_lines and lineno else 0
         preview = _outline_preview(node.astext())
-        entries.append(CodeBlockEntry(lineno, depth, lang, preview, end))
+        entries.append(CodeBlockEntry(lineno, depth, lang, preview, end, provenance))
     return entries
 
 

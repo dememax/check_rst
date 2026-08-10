@@ -942,6 +942,35 @@ simple table, and the table/list-table/csv-table directives all produce
 the identical doctree shape), so ``kind`` always comes from the raw
 source text, verified mode or not.
 
+=======================================================
+Parsed composition: includes, origins, and conditions
+=======================================================
+
+``outline`` reports an active ``.. include::`` as a structural control point
+and prefixes every included entry with its physical source, for example
+``fragment.rst:12:* Included section``.  The included section participates in
+the effective hierarchy of the owner document, but its line and adornment are
+never read from the owner's unrelated source lines.  Nested include chains
+and a toctree written inside an included fragment preserve both kinds of
+provenance.  Its section selector and JSON id use that source without the
+``.rst`` suffix (for example ``fragment:Included section``), so repeated
+titles in the owner and fragment do not collide.
+
+Include cycles remain visible.  Cycle identity includes the resolved source
+and the four clipping options; including a different fragment of an already
+active file is therefore not mislabeled as a cycle.  In verified Sphinx mode,
+nested include paths follow Sphinx itself and resolve from the root source
+document's directory.
+
+The reported structure is ``parser-effective``.  Sphinx has parsed includes,
+configured prologue/epilogue text, directives, and extension-provided source,
+but builder post-transforms have not yet selected ``only`` or ``ifconfig``
+branches.  Those containers are consequently shown as
+``builder-dependent``.  When a ``source-read`` or ``include-read`` listener
+changes text, JSON provenance reports ``exact: false`` and text output uses an
+unknown ``?`` adornment rather than presenting generated coordinates as an
+editable source fact.
+
 ========================================================
 Entry selectors: stable sections and universal aliases
 ========================================================

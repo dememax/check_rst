@@ -33,6 +33,21 @@ def _plural(count: int, singular: str, plural: str | None = None) -> str:
     return plural if plural is not None else f"{singular}s"
 
 
+def _entry_position(
+    lineno: int,
+    end: int,
+    provenance: SourceProvenance | None,
+    docname: str | None = None,
+) -> str:
+    """Format an entry range with whichever non-local owner applies."""
+    pos = f"{lineno}-{end}" if end > lineno else f"{lineno}"
+    if provenance is not None:
+        return f"{provenance.source}:{pos}"
+    if docname:
+        return f"{docname}:{pos}"
+    return pos
+
+
 class Severity(enum.StrEnum):
     """Finding.severity's two levels. A StrEnum (not a plain Enum): members
     compare equal to and format identically to the plain "ERROR"/"WARNING"
@@ -225,6 +240,61 @@ _NON_PROSE_NODE_TYPES = (
 _INLINE_CONTAINER_TYPES = (docutils.nodes.strong, docutils.nodes.emphasis, docutils.nodes.literal)
 
 
+class SourceOrigin(enum.StrEnum):
+    """How an effective node entered the document being inspected.
+
+    ``SOURCE`` is normally represented by ``provenance=None`` on an entry:
+    the root file remains the compact, backwards-compatible default.  The
+    enum names every non-local case for which physical coordinates must not
+    be interpreted in the root file's coordinate space.
+    """
+
+    SOURCE = "source"
+    INCLUDE = "include"
+    RST_PROLOGUE = "rst-prologue"
+    RST_EPILOGUE = "rst-epilogue"
+    TRANSFORMED = "transformed"
+    GENERATED = "generated"
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class IncludeSite:
+    """One edge in the active parsed-include chain.
+
+    ``source`` and ``lineno`` identify the directive owner; ``target`` is
+    the resolved project-relative source.  The source-and-clipping tuple is
+    also Docutils' cycle identity: filename alone would reject legitimate
+    disjoint-fragment inclusions.
+    """
+
+    source: str
+    lineno: int
+    target: str
+    mode: str
+    options: tuple[tuple[str, str], ...] = ()
+    clip: tuple[str | int | None, str | int | None, str | int | None, str | int | None] = (
+        None,
+        None,
+        None,
+        None,
+    )
+    line_offset: int = dataclasses.field(default=0, repr=False, compare=False)
+    end_line: int | None = dataclasses.field(default=None, repr=False, compare=False)
+    exact: bool = True
+    order: int = dataclasses.field(default=0, repr=False, compare=False)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class SourceProvenance:
+    """Physical or synthetic ownership of an effective structural entry."""
+
+    source: str
+    origin: SourceOrigin
+    include_chain: tuple[IncludeSite, ...] = ()
+    exact: bool = True
+    order: int = dataclasses.field(default=0, repr=False, compare=False)
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class OutlineEntry:
     """A single section heading, as reported by --outline.
@@ -255,6 +325,7 @@ class OutlineEntry:
     children: int = 0
     end: int = 0  # last line of the section's content (its extent)
     docname: str | None = None
+    provenance: SourceProvenance | None = None
 
     def __str__(self) -> str:
         return self.formatted()
@@ -285,9 +356,7 @@ class OutlineEntry:
         # so _print_outline_entries computes and passes them in; plain str()
         # stays self-contained with subsections only.
         indent = "    " * (self.depth - 1)
-        pos = f"{self.lineno}-{self.end}" if self.end > self.lineno else f"{self.lineno}"
-        if self.docname:
-            pos = f"{self.docname}:{pos}"
+        pos = _entry_position(self.lineno, self.end, self.provenance, self.docname)
         base = f"{indent}{pos}:{self.char} {self.title}"
         parts = []
         if self.children:
@@ -318,11 +387,12 @@ class CodeBlockEntry:
     language: str | None
     preview: str = ""
     end: int = 0  # last line of the directive's indented content
+    provenance: SourceProvenance | None = None
 
     def __str__(self) -> str:
         indent = "    " * (self.depth - 1)
         lang = self.language if self.language is not None else "no language"
-        pos = f"{self.lineno}-{self.end}" if self.end > self.lineno else f"{self.lineno}"
+        pos = _entry_position(self.lineno, self.end, self.provenance)
         base = f"{indent}{pos}: code-block ({lang})"
         return f"{base}: {self.preview}" if self.preview else base
 
@@ -349,10 +419,11 @@ class BlockQuoteEntry:
     depth: int
     preview: str
     end: int = 0  # last line of the quoted block
+    provenance: SourceProvenance | None = None
 
     def __str__(self) -> str:
         indent = "    " * (self.depth - 1)
-        pos = f"{self.lineno}-{self.end}" if self.end > self.lineno else f"{self.lineno}"
+        pos = _entry_position(self.lineno, self.end, self.provenance)
         return f'{indent}{pos}: blockquote "{self.preview}"'
 
     def __contains__(self, item: object) -> bool:
@@ -381,10 +452,11 @@ class AdmonitionEntry:
     title: str | None
     preview: str
     end: int = 0
+    provenance: SourceProvenance | None = None
 
     def __str__(self) -> str:
         indent = "    " * (self.depth - 1)
-        pos = f"{self.lineno}-{self.end}" if self.end > self.lineno else f"{self.lineno}"
+        pos = _entry_position(self.lineno, self.end, self.provenance)
         base = f"{indent}{pos}: admonition ({self.kind})"
         if self.title:
             base += f', "{self.title}"'
@@ -419,10 +491,11 @@ class CommentEntry:
     preview: str
     suspicious: bool
     end: int = 0
+    provenance: SourceProvenance | None = None
 
     def __str__(self) -> str:
         indent = "    " * (self.depth - 1)
-        pos = f"{self.lineno}-{self.end}" if self.end > self.lineno else f"{self.lineno}"
+        pos = _entry_position(self.lineno, self.end, self.provenance)
         base = f'{indent}{pos}: comment "{self.preview}"'
         if self.suspicious:
             base += " [suspicious — looks like a mistyped directive]"
@@ -462,10 +535,11 @@ class ListEntry:
     preview: str
     item_count: int | None = None  # set only on a bullet/enumerated container
     end: int = 0
+    provenance: SourceProvenance | None = None
 
     def __str__(self) -> str:
         indent = "    " * (self.depth - 1)
-        pos = f"{self.lineno}-{self.end}" if self.end > self.lineno else f"{self.lineno}"
+        pos = _entry_position(self.lineno, self.end, self.provenance)
         if self.item_count is not None:
             return f"{indent}{pos}: {self.kind} list ({self.marker!r}, {self.item_count} {_plural(self.item_count, 'item')})"
         base = f'{indent}{pos}: "{self.marker}"' if self.kind == "definition" else f"{indent}{pos}: {self.marker}"
@@ -506,10 +580,11 @@ class TableEntry:
     caption: str | None
     preview: str
     end: int = 0
+    provenance: SourceProvenance | None = None
 
     def __str__(self) -> str:
         indent = "    " * (self.depth - 1)
-        pos = f"{self.lineno}-{self.end}" if self.end > self.lineno else f"{self.lineno}"
+        pos = _entry_position(self.lineno, self.end, self.provenance)
         rows, cols = self.dims
         base = f"{indent}{pos}: Table ({self.kind}, {rows}x{cols})"
         if self.caption:
@@ -663,10 +738,11 @@ class ToctreeEntry:
     end: int = 0
     cycle: str | None = None
     docname: str | None = None
+    provenance: SourceProvenance | None = None
 
     def __str__(self) -> str:
         indent = "    " * (self.depth - 1)
-        pos = f"{self.lineno}-{self.end}" if self.end > self.lineno else f"{self.lineno}"
+        pos = _entry_position(self.lineno, self.end, self.provenance, self.docname)
         if self.docname:
             # A lone foreign container line must identify its source exactly
             # like a foreign OutlineEntry; local containers remain lean.
@@ -686,6 +762,60 @@ class ToctreeEntry:
         return item in str(self)
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class IncludeEntry:
+    """One active ``include`` directive in the effective source path."""
+
+    lineno: int
+    depth: int
+    target: str
+    resolved: str
+    mode: str
+    options: tuple[tuple[str, str], ...] = ()
+    end: int = 0
+    provenance: SourceProvenance | None = None
+    cycle: str | None = None
+    site: IncludeSite | None = dataclasses.field(default=None, repr=False, compare=False)
+
+    def __str__(self) -> str:
+        indent = "    " * (self.depth - 1)
+        pos = _entry_position(self.lineno, self.end, self.provenance)
+        target = self.target
+        if self.resolved != self.target:
+            target = f"{self.target} -> {self.resolved}"
+        if self.cycle is not None:
+            return f'{indent}{pos}: include cycle "{target}" — {self.cycle}'
+        return f'{indent}{pos}: include "{target}" ({self.mode})'
+
+    def __contains__(self, item: object) -> bool:
+        if not isinstance(item, str):
+            return False
+        return item in str(self)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ConditionalEntry:
+    """A structural conditional whose stored doctree is not builder-final."""
+
+    lineno: int
+    depth: int
+    kind: str
+    expression: str
+    resolution: str = "builder-dependent"
+    end: int = 0
+    provenance: SourceProvenance | None = None
+
+    def __str__(self) -> str:
+        indent = "    " * (self.depth - 1)
+        pos = _entry_position(self.lineno, self.end, self.provenance)
+        return f"{indent}{pos}: conditional ({self.kind}, {self.resolution}): {self.expression}"
+
+    def __contains__(self, item: object) -> bool:
+        if not isinstance(item, str):
+            return False
+        return item in str(self)
+
+
 # Found by code review: this exact 7-member union — every per-document
 # structural finder's own output type — was retyped by hand at three call
 # sites (_reports.py, _pipeline.py, _sphinx.py's _merge_toctree_clusters),
@@ -697,7 +827,15 @@ class ToctreeEntry:
 # ANOTHER file entirely — see _merge_toctree_clusters, the one place both
 # aliases meet.
 type LocalEntry = (
-    OutlineEntry | CodeBlockEntry | BlockQuoteEntry | TableEntry | AdmonitionEntry | CommentEntry | ListEntry
+    OutlineEntry
+    | CodeBlockEntry
+    | BlockQuoteEntry
+    | TableEntry
+    | AdmonitionEntry
+    | CommentEntry
+    | ListEntry
+    | IncludeEntry
+    | ConditionalEntry
 )
 
 # LocalEntry plus ToctreeEntry — the shape of a document's outline AFTER
@@ -740,3 +878,4 @@ class ContextMatch:
     kind: str
     source_docname: str
     match_texts: tuple[str, ...]
+    source: str | None = None

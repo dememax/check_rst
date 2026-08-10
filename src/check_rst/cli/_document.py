@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import functools
+import pathlib
 import re
 from typing import TYPE_CHECKING, cast
 
@@ -15,6 +16,7 @@ import docutils.parsers.rst.states
 import docutils.utils
 
 from . import _helpers
+from ._composition import CompositionIndex, is_include_marker
 from ._helpers import (
     CALL_COUNTS,
     _block_depth,
@@ -36,8 +38,10 @@ from ._types import (
     CodeBlockEntry,
     CommentEntry,
     Finding,
+    IncludeEntry,
     ListEntry,
     OutlineEntry,
+    SourceProvenance,
     TableEntry,
 )
 
@@ -103,7 +107,31 @@ class _DocumentCore:
 
     @functools.cached_property
     def doctree(self) -> docutils.nodes.document:
-        return _helpers._parse_rst(self.path, text=self.text)
+        return _helpers._parse_rst(self.path, text=self.text, track_composition=True)
+
+    @functools.cached_property
+    def composition(self) -> CompositionIndex:
+        return CompositionIndex(self.doctree, self.path, self.project_root)
+
+    def source_context(
+        self,
+        node: docutils.nodes.Node,
+    ) -> tuple[int, list[str], SourceProvenance | None]:
+        """Return physical start, owner lines, and composed provenance."""
+        logical = _node_line(node)
+        provenance = self.composition.provenance(node)
+        lineno = self.composition.physical_line(node, logical)
+        source_path = self.composition.source_path(provenance, self.path)
+        if provenance is None:
+            lines = self.lines
+        elif source_path is None or not provenance.exact:
+            lines = []
+        else:
+            try:
+                lines = _read_source(source_path).splitlines()
+            except OSError, UnicodeError:
+                lines = []
+        return lineno, lines, provenance
 
 
 class _DocumentInlineMixin(_DocumentCore):
@@ -202,6 +230,10 @@ class _DocumentOutlineMixin(_DocumentCore):
     def tables(self) -> list[TableEntry]:
         return find_tables(self.path, doc=cast("Document", self))
 
+    @functools.cached_property
+    def includes(self) -> list[IncludeEntry]:
+        return find_includes(self.path, doc=cast("Document", self))
+
 
 class Document(_DocumentInlineMixin, _DocumentProseMixin, _DocumentOutlineMixin):
     """Read-only facade over one .rst file — stage 1 of the document
@@ -288,6 +320,8 @@ def build_outline(
     path: pathlib.Path,
     doc: Document | None = None,
     doctree: docutils.nodes.document | None = None,
+    source_root: pathlib.Path | None = None,
+    root_transformed: bool = False,
 ) -> list[OutlineEntry]:
     """Return every section heading in *path*, in document order.
 
@@ -301,15 +335,40 @@ def build_outline(
     """
     document = _resolve_document(path, doc)
     tree = doctree if doctree is not None else document.doctree
-    lines = document.lines
-    raw: list[tuple[int, int, str, str, int, int]] = []  # (+ block_start)
+    root = source_root if source_root is not None else document.project_root
+    composition = CompositionIndex(tree, path, root, root_transformed=root_transformed)
+    source_lines: dict[str, list[str]] = {}
+
+    def lines_for(provenance: SourceProvenance | None) -> list[str]:
+        if provenance is None:
+            return document.lines
+        if not provenance.exact:
+            return []
+        cached = source_lines.get(provenance.source)
+        if cached is not None:
+            return cached
+        source_path = composition.source_path(provenance, path)
+        if source_path is None:
+            lines: list[str] = []
+        else:
+            try:
+                lines = _read_source(source_path).splitlines()
+            except OSError, UnicodeError:
+                lines = []
+        source_lines[provenance.source] = lines
+        return lines
+
+    raw: list[tuple[int, int, str, str, int, int, SourceProvenance | None, list[str]]] = []
     for sec in tree.findall(docutils.nodes.section):
         title_node = sec.children[0]
         underline_row = title_node.line  # docutils reports the underline's 1-based line
         if not isinstance(underline_row, int):
             continue
+        provenance = composition.provenance(title_node)
+        underline_row = composition.physical_line(title_node, underline_row)
         title_row = underline_row - 1
         underline_idx = underline_row - 1
+        lines = lines_for(provenance)
         char = "?"
         if 0 <= underline_idx < len(lines):
             underline = lines[underline_idx].strip()
@@ -332,20 +391,80 @@ def build_outline(
                 children += 1
         # The section's block starts at the overline when present — the
         # boundary the PREVIOUS section's extent must stop before.
-        has_overline = title_row >= 2 and _is_adornment(lines[title_row - 2].strip())
+        has_overline = title_row >= 2 and title_row - 2 < len(lines) and _is_adornment(lines[title_row - 2].strip())
         block_start = title_row - 1 if has_overline else title_row
-        raw.append((title_row, depth, char, title_node.astext(), children, block_start))
+        raw.append((title_row, depth, char, title_node.astext(), children, block_start, provenance, lines))
 
     # Extents: a section runs to the line before the next same-or-shallower
     # section's block (findall order is document order), or to EOF; trailing
     # blank separator lines are trimmed.
     entries: list[OutlineEntry] = []
-    for i, (title_row, depth, char, title, children, _bs) in enumerate(raw):
-        nxt = next((r for r in raw[i + 1 :] if r[1] <= depth), None)
+    for i, (title_row, depth, char, title, children, _bs, provenance, lines) in enumerate(raw):
+        nxt = next(
+            (r for r in raw[i + 1 :] if r[1] <= depth and r[6] == provenance),
+            None,
+        )
         end = (nxt[5] - 1) if nxt is not None else len(lines)
+        if nxt is None:
+            end = composition.source_end(provenance, lines)
+        if not lines:
+            end = title_row
         while end > title_row and not lines[end - 1].strip():
             end -= 1
-        entries.append(OutlineEntry(title_row, depth, char, title, children, end))
+        entries.append(
+            OutlineEntry(
+                title_row,
+                depth,
+                char,
+                title,
+                children,
+                end,
+                provenance=provenance,
+            )
+        )
+    return entries
+
+
+def find_includes(
+    path: pathlib.Path,
+    doc: Document | None = None,
+    *,
+    doctree: docutils.nodes.document | None = None,
+    source_root: pathlib.Path | None = None,
+    root_transformed: bool = False,
+) -> list[IncludeEntry]:
+    """Return active parsed-include edges from the composition markers."""
+    document = _resolve_document(path, doc)
+    tree = document.doctree if doctree is None else doctree
+    root = source_root if source_root is not None else document.project_root
+    composition = CompositionIndex(tree, path, root, root_transformed=root_transformed)
+    entries: list[IncludeEntry] = []
+    for node, site, provenance, record in composition.include_nodes:
+        source_path = composition.source_path(provenance, path)
+        if provenance is None:
+            lines = document.lines
+        elif source_path is None or not provenance.exact:
+            lines = []
+        else:
+            try:
+                lines = _read_source(source_path).splitlines()
+            except OSError, UnicodeError:
+                lines = []
+        end = _indented_extent(lines, site.lineno) if lines else site.lineno
+        entries.append(
+            IncludeEntry(
+                lineno=site.lineno,
+                depth=_block_depth(node),
+                target=str(record["target"]),
+                resolved=site.target,
+                mode=site.mode,
+                options=site.options,
+                end=end,
+                provenance=provenance,
+                cycle=site.target if record["cycle"] is not None else None,
+                site=site,
+            )
+        )
     return entries
 
 
@@ -363,7 +482,6 @@ def find_admonitions(path: pathlib.Path, doc: Document | None = None) -> list[Ad
     it fine, check_rst simply had no entry kind for it.
     """
     document = _resolve_document(path, doc)
-    lines = document.lines
     entries: list[AdmonitionEntry] = []
     for node in document.doctree.findall(docutils.nodes.Admonition):
         depth = _block_depth(node)
@@ -375,7 +493,7 @@ def find_admonitions(path: pathlib.Path, doc: Document | None = None) -> list[Ad
             body_children = body_children[1:]
 
         preview = _outline_preview(" ".join(c.astext() for c in body_children))
-        start = _node_line(node)
+        start, lines, provenance = document.source_context(node)
         entries.append(
             AdmonitionEntry(
                 start,
@@ -384,6 +502,7 @@ def find_admonitions(path: pathlib.Path, doc: Document | None = None) -> list[Ad
                 title,
                 preview,
                 _indented_extent(lines, start),
+                provenance,
             )
         )
     return entries
@@ -413,13 +532,14 @@ def find_block_quotes(path: pathlib.Path, doc: Document | None = None) -> list[B
             continue
         depth = _block_depth(bq)
         preview = _outline_preview(bq.astext())
-        start = _node_line(bq)
+        start, lines, provenance = document.source_context(bq)
         entries.append(
             BlockQuoteEntry(
                 start,
                 depth,
                 preview,
-                _indented_extent(document.lines, start, allow_same_indent=True),
+                _indented_extent(lines, start, allow_same_indent=True),
+                provenance,
             )
         )
     return entries
@@ -432,9 +552,10 @@ def find_comments(path: pathlib.Path, doc: Document | None = None) -> list[Comme
     heuristic split.
     """
     document = _resolve_document(path, doc)
-    lines = document.lines
     entries: list[CommentEntry] = []
     for node in document.doctree.findall(docutils.nodes.comment):
+        if is_include_marker(node):
+            continue
         depth = _block_depth(node)
 
         text = node.astext()
@@ -443,8 +564,8 @@ def find_comments(path: pathlib.Path, doc: Document | None = None) -> list[Comme
         suspicious = bool(m and m.group(1).lower() in _KNOWN_DIRECTIVE_NAMES)
 
         preview = _outline_preview(text)
-        start = _node_line(node)
-        entries.append(CommentEntry(start, depth, preview, suspicious, _indented_extent(lines, start)))
+        start, lines, provenance = document.source_context(node)
+        entries.append(CommentEntry(start, depth, preview, suspicious, _indented_extent(lines, start), provenance))
     return entries
 
 
@@ -453,14 +574,14 @@ def find_lists(path: pathlib.Path, doc: Document | None = None) -> list[ListEntr
     document order — bare docutils, no verified/heuristic split, same as
     blockquotes/admonitions/tables/comments."""
     document = _resolve_document(path, doc)
-    lines = document.lines
     entries: list[ListEntry] = []
 
     for node in document.doctree.findall(docutils.nodes.bullet_list):
         container_depth = _block_depth(node)
         items = list(node.children)
-        container_start = _node_line(node)
-        container_end = _indented_extent(lines, _node_line(items[-1])) if items else container_start
+        container_start, lines, provenance = document.source_context(node)
+        last_start = document.source_context(items[-1])[0] if items else container_start
+        container_end = _indented_extent(lines, last_start) if items else container_start
         bullet = node.get("bullet", "*")
         entries.append(
             ListEntry(
@@ -471,10 +592,11 @@ def find_lists(path: pathlib.Path, doc: Document | None = None) -> list[ListEntr
                 "",
                 item_count=len(items),
                 end=container_end,
+                provenance=provenance,
             )
         )
         for item in items:
-            start = _node_line(item)
+            start, item_lines, item_provenance = document.source_context(item)
             entries.append(
                 ListEntry(
                     start,
@@ -482,15 +604,17 @@ def find_lists(path: pathlib.Path, doc: Document | None = None) -> list[ListEntr
                     "bullet",
                     bullet,
                     _outline_preview(item.astext()),
-                    end=_indented_extent(lines, start),
+                    end=_indented_extent(item_lines, start),
+                    provenance=item_provenance,
                 )
             )
 
     for node in document.doctree.findall(docutils.nodes.enumerated_list):
         container_depth = _block_depth(node)
         items = list(node.children)
-        container_start = _node_line(node)
-        container_end = _indented_extent(lines, _node_line(items[-1])) if items else container_start
+        container_start, lines, provenance = document.source_context(node)
+        last_start = document.source_context(items[-1])[0] if items else container_start
+        container_end = _indented_extent(lines, last_start) if items else container_start
         first_marker = _enum_marker(node, 0)
         entries.append(
             ListEntry(
@@ -501,10 +625,11 @@ def find_lists(path: pathlib.Path, doc: Document | None = None) -> list[ListEntr
                 "",
                 item_count=len(items),
                 end=container_end,
+                provenance=provenance,
             )
         )
         for position, item in enumerate(items):
-            start = _node_line(item)
+            start, item_lines, item_provenance = document.source_context(item)
             entries.append(
                 ListEntry(
                     start,
@@ -512,14 +637,15 @@ def find_lists(path: pathlib.Path, doc: Document | None = None) -> list[ListEntr
                     "enumerated",
                     _enum_marker(node, position),
                     _outline_preview(item.astext()),
-                    end=_indented_extent(lines, start),
+                    end=_indented_extent(item_lines, start),
+                    provenance=item_provenance,
                 )
             )
 
     for node in document.doctree.findall(docutils.nodes.definition_list_item):
         depth = _block_depth(node)
         term, definition = node.children[0], node.children[1]
-        start = _node_line(node)
+        start, lines, provenance = document.source_context(node)
         entries.append(
             ListEntry(
                 start,
@@ -528,6 +654,7 @@ def find_lists(path: pathlib.Path, doc: Document | None = None) -> list[ListEntr
                 term.astext(),
                 _outline_preview(definition.astext()),
                 end=_indented_extent(lines, start),
+                provenance=provenance,
             )
         )
 
@@ -816,24 +943,42 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
     the bullet list container itself before this fix).
     """
     document = _resolve_document(path, doc)
-    lines = document.lines
     entries: list[TableEntry] = []
-    csv_table_search_from = 0  # 0-based; advances past each resolved entry
-    captionless_csv_markers: list[int] | None = None
+    csv_table_search_from: dict[str, int] = {}
+    captionless_csv_markers: dict[str, list[int]] = {}
     for table in document.doctree.findall(docutils.nodes.table):
         depth = _block_depth(table)
 
         caption: str | None = None
         anchor: int | None = None
+        anchor_node: docutils.nodes.Node | None = None
         if table.children and isinstance(table.children[0], docutils.nodes.title):
             title_node = table.children[0]
             caption = title_node.astext()
             if isinstance(title_node.line, int):
                 anchor = title_node.line
+                anchor_node = title_node
         if anchor is None:
-            anchor = next((n.line for n in table.findall() if isinstance(n.line, int)), None)
-        if anchor is None:
+            anchor_node = next((n for n in table.findall() if isinstance(n.line, int)), None)
+            anchor = anchor_node.line if anchor_node is not None else None
+        if anchor is None or anchor_node is None:
             continue  # no locatable content at all — nothing to report
+
+        provenance = document.composition.provenance(anchor_node)
+        anchor = document.composition.physical_line(anchor_node, anchor)
+        source_path = document.composition.source_path(provenance, path)
+        if provenance is None:
+            lines = document.lines
+            source_key = str(path.resolve())
+        elif source_path is None:
+            lines = []
+            source_key = provenance.source
+        else:
+            try:
+                lines = _read_source(source_path).splitlines()
+            except OSError, UnicodeError:
+                lines = []
+            source_key = provenance.source
 
         kind, start = _table_kind_and_start(lines, anchor)
 
@@ -855,9 +1000,12 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
         # — it never fires unless _table_kind_and_start's own fallback and a
         # captionless table both agree nothing else fits.
         if kind == "table" and start == anchor and caption is None:
-            if captionless_csv_markers is None:
-                captionless_csv_markers = _captionless_csv_marker_lines(path, lines)
-            marker_line = next((line for line in captionless_csv_markers if line > csv_table_search_from), None)
+            markers = captionless_csv_markers.get(source_key)
+            if markers is None:
+                markers = _captionless_csv_marker_lines(source_path or path, lines)
+                captionless_csv_markers[source_key] = markers
+            search_from = csv_table_search_from.get(source_key, 0)
+            marker_line = next((line for line in markers if line > search_from), None)
             rescued_csv_marker_idx = marker_line - 1 if marker_line is not None else None
             if marker_line is not None:
                 kind, start = "csv", marker_line
@@ -882,12 +1030,16 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
             # trustworthy to start from either.
             end = _directive_body_end(lines, rescued_csv_marker_idx)
         else:
-            content_lines = [n.line for n in table.findall() if isinstance(n.line, int)]
-            last_content_line = max(content_lines) if content_lines else start
+            physical_content_lines = [
+                document.composition.physical_line(n, n.line)
+                for n in table.findall()
+                if isinstance(n.line, int) and document.composition.provenance(n) == provenance
+            ]
+            last_content_line = max(physical_content_lines) if physical_content_lines else start
             end = _table_end(lines, last_content_line, start)
-        csv_table_search_from = max(csv_table_search_from, end)
+        csv_table_search_from[source_key] = max(csv_table_search_from.get(source_key, 0), end)
 
-        entries.append(TableEntry(start, depth, kind, (rows, cols), caption, preview, end))
+        entries.append(TableEntry(start, depth, kind, (rows, cols), caption, preview, end, provenance))
     return entries
 
 

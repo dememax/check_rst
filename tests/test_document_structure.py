@@ -69,6 +69,25 @@ def test_outline_nested_nesting_depth(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+def test_bare_outline_exposes_include_boundary_and_foreign_blocks(tmp_path: Path) -> None:
+    """Bare Docutils mode uses the same physical ownership model as Sphinx."""
+    root = tmp_path / "index.rst"
+    root.write_text("Index\n=====\n\n.. include:: fragment.rst\n", encoding="utf-8")
+    (tmp_path / "fragment.rst").write_text(
+        "Included\n--------\n\n.. note:: Included note.\n",
+        encoding="utf-8",
+    )
+    document = _document.Document(root, tmp_path)
+
+    included = next(entry for entry in document.outline if entry.title == "Included")
+    assert included.provenance is not None
+    assert included.provenance.source == "fragment.rst"
+    assert str(document.includes[0]) == '    4: include "fragment.rst" (parsed)'
+    assert str(document.admonitions[0]).lstrip().startswith("fragment.rst:4: admonition")
+    assert document.comments == []  # the invisible include marker is not author content
+
+
+@pytest.mark.integration
 def test_outline_sibling_depth_resets_after_nested_child(tmp_path: Path) -> None:
     """A sibling section after a nested child must return to the parent's depth."""
     p = _rst(

@@ -1598,6 +1598,30 @@ def test_cli_context_section_stable_id_and_applicable_finding(
 
 
 @pytest.mark.integration
+def test_cli_context_included_section_reads_its_physical_fragment(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An included selector must switch ranges and findings to its owner."""
+    root = rst_repo / "index.rst"
+    root.write_text("#######\nIndex\n#######\n\n.. include:: fragment.rst\n", encoding="utf-8")
+    fragment = rst_repo / "fragment.rst"
+    fragment.write_text("**********\nIncluded\n**********\n\nDetails.\n", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "fragment:Included", str(root)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert f"Context: {fragment}" in out
+    assert "selector: fragment:Included" in out
+    assert "range: 2-5" in out
+    assert "references:\n  unavailable — verified Sphinx mode required" in out
+
+
+@pytest.mark.integration
 def test_cli_context_ambiguous_exact_match_lists_candidates_without_guessing(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,

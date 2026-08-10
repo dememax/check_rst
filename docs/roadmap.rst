@@ -376,6 +376,57 @@ already exposes — nearly free; table/image "never referenced" needs a
 corpus-wide asset/reference scan, the same cost class as ``--refs``' incoming
 scan, not a per-file check — its own design round, not a ride-along.
 
+=================================================
+Parsed composition provenance and control paths
+=================================================
+
+*(implemented 2026-08-10; deliberately separated from the title-rule batch)*
+
+Effective structure cannot be validated from the root file's line array once
+Docutils has expanded ``.. include::``.  The first live probe demonstrated
+that an included heading inherited an unrelated root line, an unknown
+adornment, and a root-file extent.  Repeated and nested includes also cannot
+be reconstructed from ``node.source`` alone because the directive itself
+normally disappears during parsing.
+
+The implementation records every active include invocation with an invisible
+Docutils comment marker during the real parse.  It exposes an ``IncludeEntry``
+and a shared ``SourceProvenance``/``IncludeSite`` chain on headings and block
+entries.  The chain records the directive owner, physical line, resolved
+target, mode, options, and clipping identity.  Foreign entries use their own
+physical source coordinates and are clustered at the owning directive rather
+than sorted numerically against the root file.
+
+The following decisions are fixed for later structural checks:
+
+* An include cycle is identified exactly as Docutils identifies it: the active
+  ``(resolved source, clipping options)`` pair.  The same file with a disjoint
+  clip is legitimate.  A refused cycle remains a visible include-path entry;
+  it is never silently truncated.
+* Sphinx nested include arguments retain Sphinx's own resolution semantics:
+  they are relative to the root source document's directory, not to the
+  directory of the included fragment.
+* ``source-read`` and ``include-read`` mutation is detected around extension
+  listeners.  Affected entries remain visible but carry ``exact = false`` and
+  an unknown adornment instead of claiming an editable physical coordinate.
+  ``rst_prolog`` and ``rst_epilog`` use their synthetic Sphinx sources for the
+  same reason.
+* The stored Sphinx environment is explicitly ``parser-effective``.
+  ``only`` and ``ifconfig`` containers are exposed as
+  ``builder-dependent``; the dummy builder's tags are not presented as the
+  final structure of an HTML, LaTeX, or other real build.
+* Source composition and navigation composition remain distinct.  A toctree
+  physically written in an included fragment carries the include provenance,
+  while documents reached through that toctree retain their independent
+  Sphinx docnames.  Include and toctree clusters can therefore nest without
+  comparing foreign line numbers.
+
+This batch intentionally does **not** change ``check_single_top_level`` or its
+severity.  Effective single-top-level enforcement, non-fixable ``ERROR``
+policy, and source-specific remediation hints remain the separate future
+batch below; they can now consume explicit composition facts instead of
+guessing them.
+
 ======================================
 Single top-level heading enforcement
 ======================================

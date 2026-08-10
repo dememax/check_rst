@@ -44,11 +44,16 @@ from ._sphinx import (
     _findings_from_sphinx_output,
     _is_sphinx_fixable_duplicate,
     _merge_toctree_clusters,
+    _source_was_transformed,
     _toctree_anomalies,
     check_bare_filenames,
     check_multiple_toctree_parents,
     find_code_blocks,
+    find_conditionals,
+    find_includes,
     find_toctrees,
+    nest_composed_clusters,
+    partition_composed_entries,
 )
 from ._types import (
     FixPlan,
@@ -391,29 +396,35 @@ def _run_sphinx_phases(
                 if phase2_doc is None:
                     continue
                 code_blocks = phase2_doc.code_blocks_heuristic
+                include_entries = phase2_doc.includes
                 if args.json:
                     state.json_records[path].update(
                         _json_file_model(
                             phase2_doc,
                             code_blocks,
                             word_samples,
+                            include_entries=include_entries,
+                            structure_stage="parser-effective",
                             project_root=project_root,
                         )
                     )
                     if state.json_records[path]["stats"]["word_stats_error"] and not args.no_warnings:
                         state.total_warnings += 1
                 if args.outline and not args.json:
-                    heuristic_combined: list[MergedEntry] = sorted(
-                        [
-                            *phase2_doc.outline,
-                            *code_blocks,
-                            *phase2_doc.block_quotes,
-                            *phase2_doc.tables,
-                            *phase2_doc.admonitions,
-                            *phase2_doc.comments,
-                            *phase2_doc.lists,
-                        ],
-                        key=lambda e: e.lineno,
+                    heuristic_entries: list[LocalEntry] = [
+                        *phase2_doc.outline,
+                        *include_entries,
+                        *code_blocks,
+                        *phase2_doc.block_quotes,
+                        *phase2_doc.tables,
+                        *phase2_doc.admonitions,
+                        *phase2_doc.comments,
+                        *phase2_doc.lists,
+                    ]
+                    heuristic_root, include_clusters = partition_composed_entries(heuristic_entries)
+                    heuristic_combined: list[MergedEntry] = _merge_toctree_clusters(
+                        heuristic_root,
+                        include_clusters,
                     )
                     with _report_kind("outline"):
                         print(f"Outline: {path}")
@@ -485,12 +496,16 @@ def _run_sphinx_phases(
                         continue
                     pstr = str(path)
                     docname = _docname_for(env, path)
-                    code_blocks = find_code_blocks(env, docname, phase2_doc.lines) if docname is not None else []
+                    code_blocks = (
+                        find_code_blocks(env, docname, phase2_doc.lines, phase2_doc) if docname is not None else []
+                    )
                     verified_outline = (
                         build_outline(
                             path,
                             doc=phase2_doc,
                             doctree=env.get_doctree(docname),
+                            source_root=args.sphinx_src,
+                            root_transformed=_source_was_transformed(env, docname),
                         )
                         if docname is not None
                         else phase2_doc.outline
@@ -498,6 +513,10 @@ def _run_sphinx_phases(
                     toctree_clusters = (
                         find_toctrees(env, docname, phase2_doc) if docname is not None and not args.no_toctree else []
                     )
+                    include_entries = (
+                        find_includes(env, docname, phase2_doc) if docname is not None else phase2_doc.includes
+                    )
+                    conditional_entries = find_conditionals(env, docname, phase2_doc) if docname is not None else []
                     cross_file_headings = [
                         e for cluster in toctree_clusters for e in cluster if isinstance(e, OutlineEntry)
                     ]
@@ -515,6 +534,9 @@ def _run_sphinx_phases(
                                     *cross_file_headings,
                                 ],
                                 toctree_entries=toctree_containers,
+                                include_entries=include_entries,
+                                conditional_entries=conditional_entries,
+                                structure_stage="parser-effective",
                                 project_root=project_root,
                             )
                         )
@@ -525,19 +547,22 @@ def _run_sphinx_phases(
                                 "not part of the --sphinx-src project — code-blocks unavailable"
                             )
                     if args.outline and not args.json:
-                        local_entries: list[LocalEntry] = sorted(
-                            [
-                                *verified_outline,
-                                *code_blocks,
-                                *phase2_doc.block_quotes,
-                                *phase2_doc.tables,
-                                *phase2_doc.admonitions,
-                                *phase2_doc.comments,
-                                *phase2_doc.lists,
-                            ],
-                            key=lambda e: e.lineno,
-                        )
-                        combined = _merge_toctree_clusters(local_entries, toctree_clusters)
+                        composed_entries: list[LocalEntry] = [
+                            *verified_outline,
+                            *include_entries,
+                            *conditional_entries,
+                            *code_blocks,
+                            *phase2_doc.block_quotes,
+                            *phase2_doc.tables,
+                            *phase2_doc.admonitions,
+                            *phase2_doc.comments,
+                            *phase2_doc.lists,
+                        ]
+                        local_entries, include_clusters = partition_composed_entries(composed_entries)
+                        nested_includes, root_toctrees = nest_composed_clusters(include_clusters, toctree_clusters)
+                        clusters = [*nested_includes, *root_toctrees]
+                        clusters.sort(key=lambda cluster: cluster[0].lineno if cluster else 0)
+                        combined = _merge_toctree_clusters(local_entries, clusters)
                         with _report_kind("outline"):
                             if docname is None:
                                 print(f"Outline: {pstr} (not part of --sphinx-src project — code-blocks unavailable)")

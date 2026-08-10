@@ -293,9 +293,14 @@ def test_cli_materializes_required_docutils_model_before_sphinx(
     events: list[str] = []
     original_parse = _helpers._parse_rst
 
-    def recording_parse(path: Path, text: str | None = None) -> docutils.nodes.document:
+    def recording_parse(
+        path: Path,
+        text: str | None = None,
+        *,
+        track_composition: bool = False,
+    ) -> docutils.nodes.document:
         events.append("docutils")
-        return original_parse(path, text)
+        return original_parse(path, text, track_composition=track_composition)
 
     env = types.SimpleNamespace(
         found_docs={"test"},
@@ -898,6 +903,394 @@ def test_outline_with_sphinx_src_uses_sphinx_doctree_for_headings(
     out = capsys.readouterr().out
     assert "Title" in out
     assert "Nested" in out
+
+
+@pytest.mark.integration
+def test_verified_outline_attributes_included_heading_to_physical_source(
+    tmp_path: Path,
+) -> None:
+    """An expanded include must not reuse the owner's lines or adornment.
+
+    This is the prerequisite characterization for effective-document rules:
+    the section participates in index's hierarchy, while its editable source
+    remains fragment.rst line 4 and its adornment remains ``*``.
+    """
+    (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
+    index = tmp_path / "index.rst"
+    index.write_text(
+        "#####\nIndex\n#####\n\n.. include:: fragment.rst\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "fragment.rst").write_text(
+        ".. provenance offset\n\nIncluded\n********\n\nBody.\n",
+        encoding="utf-8",
+    )
+
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    document = _document.Document(index, tmp_path)
+    entries = _document.build_outline(
+        index,
+        doc=document,
+        doctree=env.get_doctree("index"),
+        source_root=tmp_path,
+    )
+
+    included = next(entry for entry in entries if entry.title == "Included")
+    assert (included.lineno, included.char, included.end) == (3, "*", 6)
+    assert included.provenance == _types.SourceProvenance(
+        source="fragment.rst",
+        origin=_types.SourceOrigin.INCLUDE,
+        include_chain=(
+            _types.IncludeSite(
+                source="index.rst",
+                lineno=5,
+                target="fragment.rst",
+                mode="parsed",
+            ),
+        ),
+    )
+
+
+@pytest.mark.integration
+def test_verified_include_entries_preserve_nested_clipped_chain(tmp_path: Path) -> None:
+    """Nested includes retain every owner edge and correct start-line offsets."""
+    (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
+    index = tmp_path / "index.rst"
+    index.write_text(
+        "#####\nIndex\n#####\n\n.. include:: parts/outer.rst\n   :start-line: 2\n",
+        encoding="utf-8",
+    )
+    parts = tmp_path / "parts"
+    parts.mkdir()
+    (parts / "outer.rst").write_text(
+        "discarded\ndiscarded too\n\nOuter\n*****\n\n.. include:: parts/inner.rst\n",
+        encoding="utf-8",
+    )
+    (parts / "inner.rst").write_text("Inner\n=====\n", encoding="utf-8")
+
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    document = _document.Document(index, tmp_path)
+    tree = env.get_doctree("index")
+    headings = _document.build_outline(index, doc=document, doctree=tree, source_root=tmp_path)
+    includes = _sphinx.find_includes(env, "index", document, doctree=tree)
+
+    assert [
+        (entry.provenance.source if entry.provenance else None, entry.lineno, entry.target) for entry in includes
+    ] == [
+        (None, 5, "parts/outer.rst"),
+        ("parts/outer.rst", 7, "parts/inner.rst"),
+    ]
+    inner = next(entry for entry in headings if entry.title == "Inner")
+    assert inner.provenance is not None
+    assert [site.target for site in inner.provenance.include_chain] == [
+        "parts/outer.rst",
+        "parts/inner.rst",
+    ]
+    assert next(entry for entry in headings if entry.title == "Outer").lineno == 4
+
+
+@pytest.mark.integration
+def test_toctree_inside_include_retains_include_provenance(tmp_path: Path) -> None:
+    """Navigation composition nested in source composition keeps both edges."""
+    (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
+    index = tmp_path / "index.rst"
+    index.write_text("Index\n=====\n\n.. include:: navigation.rst\n", encoding="utf-8")
+    (tmp_path / "navigation.rst").write_text(
+        ".. toctree::\n   :maxdepth: 1\n\n   child\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "child.rst").write_text("Child\n=====\n", encoding="utf-8")
+
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    clusters = _sphinx.find_toctrees(env, "index", _document.Document(index, tmp_path))
+
+    container = clusters[0][0]
+    assert isinstance(container, _types.ToctreeEntry)
+    assert container.lineno == 1
+    assert container.provenance is not None
+    assert container.provenance.source == "navigation.rst"
+    assert isinstance(clusters[0][1], _types.OutlineEntry)
+    assert clusters[0][1].docname == "child"
+
+    tree = env.get_doctree("index")
+    headings = _document.build_outline(index, doctree=tree, source_root=tmp_path)
+    includes = _sphinx.find_includes(env, "index", doctree=tree)
+    local, include_clusters = _sphinx.partition_composed_entries([*headings, *includes])
+    nested_includes, root_toctrees = _sphinx.nest_composed_clusters(include_clusters, clusters)
+    combined = _sphinx._merge_toctree_clusters(local, [*nested_includes, *root_toctrees])
+    assert [type(entry) for entry in combined] == [
+        _types.OutlineEntry,
+        _types.IncludeEntry,
+        _types.ToctreeEntry,
+        _types.OutlineEntry,
+    ]
+
+
+@pytest.mark.integration
+def test_verified_include_cycle_is_visible_in_composition_entries(tmp_path: Path) -> None:
+    """Docutils' source-and-clip cycle refusal remains a visible path edge."""
+    (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
+    index = tmp_path / "index.rst"
+    index.write_text("Index\n=====\n\n.. include:: part.rst\n", encoding="utf-8")
+    (tmp_path / "part.rst").write_text(".. include:: index.rst\n", encoding="utf-8")
+
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    document = _document.Document(index, tmp_path)
+    includes = _sphinx.find_includes(env, "index", document)
+
+    assert len(includes) == 2
+    assert includes[1].cycle == "index.rst"
+    assert includes[1].provenance is not None
+    assert includes[1].provenance.source == "part.rst"
+
+
+@pytest.mark.integration
+def test_include_cycle_identity_allows_disjoint_clip_of_active_source(tmp_path: Path) -> None:
+    """Filename alone is not a cycle: Docutils keys the active edge by clipping too."""
+    (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
+    index = tmp_path / "index.rst"
+    index.write_text(
+        "Index\n=====\n\nBody fragment.\n\n.. include:: index.rst\n   :start-line: 3\n   :end-line: 4\n",
+        encoding="utf-8",
+    )
+
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    includes = _sphinx.find_includes(env, "index", _document.Document(index, tmp_path))
+
+    assert len(includes) == 1
+    assert includes[0].resolved == "index.rst"
+    assert includes[0].cycle is None
+    assert includes[0].site is not None
+    assert includes[0].site.clip == (3, 4, None, None)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("options", "mode"),
+    [
+        ("   :literal:\n", "literal"),
+        ("   :code: python\n", "code:python"),
+        ("   :parser: rst\n", "parser:Parser"),
+    ],
+)
+def test_include_modes_are_explicit(tmp_path: Path, options: str, mode: str) -> None:
+    """Literal, code, and custom-parser inclusion are not conflated."""
+    (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
+    index = tmp_path / "index.rst"
+    index.write_text(f"Index\n=====\n\n.. include:: payload.rst\n{options}", encoding="utf-8")
+    (tmp_path / "payload.rst").write_text("Payload\n-------\n", encoding="utf-8")
+
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    tree = env.get_doctree("index")
+    include = _sphinx.find_includes(env, "index", _document.Document(index, tmp_path), doctree=tree)[0]
+
+    assert include.mode == mode
+    assert include.site is not None
+    assert include.site.exact is True
+    headings = _document.build_outline(index, doctree=tree, source_root=tmp_path)
+    assert ("Payload" in [entry.title for entry in headings]) is options.startswith("   :parser:")
+
+
+@pytest.mark.integration
+def test_start_after_end_before_preserve_physical_heading_line(tmp_path: Path) -> None:
+    """Text clipping maps logical parser lines back to the selected source span."""
+    (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
+    index = tmp_path / "index.rst"
+    index.write_text(
+        "Index\n=====\n\n.. include:: fragment.rst\n   :start-after: BEGIN\n   :end-before: END\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "fragment.rst").write_text(
+        "discarded\nBEGIN\nIncluded\n--------\nBody.\nEND\ndiscarded\n",
+        encoding="utf-8",
+    )
+
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    tree = env.get_doctree("index")
+    headings = _document.build_outline(index, doctree=tree, source_root=tmp_path)
+
+    included = next(entry for entry in headings if entry.title == "Included")
+    assert (included.lineno, included.end, included.char) == (3, 5, "-")
+    assert included.provenance is not None
+    assert included.provenance.exact is True
+
+
+@pytest.mark.integration
+def test_verified_conditionals_declare_parser_effective_resolution(tmp_path: Path) -> None:
+    """Stored doctrees expose conditions without pretending they are resolved."""
+    (tmp_path / "conf.py").write_text(
+        'project = "test"\nextensions = ["sphinx.ext.ifconfig"]\nfeature = True\n',
+        encoding="utf-8",
+    )
+    index = tmp_path / "index.rst"
+    index.write_text(
+        textwrap.dedent("""\
+            Index
+            =====
+
+            .. only:: html
+
+               HTML
+               ----
+
+            .. ifconfig:: feature
+
+               Feature
+               -------
+            """),
+        encoding="utf-8",
+    )
+
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    entries = _sphinx.find_conditionals(env, "index", _document.Document(index, tmp_path))
+
+    assert [(entry.kind, entry.expression, entry.resolution) for entry in entries] == [
+        ("only", "html", "builder-dependent"),
+        ("ifconfig", "feature", "builder-dependent"),
+    ]
+
+
+@pytest.mark.integration
+def test_verified_source_read_mutation_marks_root_coordinates_inexact(tmp_path: Path) -> None:
+    """Extension-rewritten source must not masquerade as physical root lines."""
+    (tmp_path / "conf.py").write_text(
+        textwrap.dedent("""\
+            project = "test"
+
+            def rewrite(app, docname, source):
+                source[0] = "Injected\\n========\\n\\n" + source[0]
+
+            def setup(app):
+                app.connect("source-read", rewrite)
+            """),
+        encoding="utf-8",
+    )
+    index = tmp_path / "index.rst"
+    index.write_text("Physical\n--------\n", encoding="utf-8")
+
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    entries = _document.build_outline(
+        index,
+        doc=_document.Document(index, tmp_path),
+        doctree=env.get_doctree("index"),
+        source_root=tmp_path,
+        root_transformed=_sphinx._source_was_transformed(env, "index"),
+    )
+
+    assert entries[0].title == "Injected"
+    assert entries[0].char == "?"
+    assert entries[0].provenance is not None
+    assert entries[0].provenance.origin == _types.SourceOrigin.TRANSFORMED
+    assert entries[0].provenance.exact is False
+
+
+@pytest.mark.integration
+def test_rst_prologue_heading_has_synthetic_provenance(tmp_path: Path) -> None:
+    """Configured RST injection is structural but has no editable file range."""
+    (tmp_path / "conf.py").write_text(
+        'project = "test"\nrst_prolog = "Prologue\\n========"\n',
+        encoding="utf-8",
+    )
+    index = tmp_path / "index.rst"
+    index.write_text("Physical\n--------\n", encoding="utf-8")
+
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    entries = _document.build_outline(
+        index,
+        doc=_document.Document(index, tmp_path),
+        doctree=env.get_doctree("index"),
+        source_root=tmp_path,
+    )
+
+    prologue = next(entry for entry in entries if entry.title == "Prologue")
+    assert prologue.char == "?"
+    assert prologue.provenance is not None
+    assert prologue.provenance.source == "<rst_prologue>"
+    assert prologue.provenance.origin == _types.SourceOrigin.RST_PROLOGUE
+
+
+@pytest.mark.integration
+def test_verified_include_read_mutation_marks_include_chain_inexact(tmp_path: Path) -> None:
+    """An extension-mutated fragment remains visible but is not called physical."""
+    (tmp_path / "conf.py").write_text(
+        textwrap.dedent("""\
+            project = "test"
+
+            def rewrite(app, path, docname, source):
+                source[0] = source[0].replace("Included", "Generated")
+
+            def setup(app):
+                app.connect("include-read", rewrite)
+            """),
+        encoding="utf-8",
+    )
+    index = tmp_path / "index.rst"
+    index.write_text("#######\nIndex\n#######\n\n.. include:: fragment.rst\n", encoding="utf-8")
+    (tmp_path / "fragment.rst").write_text("**********\nIncluded\n**********\n", encoding="utf-8")
+
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    tree = env.get_doctree("index")
+    entries = _document.build_outline(
+        index,
+        doc=_document.Document(index, tmp_path),
+        doctree=tree,
+        source_root=tmp_path,
+    )
+
+    generated = next(entry for entry in entries if entry.title == "Generated")
+    assert generated.char == "?"
+    assert generated.provenance is not None
+    assert generated.provenance.origin == _types.SourceOrigin.INCLUDE
+    assert generated.provenance.exact is False
+
+
+@pytest.mark.integration
+def test_cli_verified_outline_and_json_expose_composition_controls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The provenance model is a public text and JSON contract, not hidden AST state."""
+    (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
+    index = tmp_path / "index.rst"
+    index.write_text("#######\nIndex\n#######\n\n.. include:: fragment.rst\n", encoding="utf-8")
+    (tmp_path / "fragment.rst").write_text("**********\nIncluded\n**********\n", encoding="utf-8")
+    monkeypatch.setattr(_sphinx, "run_sphinx", lambda *_args: [])
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(tmp_path),
+            "outline",
+            "--quiet",
+            "--verbose",
+            "--with-findings",
+            str(index),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert '5: include "fragment.rst" (parsed)' in output
+    assert "fragment.rst:2-3:* Included" in output
+    assert "1 include" in output
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "--sphinx-src", str(tmp_path), "check", "--format", "json", str(index)],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    model = data["files"][0]
+    assert model["structure_stage"] == "parser-effective"
+    assert model["includes"][0]["resolved"] == "fragment.rst"
+    included = next(entry for entry in model["outline"] if entry["title"] == "Included")
+    assert included["provenance"]["source"] == "fragment.rst"
 
 
 @pytest.mark.integration
