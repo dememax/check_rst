@@ -159,17 +159,30 @@ def test_has_non_prose_ancestor_extra_types_only_apply_when_passed() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("lang", ["C", "en_US.UTF-8", "fr_FR.UTF-8"])
 def test_cli_bare_invocation_outside_git_repo_clean_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    lang: str,
 ) -> None:
     """Bare check_rst (git auto-detection) outside any git repository must
     fail with a one-line diagnostic, not a CalledProcessError traceback —
     the same loud-and-clean precedent as a missing conf.py in --sphinx-src
     or a nonexistent --recursive directory.  Found by direct probing
     (2026-07-18): the 'project-agnostic, call from any project' tool
-    crashed with a raw traceback when that project wasn't a git repo."""
+    crashed with a raw traceback when that project wasn't a git repo.
+
+    Parametrized across locales (Max, 2026-08-11): this diagnostic used to
+    detect "not a git repository" by substring-matching a git subprocess's
+    own human-readable stderr, which is translated under LANG/LC_ALL —
+    confirmed broken live under fr_FR.UTF-8, where git's French message
+    silently failed to match and check_rst leaked git's raw text instead of
+    its own clean diagnostic. pygit2.discover_repository (no subprocess, no
+    translated text) fixed this structurally, but nothing short of actually
+    running under a non-English locale proves it stays fixed."""
+    monkeypatch.setenv("LANG", lang)
+    monkeypatch.setenv("LC_ALL", lang)
     monkeypatch.setattr(_helpers, "PROJECT_ROOT", tmp_path)  # no .git here
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check"])
 

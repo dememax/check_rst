@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import docutils.nodes
+import pygit2
 import pytest
 from _support import _BAD_BLOCK, _GOOD_BLOCK, _git, _rst
 
@@ -1831,6 +1832,41 @@ def test_changed_rst_files_skips_deleted_paths(rst_repo: Path) -> None:
 
 
 @pytest.mark.integration
+def test_changed_rst_files_works_before_any_commit_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A brand-new repository with zero commits (unborn HEAD) is a real,
+    legitimate state to run check_rst in — bucketed with the pygit2 migration
+    since Git status needs no HEAD to exist, but a same-shaped diff-based
+    query does (confirmed live: it raises KeyError, not a tolerable
+    failure), so this scenario must keep using the status-based path, not
+    silently regress onto the diff-based non-UTF-8-filename fallback."""
+    _git(tmp_path, "init")
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", tmp_path)
+    p = tmp_path / "new.rst"
+    p.write_text("", encoding="utf-8")
+    _git(tmp_path, "add", "new.rst")
+
+    assert _helpers._changed_rst_files() == [p]
+
+
+@pytest.mark.integration
+def test_changed_rst_files_staged_rename_returns_only_the_new_path(rst_repo: Path) -> None:
+    """A staged ``git mv`` reports one porcelain "R" entry carrying both the
+    new and the dead original path; only the new (existing) path must survive
+    into the returned list — pinned as a characterization test ahead of the
+    pygit2 migration, since no prior test exercised a rename."""
+    original = rst_repo / "original.rst"
+    original.write_text("", encoding="utf-8")
+    _git(rst_repo, "add", "original.rst")
+    _git(rst_repo, "commit", "-m", "add document")
+    _git(rst_repo, "mv", "original.rst", "renamed.rst")
+
+    assert _helpers._changed_rst_files() == [rst_repo / "renamed.rst"]
+
+
+@pytest.mark.integration
 def test_changed_rst_files_from_nested_directory_uses_worktree_root(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1860,18 +1896,16 @@ def test_changed_rst_files_supports_non_utf8_git_filename(rst_repo: Path) -> Non
 
 @pytest.mark.integration
 def test_changed_rst_files_preserves_non_repository_git_failure(
-    tmp_path: Path,
+    rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A corrupt index is not falsely diagnosed as 'not a git repository'."""
-    responses = iter(
-        [
-            subprocess.CompletedProcess(["git"], 0, stdout=f"{tmp_path}\n", stderr=""),
-            subprocess.CompletedProcess(["git"], 128, stdout="", stderr="fatal: index file corrupt"),
-        ]
-    )
-    monkeypatch.setattr(_helpers, "_git", lambda *_args: next(responses))
+
+    def _raise_corrupt_index(self: pygit2.Repository, **_kwargs: object) -> dict[str, int]:
+        raise pygit2.GitError("index file corrupt")
+
+    monkeypatch.setattr(pygit2.Repository, "status", _raise_corrupt_index)
 
     with pytest.raises(SystemExit) as exc:
         _helpers._changed_rst_files()

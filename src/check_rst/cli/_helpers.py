@@ -10,7 +10,6 @@ import os
 import pathlib
 import re
 import stat
-import subprocess
 import tempfile
 import unicodedata
 from typing import TYPE_CHECKING, NoReturn, cast
@@ -20,9 +19,10 @@ import docutils.nodes
 import docutils.parsers.rst
 import docutils.parsers.rst.states
 import docutils.utils
+import pygit2
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
 
 from ._types import (
@@ -150,56 +150,54 @@ def _is_adornment(line: str) -> bool:
     return bool(line) and line[0] in VALID_ADORNMENT_CHARS and len(set(line)) == 1
 
 
-def _git_at(cwd: pathlib.Path, *args: str) -> subprocess.CompletedProcess[str]:
-    """Run a Git command at *cwd* and return the completed process.
+def _discover_repo(root: pathlib.Path) -> pygit2.Repository | None:
+    """Return the Git repository containing *root*, or None outside any Git
+    repository entirely.
 
-    Centralizes the invocation boilerplate only (cwd, captured text output)
-    — deliberately NEVER check=True: the call sites have three different,
-    deliberate returncode semantics (must-succeed with a clean diagnostic,
-    tolerate-as-check-whole-file, returncode-is-the-answer), which stay
-    explicit at each site rather than being configured into a helper.
+    pygit2.discover_repository returns None cleanly here — no locale-
+    dependent stderr text to misparse, unlike the ``git rev-parse`` subprocess
+    call this replaced, whose "not a git repository" detection previously
+    substring-matched Git's own human-readable (and therefore locale-
+    dependent) diagnostic.
     """
-    CALL_COUNTS["_git"] += 1
-    return subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        errors="surrogateescape",
-    )
+    discovered = pygit2.discover_repository(str(root))
+    return pygit2.Repository(discovered) if discovered is not None else None
 
 
-def _git(*args: str) -> subprocess.CompletedProcess[str]:
-    """Run a Git command in PROJECT_ROOT."""
-    return _git_at(PROJECT_ROOT, *args)
-
-
-def _git_failure(action: str, result: subprocess.CompletedProcess[str]) -> NoReturn:
+def _git_failure(action: str, exc: Exception) -> NoReturn:
     """Exit with Git's real diagnostic instead of mislabeling every failure."""
-    detail = result.stderr.strip() or result.stdout.strip() or "unknown Git error"
-    if "not a git repository" in detail:
+    print(f"check_rst: git {action} failed: {exc}")
+    raise SystemExit(1)
+
+
+def _repo_for_root(project_root: pathlib.Path | None) -> pygit2.Repository:
+    """Return the Git repository for the selected project root, or exit with
+    a clean diagnostic.
+
+    Exits with a clean one-line diagnostic when the selected root is not
+    inside a git repository — including a bare repository, which has no
+    worktree for check_rst to operate on: bare invocation's contract is git
+    auto-detection, so a git-less directory is a usage error, same fail-
+    loudly precedent as a --sphinx-src without conf.py, never a raw
+    traceback (which is what this printed before, found by direct probing
+    2026-07-18).
+    """
+    root = PROJECT_ROOT if project_root is None else project_root
+    repo = _discover_repo(root)
+    if repo is None or repo.workdir is None:
         print(
             "check_rst: not a git repository — bare invocation auto-detects "
             "changed files via git; name files explicitly or use --recursive"
         )
-    else:
-        print(f"check_rst: git {action} failed: {detail}")
-    raise SystemExit(1)
-
-
-def _git_for_root(project_root: pathlib.Path | None, *args: str) -> subprocess.CompletedProcess[str]:
-    """Run Git at an explicit project root, or PROJECT_ROOT by default."""
-    if project_root is None:
-        return _git(*args)
-    return _git_at(project_root, *args)
+        raise SystemExit(1)
+    return repo
 
 
 def _git_worktree_root(project_root: pathlib.Path | None = None) -> pathlib.Path:
     """Return the repository worktree root for the selected project root."""
-    result = _git_for_root(project_root, "rev-parse", "--show-toplevel")
-    if result.returncode != 0:
-        _git_failure("rev-parse", result)
-    return pathlib.Path(result.stdout.rstrip("\n"))
+    repo = _repo_for_root(project_root)
+    assert repo.workdir is not None  # _repo_for_root already exited otherwise
+    return pathlib.Path(repo.workdir)
 
 
 def _indented_extent(
@@ -248,25 +246,31 @@ def _changed_rst_files(
     a --sphinx-src without conf.py, never a CalledProcessError traceback
     (which is what this printed before, found by direct probing 2026-07-18).
     """
-    # ``-z`` is the machine-readable form: paths are not C-quoted (so
-    # non-ASCII names need no ad-hoc unescaping), entries are NUL-delimited,
-    # and a rename/copy's original path is a separate following field.
-    worktree_root = _git_worktree_root(project_root)
-    result = _git_for_root(project_root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-    if result.returncode != 0:
-        _git_failure("status", result)
+    repo = _repo_for_root(project_root)
+    assert repo.workdir is not None  # _repo_for_root already exited otherwise
+    worktree_root = pathlib.Path(repo.workdir)
+    try:
+        status: Iterable[str] = repo.status(untracked_files="all")
+    except UnicodeDecodeError:
+        # Git filenames are byte strings; status()'s str-keyed dict cannot
+        # represent one that isn't valid UTF-8.  Reached only once status()
+        # has already gotten past resolving HEAD internally (a repo with no
+        # commits yet raises KeyError immediately instead, before any
+        # decoding), so falling back here never masks that unborn-HEAD case.
+        try:
+            diff = repo.diff("HEAD", None, context_lines=0, flags=_DIFF_SINCE_HEAD_FLAGS)
+        except pygit2.GitError as exc:
+            _git_failure("status", exc)
+        status = (os.fsdecode(patch.delta.new_file.raw_path) for patch in diff if patch is not None)
+    except pygit2.GitError as exc:
+        _git_failure("status", exc)
     files: list[pathlib.Path] = []
-    entries = result.stdout.split("\0")
-    i = 0
-    while i < len(entries):
-        entry = entries[i]
-        i += 1
-        if not entry:
-            continue
-        status = entry[:2]
-        path = entry[3:]
-        if "R" in status or "C" in status:
-            i += 1  # consume the separate original-path field
+    # A rename reports as a separate delete (the dead original path, dropped
+    # below by is_file() since nothing is there anymore) plus add (the live
+    # new path) — no special-casing needed, unlike the single combined "R"
+    # porcelain entry the previous subprocess-based parser had to skip the
+    # original-path field of.
+    for path in status:
         candidate = worktree_root / path
         if candidate.suffix == ".rst" and candidate.is_file():
             files.append(candidate)
@@ -278,51 +282,68 @@ def _unmerged_files(files: list[pathlib.Path], project_root: pathlib.Path | None
 
     Explicit files can be checked outside Git, so a non-repository working
     directory simply has no authoritative unmerged state.  Once a worktree
-    is found, however, ``git ls-files --unmerged`` is definitive and avoids
+    is found, however, its conflicted index entries are definitive and avoid
     both false positives from documented marker examples and false negatives
     from custom conflict-marker widths.
     """
-    repositories: dict[pathlib.Path, list[pathlib.Path]] = {}
-    root = PROJECT_ROOT if project_root is None else project_root
-    invocation_root = _git_at(root, "rev-parse", "--show-toplevel")
-    if invocation_root.returncode == 0:
-        root = pathlib.Path(invocation_root.stdout.rstrip("\n")).resolve()
-        repositories[root] = []
+    initial_root = PROJECT_ROOT if project_root is None else project_root
+    repos: dict[pathlib.Path, pygit2.Repository] = {}
+    buckets: dict[pathlib.Path, list[pathlib.Path]] = {}
+    invocation_repo = _discover_repo(initial_root)
+    if invocation_repo is not None and invocation_repo.workdir is not None:
+        invocation_root = pathlib.Path(invocation_repo.workdir).resolve()
+        repos[invocation_root] = invocation_repo
+        buckets[invocation_root] = []
 
     for path in files:
         resolved = path.resolve()
         worktree_root = next(
-            (root for root in repositories if resolved.is_relative_to(root)),
+            (candidate_root for candidate_root in repos if resolved.is_relative_to(candidate_root)),
             None,
         )
         if worktree_root is None:
-            root_result = _git_at(resolved.parent, "rev-parse", "--show-toplevel")
-            if root_result.returncode != 0:
+            candidate_repo = _discover_repo(resolved.parent)
+            if candidate_repo is None or candidate_repo.workdir is None:
                 continue
-            worktree_root = pathlib.Path(root_result.stdout.rstrip("\n")).resolve()
-            repositories.setdefault(worktree_root, [])
-        repositories[worktree_root].append(resolved)
+            worktree_root = pathlib.Path(candidate_repo.workdir).resolve()
+            repos[worktree_root] = candidate_repo
+            buckets.setdefault(worktree_root, [])
+        buckets[worktree_root].append(resolved)
 
     unmerged: set[pathlib.Path] = set()
-    for worktree_root, candidates in repositories.items():
+    for worktree_root, candidates in buckets.items():
         if not candidates:
             continue
-        result = _git_at(
-            worktree_root,
-            "ls-files",
-            "--unmerged",
-            "-z",
-            "--",
-            *(str(path) for path in candidates),
-        )
-        if result.returncode != 0:
-            _git_failure("ls-files --unmerged", result)
-        unmerged.update(
-            (worktree_root / record.split("\t", 1)[1]).resolve()
-            for record in result.stdout.split("\0")
-            if "\t" in record
-        )
+        candidate_set = set(candidates)
+        try:
+            conflicts = repos[worktree_root].index.conflicts
+        except pygit2.GitError as exc:
+            _git_failure("ls-files --unmerged", exc)
+        if conflicts is None:
+            continue
+        for ancestor, ours, theirs in conflicts:
+            entry = ancestor or ours or theirs
+            if entry is None:
+                continue
+            resolved_conflict = (worktree_root / entry.path).resolve()
+            if resolved_conflict in candidate_set:
+                unmerged.add(resolved_conflict)
     return [path for path in files if path.resolve() in unmerged]
+
+
+# git diff -U0 HEAD's default semantics (staged AND unstaged changes to
+# tracked paths, never purely untracked ones) don't map onto a single
+# pygit2 flag combination: plain Tree.diff_to_workdir() silently drops
+# staged-new files (confirmed against real `git diff -U0 HEAD` output), and
+# adding INCLUDE_UNTRACKED alone reports them with no hunk content. This
+# combination reports both staged-new and purely-untracked paths with full
+# hunks — _changed_line_ranges filters the latter back out via repo.index
+# membership, which is the same distinction git itself draws.
+_DIFF_SINCE_HEAD_FLAGS = (
+    pygit2.enums.DiffOption.INCLUDE_UNTRACKED
+    | pygit2.enums.DiffOption.RECURSE_UNTRACKED_DIRS
+    | pygit2.enums.DiffOption.SHOW_UNTRACKED_CONTENT
+)
 
 
 def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None = None) -> list[tuple[int, int]] | None:
@@ -331,22 +352,29 @@ def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None =
     None means "check the whole file": the file is untracked or git is
     unavailable.  An empty list means the file is tracked but unchanged.
     """
-    diff = _git_for_root(project_root, "diff", "-U0", "HEAD", "--", str(path))
-    if diff.returncode != 0:
+    root = PROJECT_ROOT if project_root is None else project_root
+    repo = _discover_repo(root)
+    if repo is None or repo.workdir is None:
         return None  # tolerated: no diffable state → check the whole file
-    # returncode IS the answer here: 0 = tracked, nonzero = untracked.
-    tracked = _git_for_root(project_root, "ls-files", "--error-unmatch", str(path)).returncode == 0
-    if not tracked:
-        return None
+    worktree_root = pathlib.Path(repo.workdir).resolve()
+    try:
+        relative = str(path.resolve().relative_to(worktree_root))
+    except ValueError:
+        return None  # outside the repository → not diffable, check whole file
+    if relative not in repo.index:
+        return None  # untracked → not diffable, check whole file
+    try:
+        diff = repo.diff("HEAD", None, context_lines=0, flags=_DIFF_SINCE_HEAD_FLAGS)
+    except pygit2.GitError:
+        return None  # tolerated: e.g. no HEAD commit yet → check the whole file
     ranges: list[tuple[int, int]] = []
-    for line in diff.stdout.splitlines():
-        if not line.startswith("@@"):
+    for patch in diff:
+        if patch is None or patch.delta.new_file.path != relative:
             continue
-        # Hunk header: @@ -a,b +start[,count] @@ (count omitted means 1).
-        new_part = line.split("+")[1].split(" ")[0]
-        start_s, _, count_s = new_part.partition(",")
-        start, count = int(start_s), int(count_s) if count_s else 1
-        ranges.append((start, start + count - 1) if count > 0 else (start, start + 1))
+        for hunk in patch.hunks:
+            start, count = hunk.new_start, hunk.new_lines
+            ranges.append((start, start + count - 1) if count > 0 else (start, start + 1))
+        break
     return ranges
 
 

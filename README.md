@@ -41,10 +41,11 @@ check_rst --help
 
 `pip install` builds a wheel internally and installs both the Python package
 and its console entry point, along with its bounded dependencies (`docutils`,
-`Sphinx`, `snowballstemmer`).  The supported docutils range is 0.22.4 through
-0.23: PyPI's Sphinx 9.1.0 resolves to docutils 0.22.4, while distributions such
-as Gentoo may provide a tested Sphinx build with docutils 0.23.  Both runtime
-combinations run the same test suite.  To build the wheel explicitly instead:
+`Sphinx`, `snowballstemmer`, `pygit2`).  The supported docutils range is
+0.22.4 through 0.23: PyPI's Sphinx 9.1.0 resolves to docutils 0.22.4, while
+distributions such as Gentoo may provide a tested Sphinx build with docutils
+0.23.  Both runtime combinations run the same test suite.  To build the
+wheel explicitly instead:
 
 ```bash
 cd /path/to/check_rst
