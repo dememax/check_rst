@@ -1057,7 +1057,7 @@ def _find_directive_option(lines: list[str], start: int, name: str) -> str | Non
 
 
 def find_code_blocks_heuristic(path: pathlib.Path, doc: Document | None = None) -> list[CodeBlockEntry]:
-    """Return every code-block-like marker line found by pure text search.
+    """Return every code-block-like marker line found by composed text search.
 
     Matches all three Sphinx code-block aliases ("code-block", "code",
     "sourcecode") plus ".. literalinclude::" — a real corpus differential
@@ -1067,11 +1067,12 @@ def find_code_blocks_heuristic(path: pathlib.Path, doc: Document | None = None) 
     produced it.
 
     Used only when --sphinx-src is not given — the real find_code_blocks
-    requires a Sphinx environment. No docutils/Sphinx parsing is involved at
-    all, which is exactly what restores full recall for Sphinx-only options
-    (:caption:/:linenos:/etc.) that break bare docutils parsing entirely
-    (confirmed: those code-blocks silently vanish from the real Phase 1
-    doctree, not just lose precise line info). For code-block/code/
+    requires a Sphinx environment. Bare Docutils supplies only include and
+    heading composition; code markers themselves are recovered from physical
+    text, which restores full recall for Sphinx-only options
+    (:caption:/:linenos:/etc.) that break bare parsing entirely (confirmed:
+    those code-blocks silently vanish from the real Phase 1 doctree, not just
+    lose precise line info). For code-block/code/
     sourcecode, language is the explicit directive argument if given, else
     None (CodeBlock.run() always resolves SOME language, falling back to the
     project's highlight_language — unknown here, but the entry still exists).
@@ -1114,58 +1115,92 @@ def find_code_blocks_heuristic(path: pathlib.Path, doc: Document | None = None) 
 
     KNOWN, ACCEPTED limitation #3 (2026-07-26): unlike every OTHER block
     finder (find_admonitions/find_block_quotes/find_comments/find_tables/
-    find_code_blocks), this one never touches the doctree at all, so it
-    cannot use _block_depth — there is no node to walk ancestors of. A
-    code-block nested inside a list item therefore gets the SAME depth
-    it would have directly under the enclosing heading, one level
+    find_code_blocks), raw markers have no AST node whose ancestors
+    _block_depth can inspect. Section depth and include composition are
+    accurate, but a code-block nested inside a list item therefore gets the
+    SAME depth it would have directly under the enclosing heading, one level
     shallower than the AST-aware finders would report for the identical
-    shape. Consistent with limitations #1/#2 above: the deliberate cost
-    of dropping the AST cross-check to restore recall when no
-    --sphinx-src is given.
+    shape. Consistent with limitations #1/#2 above: the deliberate cost of
+    dropping the AST cross-check to restore recall when no --sphinx-src is
+    given.
     """
     document = _resolve_document(path, doc)
-    lines = document.lines
     headings = document.outline
-    entries: list[CodeBlockEntry] = []
-    for i, line in enumerate(lines):
-        m = _CODE_BLOCK_MARKER_RE.match(line)
-        if m:
-            lang = m.group(1) or None
-        elif _LITERALINCLUDE_MARKER_RE.match(line):
-            # Unlike code-block, LiteralInclude.run() has no config/env
-            # fallback: :diff: forces 'udiff', :language: sets it exactly,
-            # and otherwise the attribute is never set at all — so a bare
-            # literalinclude is excluded here too, matching the real
-            # detector's "if lang is None: continue" for the same node.
-            if _find_directive_option(lines, i + 1, "diff") is not None:
-                lang = "udiff"
-            else:
-                lang = _find_directive_option(lines, i + 1, "language")
-                if lang is None:
-                    continue
-        else:
-            continue
 
-        lineno = i + 1
-        depth = 1
-        for heading in headings:
-            if heading.lineno <= lineno:
-                depth = heading.depth + 1
+    def order_key(lineno: int, provenance: SourceProvenance | None) -> tuple[int, ...]:
+        key: list[int] = []
+        if provenance is not None:
+            for site in provenance.include_chain:
+                key.extend((site.lineno, 0))
+        key.extend((lineno, 1))
+        return tuple(key)
+
+    heading_positions = sorted((order_key(heading.lineno, heading.provenance), heading) for heading in headings)
+    regions: list[tuple[SourceProvenance | None, list[str], int, int]] = [
+        (None, document.lines, 0, len(document.lines))
+    ]
+    for _node, site, owner, record in document.composition.include_nodes:
+        if site.mode != "parsed" or record["cycle"] is not None:
+            continue
+        included_provenance = document.composition.included_provenance(site, owner)
+        lines = document.composition.source_lines(included_provenance, path, document.lines)
+        if not lines:
+            continue
+        start = min(site.line_offset, len(lines))
+        stop = min(site.end_line if site.end_line is not None else len(lines), len(lines))
+        regions.append((included_provenance, lines, start, stop))
+
+    positioned: list[tuple[tuple[int, ...], CodeBlockEntry]] = []
+    for region_provenance, source_lines, start, stop in regions:
+        lines = source_lines[start:stop]
+        for i, line in enumerate(lines):
+            m = _CODE_BLOCK_MARKER_RE.match(line)
+            if m:
+                lang = m.group(1) or None
+            elif _LITERALINCLUDE_MARKER_RE.match(line):
+                # Unlike code-block, LiteralInclude.run() has no config/env
+                # fallback: :diff: forces 'udiff', :language: sets it exactly,
+                # and otherwise the attribute is never set at all — so a bare
+                # literalinclude is excluded here too, matching the real
+                # detector's "if lang is None: continue" for the same node.
+                if _find_directive_option(lines, i + 1, "diff") is not None:
+                    lang = "udiff"
+                else:
+                    lang = _find_directive_option(lines, i + 1, "language")
+                    if lang is None:
+                        continue
             else:
-                break
-        end = _indented_extent(lines, lineno)
-        # Preview skips the directive's own ':option:' lines and the blank
-        # separator before the actual content starts — the same shape
-        # _find_directive_option already scans, just walked to its end
-        # instead of stopping at one named option.
-        content_start = lineno  # 0-based index of the line right after the marker
-        while content_start < end and _OPTION_LINE_RE.match(lines[content_start]):
-            content_start += 1
-        while content_start < end and not lines[content_start].strip():
-            content_start += 1
-        preview = _outline_preview("\n".join(lines[content_start:end]))
-        entries.append(CodeBlockEntry(lineno, depth, lang, preview, end))
-    return entries
+                continue
+
+            lineno = start + i + 1
+            position = order_key(lineno, region_provenance)
+            depth = 1
+            for heading_position, heading in heading_positions:
+                if heading_position <= position:
+                    depth = heading.depth + 1
+                else:
+                    break
+            local_end = _indented_extent(lines, i + 1)
+            end = start + local_end
+            # Preview skips the directive's own ':option:' lines and the blank
+            # separator before the actual content starts — the same shape
+            # _find_directive_option already scans, just walked to its end
+            # instead of stopping at one named option.
+            content_start = i + 1
+            while content_start < local_end and _OPTION_LINE_RE.match(lines[content_start]):
+                content_start += 1
+            while content_start < local_end and not lines[content_start].strip():
+                content_start += 1
+            preview = _outline_preview("\n".join(lines[content_start:local_end]))
+            positioned.append(
+                (
+                    position,
+                    CodeBlockEntry(lineno, depth, lang, preview, end, region_provenance),
+                )
+            )
+
+    positioned.sort(key=lambda item: item[0])
+    return [entry for _position, entry in positioned]
 
 
 def _inline_kind(node: docutils.nodes.Node) -> str:

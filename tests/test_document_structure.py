@@ -506,6 +506,64 @@ def test_heuristic_code_blocks_language_and_bare(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+def test_heuristic_code_blocks_follow_clipped_include_composition(tmp_path: Path) -> None:
+    """Bare recovery scans each parsed include occurrence in composed order."""
+    root = tmp_path / "index.rst"
+    root.write_text(
+        """\
+Root
+====
+
+.. code-block:: text
+
+   before
+
+.. include:: fragment.rst
+   :start-after: START
+   :end-before: STOP
+
+.. code-block:: text
+
+   after
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "fragment.rst").write_text(
+        """\
+.. code-block:: excluded-before
+
+   no
+
+START
+Included
+--------
+
+.. code-block:: python
+   :caption: Parsed only by Sphinx
+
+   print("included")
+STOP
+
+.. code-block:: excluded-after
+
+   no
+""",
+        encoding="utf-8",
+    )
+
+    entries = _document.find_code_blocks_heuristic(root, _document.Document(root, tmp_path))
+
+    assert [entry.language for entry in entries] == ["text", "python", "text"]
+    included = entries[1]
+    assert included.lineno == 9
+    assert included.end == 12
+    assert included.depth == 3
+    assert included.preview == 'print("included")'
+    assert included.provenance is not None
+    assert included.provenance.source == "fragment.rst"
+
+
+@pytest.mark.integration
 def test_heuristic_code_blocks_with_caption_no_language_still_found(
     tmp_path: Path,
 ) -> None:

@@ -456,6 +456,21 @@ class CompositionIndex:
         self._source_lines[key] = lines
         return lines
 
+    @staticmethod
+    def included_provenance(
+        site: IncludeSite,
+        owner: SourceProvenance | None,
+    ) -> SourceProvenance:
+        """Return the physical identity of one parsed include occurrence."""
+        owner_chain = owner.include_chain if owner is not None else ()
+        return SourceProvenance(
+            site.target,
+            SourceOrigin.INCLUDE,
+            (*owner_chain, site),
+            site.exact,
+            site.order,
+        )
+
     def source_end(self, provenance: SourceProvenance | None, lines: list[str]) -> int:
         if not lines:
             return 0
