@@ -116,6 +116,46 @@ def test_bare_outline_strips_utf8_bom_from_included_heading(tmp_path: Path) -> N
 
 
 @pytest.mark.integration
+def test_composition_preserves_unknown_line_inside_clipped_include(tmp_path: Path) -> None:
+    """The line-0 sentinel is not a logical line to shift by the clip offset."""
+    root = tmp_path / "index.rst"
+    fragment = tmp_path / "fragment.rst"
+    root.write_text(
+        "Index\n=====\n\n.. include:: fragment.rst\n   :start-line: 2\n",
+        encoding="utf-8",
+    )
+    fragment.write_text("discarded\ndiscarded\nIncluded text.\n", encoding="utf-8")
+    document = _document.Document(root, tmp_path)
+    generated = docutils.nodes.paragraph("", "Generated without a source coordinate")
+    generated.source = str(fragment)
+    document.doctree += generated
+
+    lineno, _lines, provenance = document.source_context(generated)
+
+    assert provenance is not None
+    assert provenance.source == "fragment.rst"
+    assert lineno == 0
+
+
+@pytest.mark.integration
+def test_composition_preserves_empty_include_endpoint(tmp_path: Path) -> None:
+    """A real endpoint of zero is distinct from an unknown endpoint."""
+    root = tmp_path / "index.rst"
+    fragment = tmp_path / "fragment.rst"
+    root.write_text(
+        "Index\n=====\n\n.. include:: fragment.rst\n   :end-line: 0\n",
+        encoding="utf-8",
+    )
+    fragment.write_text("not selected\n", encoding="utf-8")
+    document = _document.Document(root, tmp_path)
+    _node, site, owner, _record = document.composition.include_nodes[0]
+    provenance = document.composition.included_provenance(site, owner)
+
+    assert site.end_line == 0
+    assert document.composition.source_end(provenance, ["not selected"]) == 0
+
+
+@pytest.mark.integration
 def test_single_top_level_uses_included_heading_source(tmp_path: Path) -> None:
     """An included peer title is an effective second title at its physical source."""
     root = tmp_path / "index.rst"

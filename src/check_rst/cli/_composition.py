@@ -416,6 +416,8 @@ class CompositionIndex:
         return self._provenance.get(id(node))
 
     def physical_line(self, node: docutils.nodes.Node, logical_line: int) -> int:
+        if logical_line <= 0:
+            return 0
         provenance = self.provenance(node)
         if provenance and provenance.include_chain:
             return logical_line + provenance.include_chain[-1].line_offset
@@ -475,5 +477,6 @@ class CompositionIndex:
         if not lines:
             return 0
         if provenance and provenance.include_chain:
-            return provenance.include_chain[-1].end_line or len(lines)
+            end_line = provenance.include_chain[-1].end_line
+            return len(lines) if end_line is None else end_line
         return len(lines)
