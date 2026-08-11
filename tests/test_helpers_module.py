@@ -109,6 +109,23 @@ def test_indented_extent_is_relative_to_anchor_but_can_continue_block_quote_inde
 
 
 @pytest.mark.unit
+def test_indented_extent_ignores_tabs_inside_line_content() -> None:
+    """Only the leading whitespace prefix contributes to indentation."""
+    tab_in_anchor_content = [
+        "   a\tb",
+        " sibling at a shallower source column",
+    ]
+    tab_in_body_content = [
+        "   marker",
+        "    a\tb",
+        "sibling",
+    ]
+
+    assert _helpers._indented_extent(tab_in_anchor_content, 1) == 1
+    assert _helpers._indented_extent(tab_in_body_content, 1) == 2
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("line", "expected"),
     [

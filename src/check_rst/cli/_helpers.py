@@ -262,8 +262,13 @@ def _indented_extent(
     if not 1 <= start <= len(lines):
         return start
 
+    def indent_width(line: str) -> int:
+        content = line.lstrip(" \t")
+        leading = line[: len(line) - len(content)]
+        return len(leading.expandtabs(8))
+
     anchor = lines[start - 1]
-    anchor_indent = len(anchor.expandtabs(8)) - len(anchor.lstrip(" \t").expandtabs(8))
+    anchor_indent = indent_width(anchor)
     end = start
     i = start  # 0-based index of the line AFTER start
     while i < len(lines):
@@ -271,7 +276,7 @@ def _indented_extent(
         if not line.strip():
             i += 1
             continue
-        indent = len(line.expandtabs(8)) - len(line.lstrip(" \t").expandtabs(8))
+        indent = indent_width(line)
         if indent > anchor_indent or (allow_same_indent and indent == anchor_indent):
             end = i + 1
             i += 1
