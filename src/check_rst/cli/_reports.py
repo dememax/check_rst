@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 
 from . import _helpers
+from ._composition import CompositionIndex
 from ._document import Document, build_outline
 from ._formatting import (
     check_adornments,
@@ -826,17 +827,54 @@ def _run_context_query(
                 print(f"check_rst: {path}: not part of the --sphinx-src project")
                 return 1
             local_docname = local
-            code_blocks = find_code_blocks(env, local_docname, document.lines, document)
+            verified_tree = env.get_doctree(local_docname)
+            verified_composition = CompositionIndex(
+                verified_tree,
+                path,
+                sphinx_src,
+                root_transformed=_source_was_transformed(env, local_docname),
+            )
+            code_blocks = find_code_blocks(
+                env,
+                local_docname,
+                document.lines,
+                document,
+                doctree=verified_tree,
+                composition=verified_composition,
+            )
             outline = build_outline(
                 path,
                 doc=document,
-                doctree=env.get_doctree(local_docname),
+                doctree=verified_tree,
                 source_root=sphinx_src,
                 root_transformed=_source_was_transformed(env, local_docname),
+                composition=verified_composition,
             )
-            clusters = [] if no_toctree else find_toctrees(env, local_docname, document)
-            include_entries = find_includes(env, local_docname, document)
-            conditional_entries = find_conditionals(env, local_docname, document)
+            clusters = (
+                []
+                if no_toctree
+                else find_toctrees(
+                    env,
+                    local_docname,
+                    document,
+                    doctree=verified_tree,
+                    composition=verified_composition,
+                )
+            )
+            include_entries = find_includes(
+                env,
+                local_docname,
+                document,
+                doctree=verified_tree,
+                composition=verified_composition,
+            )
+            conditional_entries = find_conditionals(
+                env,
+                local_docname,
+                document,
+                doctree=verified_tree,
+                composition=verified_composition,
+            )
             title_findings = check_single_top_level(
                 path,
                 doc=document,

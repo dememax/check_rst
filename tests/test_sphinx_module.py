@@ -17,7 +17,7 @@ import pytest
 from _support import _GOOD_BLOCK, BuildSphinxEnv, _build_multi_file_env
 
 from check_rst import cli
-from check_rst.cli import _document, _formatting, _helpers, _reports, _sphinx, _types
+from check_rst.cli import _composition, _document, _formatting, _helpers, _reports, _sphinx, _types
 
 if TYPE_CHECKING:
     import docutils.nodes
@@ -32,6 +32,72 @@ def test_docname_for_unreachable_file_returns_none(tmp_path: Path) -> None:
     env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
     outside = tmp_path.parent / "not_in_this_project.rst"
     assert _sphinx._docname_for(env, outside) is None
+
+
+@pytest.mark.integration
+def test_verified_structure_finders_share_prefetched_doctree_and_composition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
+    root = tmp_path / "index.rst"
+    root.write_text(
+        "Index\n=====\n\n.. include:: fragment.rst\n\n.. code-block:: python\n\n   pass\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "fragment.rst").write_text("Included\n--------\n", encoding="utf-8")
+    env, _warnings = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    document = _document.Document(root, tmp_path)
+    tree = env.get_doctree("index")
+    composition = _composition.CompositionIndex(tree, root, tmp_path)
+
+    def reject_refetch(_docname: str) -> None:
+        raise AssertionError("duplicate env.get_doctree call")
+
+    monkeypatch.setattr(env, "get_doctree", reject_refetch)
+
+    assert _sphinx.find_code_blocks(
+        env,
+        "index",
+        document.lines,
+        document,
+        doctree=tree,
+        composition=composition,
+    )
+    assert _document.build_outline(
+        root,
+        doc=document,
+        doctree=tree,
+        source_root=tmp_path,
+        composition=composition,
+    )
+    assert (
+        _sphinx.find_toctrees(
+            env,
+            "index",
+            document,
+            doctree=tree,
+            composition=composition,
+        )
+        == []
+    )
+    assert _sphinx.find_includes(
+        env,
+        "index",
+        document,
+        doctree=tree,
+        composition=composition,
+    )
+    assert (
+        _sphinx.find_conditionals(
+            env,
+            "index",
+            document,
+            doctree=tree,
+            composition=composition,
+        )
+        == []
+    )
 
 
 @pytest.mark.integration

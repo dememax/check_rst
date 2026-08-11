@@ -30,6 +30,27 @@ def test_document_reads_and_parses_once(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+def test_document_outline_and_includes_reuse_cached_composition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "index.rst"
+    root.write_text("Index\n=====\n\n.. include:: fragment.rst\n", encoding="utf-8")
+    (tmp_path / "fragment.rst").write_text("Included\n--------\n", encoding="utf-8")
+    document = _document.Document(root, tmp_path)
+    composition = document.composition
+
+    def reject_duplicate(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("duplicate CompositionIndex construction")
+
+    monkeypatch.setattr(_document, "CompositionIndex", reject_duplicate)
+
+    assert document.composition is composition
+    assert [entry.title for entry in document.outline] == ["Index", "Included"]
+    assert document.includes[0].target == "fragment.rst"
+
+
+@pytest.mark.integration
 def test_cli_check_run_reads_each_file_once(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,

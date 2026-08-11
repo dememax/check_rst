@@ -448,6 +448,9 @@ def find_toctrees(
     env: sphinx.environment.BuildEnvironment,
     docname: str,
     doc: Document | None = None,
+    *,
+    doctree: docutils.nodes.document | None = None,
+    composition: CompositionIndex | None = None,
 ) -> list[list[ToctreeEntry | OutlineEntry]]:
     """Return one CLUSTER per top-level ``.. toctree::`` directive in
     *docname* — each cluster a self-contained ``[container, *pulled-in
@@ -503,13 +506,14 @@ def find_toctrees(
     # "invisible to bare docutils entirely").  This applies at EVERY
     # level of recursion, including the root docname itself, not only
     # the children — document.doctree is used only for .lines below.
-    doctree = env.get_doctree(docname)
-    composition = CompositionIndex(
-        doctree,
-        document.path,
-        pathlib.Path(env.srcdir),
-        root_transformed=_source_was_transformed(env, docname),
-    )
+    tree = env.get_doctree(docname) if doctree is None else doctree
+    if composition is None:
+        composition = CompositionIndex(
+            tree,
+            document.path,
+            pathlib.Path(env.srcdir),
+            root_transformed=_source_was_transformed(env, docname),
+        )
     seen = {docname}
     return [
         _expand_one_toctree(
@@ -521,7 +525,7 @@ def find_toctrees(
             seen=seen,
             composition=composition,
         )
-        for node in doctree.findall(toctree_node_cls)
+        for node in tree.findall(toctree_node_cls)
     ]
 
 
@@ -539,6 +543,7 @@ def find_includes(
     doc: Document | None = None,
     *,
     doctree: docutils.nodes.document | None = None,
+    composition: CompositionIndex | None = None,
 ) -> list[IncludeEntry]:
     """Return every parsed include edge, including visible cycle refusals.
 
@@ -555,6 +560,7 @@ def find_includes(
         doctree=tree,
         source_root=pathlib.Path(env.srcdir),
         root_transformed=_source_was_transformed(env, docname),
+        composition=composition,
     )
 
 
@@ -564,6 +570,7 @@ def find_conditionals(
     doc: Document | None = None,
     *,
     doctree: docutils.nodes.document | None = None,
+    composition: CompositionIndex | None = None,
 ) -> list[ConditionalEntry]:
     """Return condition-bearing containers from the parser-effective tree.
 
@@ -576,12 +583,13 @@ def find_conditionals(
 
     document = _resolve_document(pathlib.Path(env.doc2path(docname)), doc)
     tree = env.get_doctree(docname) if doctree is None else doctree
-    composition = CompositionIndex(
-        tree,
-        document.path,
-        pathlib.Path(env.srcdir),
-        root_transformed=_source_was_transformed(env, docname),
-    )
+    if composition is None:
+        composition = CompositionIndex(
+            tree,
+            document.path,
+            pathlib.Path(env.srcdir),
+            root_transformed=_source_was_transformed(env, docname),
+        )
     entries: list[ConditionalEntry] = []
     for node in tree.findall():
         if isinstance(node, only_node):
@@ -944,6 +952,9 @@ def find_code_blocks(
     docname: str,
     lines: list[str] | None = None,
     document: Document | None = None,
+    *,
+    doctree: docutils.nodes.document | None = None,
+    composition: CompositionIndex | None = None,
 ) -> list[CodeBlockEntry]:
     """Return every real code-block in document *docname*, in document order.
 
@@ -961,15 +972,16 @@ def find_code_blocks(
     set_source_info() during parsing — reliable and stable, unlike bare
     docutils' fuzzy (and sometimes None) .line for the same node kind.
     """
-    doc = env.get_doctree(docname)
+    doc = env.get_doctree(docname) if doctree is None else doctree
     root_path = pathlib.Path(env.doc2path(docname))
     owner = _resolve_document(root_path, document)
-    composition = CompositionIndex(
-        doc,
-        root_path,
-        pathlib.Path(env.srcdir),
-        root_transformed=_source_was_transformed(env, docname),
-    )
+    if composition is None:
+        composition = CompositionIndex(
+            doc,
+            root_path,
+            pathlib.Path(env.srcdir),
+            root_transformed=_source_was_transformed(env, docname),
+        )
     entries: list[CodeBlockEntry] = []
     for node in doc.findall(docutils.nodes.literal_block):
         lang = node.get("language")

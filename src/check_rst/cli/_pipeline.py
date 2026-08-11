@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     import argparse
 
 from . import _reports, _sphinx
+from ._composition import CompositionIndex
 from ._document import Document, build_outline
 from ._formatting import (
     _apply_fix_plan,
@@ -517,27 +518,74 @@ def _run_sphinx_phases(
                         continue
                     pstr = str(path)
                     docname = _docname_for(env, path)
+                    verified_tree = env.get_doctree(docname) if docname is not None else None
+                    verified_composition = (
+                        CompositionIndex(
+                            verified_tree,
+                            path,
+                            args.sphinx_src,
+                            root_transformed=_source_was_transformed(env, docname),
+                        )
+                        if docname is not None and verified_tree is not None
+                        else None
+                    )
                     code_blocks = (
-                        find_code_blocks(env, docname, phase2_doc.lines, phase2_doc) if docname is not None else []
+                        find_code_blocks(
+                            env,
+                            docname,
+                            phase2_doc.lines,
+                            phase2_doc,
+                            doctree=verified_tree,
+                            composition=verified_composition,
+                        )
+                        if docname is not None
+                        else []
                     )
                     verified_outline = (
                         build_outline(
                             path,
                             doc=phase2_doc,
-                            doctree=env.get_doctree(docname),
+                            doctree=verified_tree,
                             source_root=args.sphinx_src,
                             root_transformed=_source_was_transformed(env, docname),
+                            composition=verified_composition,
                         )
                         if docname is not None
                         else phase2_doc.outline
                     )
                     toctree_clusters = (
-                        find_toctrees(env, docname, phase2_doc) if docname is not None and not args.no_toctree else []
+                        find_toctrees(
+                            env,
+                            docname,
+                            phase2_doc,
+                            doctree=verified_tree,
+                            composition=verified_composition,
+                        )
+                        if docname is not None and not args.no_toctree
+                        else []
                     )
                     include_entries = (
-                        find_includes(env, docname, phase2_doc) if docname is not None else phase2_doc.includes
+                        find_includes(
+                            env,
+                            docname,
+                            phase2_doc,
+                            doctree=verified_tree,
+                            composition=verified_composition,
+                        )
+                        if docname is not None
+                        else phase2_doc.includes
                     )
-                    conditional_entries = find_conditionals(env, docname, phase2_doc) if docname is not None else []
+                    conditional_entries = (
+                        find_conditionals(
+                            env,
+                            docname,
+                            phase2_doc,
+                            doctree=verified_tree,
+                            composition=verified_composition,
+                        )
+                        if docname is not None
+                        else []
+                    )
                     cross_file_headings = [
                         e for cluster in toctree_clusters for e in cluster if isinstance(e, OutlineEntry)
                     ]

@@ -314,6 +314,7 @@ def build_outline(
     doctree: docutils.nodes.document | None = None,
     source_root: pathlib.Path | None = None,
     root_transformed: bool = False,
+    composition: CompositionIndex | None = None,
 ) -> list[OutlineEntry]:
     """Return every section heading in *path*, in document order.
 
@@ -328,7 +329,12 @@ def build_outline(
     document = _resolve_document(path, doc)
     tree = doctree if doctree is not None else document.doctree
     root = source_root if source_root is not None else document.project_root
-    composition = CompositionIndex(tree, path, root, root_transformed=root_transformed)
+    if composition is None:
+        composition = (
+            document.composition
+            if doctree is None and source_root is None and not root_transformed
+            else CompositionIndex(tree, path, root, root_transformed=root_transformed)
+        )
 
     def lines_for(provenance: SourceProvenance | None) -> list[str]:
         return composition.source_lines(provenance, path, document.lines)
@@ -413,12 +419,18 @@ def find_includes(
     doctree: docutils.nodes.document | None = None,
     source_root: pathlib.Path | None = None,
     root_transformed: bool = False,
+    composition: CompositionIndex | None = None,
 ) -> list[IncludeEntry]:
     """Return active parsed-include edges from the composition markers."""
     document = _resolve_document(path, doc)
     tree = document.doctree if doctree is None else doctree
     root = source_root if source_root is not None else document.project_root
-    composition = CompositionIndex(tree, path, root, root_transformed=root_transformed)
+    if composition is None:
+        composition = (
+            document.composition
+            if doctree is None and source_root is None and not root_transformed
+            else CompositionIndex(tree, path, root, root_transformed=root_transformed)
+        )
     entries: list[IncludeEntry] = []
     for node, site, provenance, record in composition.include_nodes:
         lines = composition.source_lines(provenance, path, document.lines)
