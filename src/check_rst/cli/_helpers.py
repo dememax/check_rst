@@ -10,6 +10,7 @@ import os
 import pathlib
 import re
 import stat
+import subprocess
 import tempfile
 import unicodedata
 from typing import TYPE_CHECKING, NoReturn, cast
@@ -193,6 +194,38 @@ def _repo_for_root(project_root: pathlib.Path | None) -> pygit2.Repository:
     return repo
 
 
+def _status_paths_with_surrogateescape(worktree_root: pathlib.Path) -> list[str]:
+    """Return status paths when pygit2 cannot decode a Git filename.
+
+    Git paths are byte strings. Its NUL-delimited porcelain format preserves
+    those bytes exactly, so os.fsdecode can apply the platform's
+    surrogateescape policy without requiring a HEAD revision.
+    """
+    result = subprocess.run(
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        cwd=worktree_root,
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        detail = os.fsdecode(result.stderr).strip() or os.fsdecode(result.stdout).strip() or "unknown Git error"
+        _git_failure("status", RuntimeError(detail))
+
+    paths: list[str] = []
+    entries = result.stdout.split(b"\0")
+    index = 0
+    while index < len(entries):
+        entry = entries[index]
+        index += 1
+        if not entry:
+            continue
+        status = entry[:2]
+        paths.append(os.fsdecode(entry[3:]))
+        if b"R" in status or b"C" in status:
+            index += 1  # consume the separate original-path field
+    return paths
+
+
 def _git_worktree_root(project_root: pathlib.Path | None = None) -> pathlib.Path:
     """Return the repository worktree root for the selected project root."""
     repo = _repo_for_root(project_root)
@@ -253,15 +286,10 @@ def _changed_rst_files(
         status: Iterable[str] = repo.status(untracked_files="all")
     except UnicodeDecodeError:
         # Git filenames are byte strings; status()'s str-keyed dict cannot
-        # represent one that isn't valid UTF-8.  Reached only once status()
-        # has already gotten past resolving HEAD internally (a repo with no
-        # commits yet raises KeyError immediately instead, before any
-        # decoding), so falling back here never masks that unborn-HEAD case.
-        try:
-            diff = repo.diff("HEAD", None, context_lines=0, flags=_DIFF_SINCE_HEAD_FLAGS)
-        except pygit2.GitError as exc:
-            _git_failure("status", exc)
-        status = (os.fsdecode(patch.delta.new_file.raw_path) for patch in diff if patch is not None)
+        # represent one that isn't valid UTF-8. Use Git's byte-oriented,
+        # machine-readable status only for this compatibility path; unlike a
+        # diff fallback, it works equally before and after the first commit.
+        status = _status_paths_with_surrogateescape(worktree_root)
     except pygit2.GitError as exc:
         _git_failure("status", exc)
     files: list[pathlib.Path] = []

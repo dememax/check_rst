@@ -1875,6 +1875,23 @@ def test_changed_rst_files_works_before_any_commit_exists(
 
 
 @pytest.mark.integration
+def test_changed_rst_files_supports_non_utf8_path_before_any_commit_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The non-UTF-8 status fallback must not require an existing HEAD."""
+    _git(tmp_path, "init")
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", tmp_path)
+    raw_path = os.fsencode(tmp_path) + b"/non_utf8_\xff.rst"
+    fd = os.open(raw_path, os.O_WRONLY | os.O_CREAT, 0o600)
+    os.close(fd)
+    path = Path(os.fsdecode(raw_path))
+    _git(tmp_path, "add", path.name)
+
+    assert _helpers._changed_rst_files() == [path]
+
+
+@pytest.mark.integration
 def test_changed_rst_files_staged_rename_returns_only_the_new_path(rst_repo: Path) -> None:
     """A staged ``git mv`` reports one porcelain "R" entry carrying both the
     new and the dead original path; only the new (existing) path must survive
