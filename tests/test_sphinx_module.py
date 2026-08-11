@@ -1216,6 +1216,37 @@ def test_include_cycle_identity_allows_disjoint_clip_of_active_source(tmp_path: 
 
 
 @pytest.mark.integration
+def test_disjoint_self_include_restores_outer_provenance_after_clip(tmp_path: Path) -> None:
+    """Leaving a nested self-clip must pop back to the outer include site."""
+    (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
+    index = tmp_path / "index.rst"
+    index.write_text("Index\n=====\n\n.. include:: fragment.rst\n", encoding="utf-8")
+    fragment = tmp_path / "fragment.rst"
+    fragment.write_text(
+        "Fragment\n--------\n\nBefore.\n\nMARKERSTART\nClipped paragraph.\nMARKEREND\n\n"
+        ".. include:: fragment.rst\n"
+        "   :start-after: MARKERSTART\n"
+        "   :end-before: MARKEREND\n\n"
+        "Trailing\n~~~~~~~~\n",
+        encoding="utf-8",
+    )
+
+    env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    document = _document.Document(index, tmp_path)
+    outline = _document.build_outline(
+        index,
+        doc=document,
+        doctree=env.get_doctree("index"),
+        source_root=tmp_path,
+    )
+
+    trailing = next(entry for entry in outline if entry.title == "Trailing")
+    assert trailing.lineno == 14
+    assert trailing.provenance is not None
+    assert [site.target for site in trailing.provenance.include_chain] == ["fragment.rst"]
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize(
     ("options", "mode"),
     [

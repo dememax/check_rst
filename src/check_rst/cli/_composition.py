@@ -312,12 +312,21 @@ class CompositionIndex:
     def _build(self, doctree: docutils.nodes.document) -> None:
         chain: list[IncludeSite] = []
 
-        def adjust(source: str) -> None:
+        def adjust(source: str, logical_line: int | None = None) -> None:
             nonlocal chain
             if source == self.root_source:
                 chain = []
                 return
             matches = [i for i, site in enumerate(chain) if site.target == source]
+            if logical_line is not None and logical_line > 0:
+                bounded_matches = [
+                    i
+                    for i in matches
+                    if chain[i].end_line is None
+                    or logical_line + chain[i].line_offset <= cast("int", chain[i].end_line)
+                ]
+                if bounded_matches:
+                    matches = bounded_matches
             if matches:
                 chain = chain[: matches[-1] + 1]
             elif chain:
@@ -327,7 +336,7 @@ class CompositionIndex:
             if isinstance(node, docutils.nodes.comment) and _INCLUDE_MARKER in node:
                 record = cast("dict[str, Any]", node[_INCLUDE_MARKER])
                 owner = _normalise_source(str(record["owner_source"]), self.source_root)
-                adjust(owner)
+                adjust(owner, int(record["owner_lineno"]))
                 owner_offset = chain[-1].line_offset if chain and chain[-1].target == owner else 0
                 owner_lineno = int(record["owner_lineno"]) + owner_offset
                 resolved = _normalise_source(str(record["resolved"]), self.source_root)
@@ -368,7 +377,8 @@ class CompositionIndex:
                 self._provenance[id(node)] = None
                 continue
             source = _normalise_source(raw_source, self.source_root)
-            adjust(source)
+            node_line = node.line if isinstance(node.line, int) else None
+            adjust(source, node_line)
             if source == self.root_source:
                 provenance = (
                     SourceProvenance(source, SourceOrigin.TRANSFORMED, (), False, order)
