@@ -161,10 +161,7 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
         if env is not None:
             env._check_rst_active_include = record
         try:
-            # docutils ships no stub body for Directive.run in this
-            # environment's types-docutils snapshot, so mypy sees it as
-            # untyped — narrowest possible ignore, not a broader override.
-            result = list(base_run(self))  # type: ignore[no-untyped-call]
+            result = list(base_run(self))
         except Exception as exc:
             # docutils raises DirectiveError(level, message) via
             # Exception.__init__(self) with no args, so str(exc) is always

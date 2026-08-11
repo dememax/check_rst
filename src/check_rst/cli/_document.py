@@ -1273,12 +1273,7 @@ def _nested_inline_nodes(
         section_bubble_up_kludge=False,
         inliner=inliner,
     )
-    # docutils ships no stub body for Inliner.parse in this environment's
-    # types-docutils snapshot, so mypy sees it as untyped — narrowest
-    # possible ignore, not a broader override.
-    reparsed, _messages = inliner.parse(  # type: ignore[no-untyped-call]
-        str(outer.astext()), _inline_node_line(outer), memo, probe
-    )
+    reparsed, _messages = inliner.parse(str(outer.astext()), _inline_node_line(outer), memo, probe)
     return tuple(
         node
         for node in reparsed

@@ -245,7 +245,9 @@ def check_directives(
         title = _enclosing_section_title(node)
         return f"in section {title!r}" if title is not None else "(no enclosing section)"
 
-    class _Visitor(docutils.nodes.NodeVisitor):
+    # The system-visible Docutils typing exposes NodeVisitor as Any, although
+    # the runtime class is the required visitor base.
+    class _Visitor(docutils.nodes.NodeVisitor):  # type: ignore[misc]
         def unknown_visit(self, node: docutils.nodes.Node) -> None:
             pass
 

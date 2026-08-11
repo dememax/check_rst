@@ -251,13 +251,12 @@ def _parse_aligned_table(lines: list[str]) -> ParsedTable:
         if is_grid
         else docutils.parsers.rst.tableparser.SimpleTableParser()
     )
-    # docutils ships no stub body for TableParser.parse in this environment's
-    # types-docutils snapshot, so mypy sees it as untyped — narrowest
-    # possible ignore, not a broader override; cast() alone doesn't suppress
-    # no-untyped-call, since the error fires on evaluating the call itself.
+    # The installed types-docutils return shape uses list[str] for a cell,
+    # while runtime Docutils returns StringList; ParsedTable pins the runtime
+    # representation consumed below.
     colspecs, header_rows, body_rows = cast(
         "tuple[list[int], list[_ParsedTableRow], list[_ParsedTableRow]]",
-        parser.parse(docutils.statemachine.StringList(lines)),  # type: ignore[no-untyped-call]
+        parser.parse(docutils.statemachine.StringList(lines)),
     )
     return ParsedTable(colspecs, header_rows, body_rows)
 
