@@ -356,6 +356,8 @@ def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None =
     repo = _discover_repo(root)
     if repo is None or repo.workdir is None:
         return None  # tolerated: no diffable state → check the whole file
+    if repo.head_is_unborn:
+        return None  # no HEAD tree exists yet → check the whole file
     worktree_root = pathlib.Path(repo.workdir).resolve()
     try:
         relative = str(path.resolve().relative_to(worktree_root))

@@ -104,6 +104,22 @@ def test_black_box_runtime_argument_conflicts_use_stdout_and_status_1(
 
 
 @pytest.mark.integration
+def test_black_box_bare_check_staged_file_before_first_commit(tmp_path: Path) -> None:
+    """An unborn HEAD has no diff base, so staged files use whole-file scope."""
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True, capture_output=True)
+    document = tmp_path / "new.rst"
+    document.write_text("#######\nTitle\n#######\n", encoding="utf-8")
+    subprocess.run(["git", "add", "new.rst"], cwd=tmp_path, check=True, capture_output=True)
+
+    result = _run_cli(tmp_path, "check")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert "1 file(s) checked, 0 error(s)" in result.stdout
+    assert "Traceback" not in result.stdout
+
+
+@pytest.mark.integration
 def test_black_box_reviewer_combines_verified_json_git_scope_and_sphinx_failure(
     black_box_project: Path,
 ) -> None:
