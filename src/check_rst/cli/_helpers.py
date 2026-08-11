@@ -173,8 +173,11 @@ def _discover_repo(root: pathlib.Path) -> pygit2.Repository | None:
     substring-matched Git's own human-readable (and therefore locale-
     dependent) diagnostic.
     """
-    discovered = pygit2.discover_repository(str(root))
-    return pygit2.Repository(discovered) if discovered is not None else None
+    try:
+        discovered = pygit2.discover_repository(str(root))
+        return pygit2.Repository(discovered) if discovered is not None else None
+    except pygit2.GitError as exc:
+        _git_failure("repository discovery", exc)
 
 
 def _git_failure(action: str, exc: Exception) -> NoReturn:

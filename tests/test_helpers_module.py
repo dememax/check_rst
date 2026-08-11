@@ -242,6 +242,27 @@ def test_cli_bare_invocation_outside_git_repo_clean_error(
 
 
 @pytest.mark.integration
+def test_cli_malformed_git_metadata_reports_discovery_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A broken repository is distinct from no repository and never traces back."""
+    (tmp_path / ".git").write_text("not a gitdir\n", encoding="utf-8")
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "git repository discovery failed" in output
+    assert "malformed" in output
+    assert "not a git repository" not in output
+
+
+@pytest.mark.integration
 def test_directives_mistyped_directive_single_colon_flagged(tmp_path: Path) -> None:
     """'.. code: bash' (single colon) is a legal RST comment — the content
     silently disappears from the build and no other phase flags it (found
