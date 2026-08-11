@@ -903,7 +903,14 @@ def _run_context_query(
                 root_transformed=_source_was_transformed(env, selected.source_docname),
             )
 
-        local_findings = _context_findings(selected_document, title_findings)
+        context_title_findings = title_findings
+        if selected.source is not None:
+            # The title rule belongs to the composed root document, so retain
+            # its effective-structure judgment but only for findings already
+            # attributed to this physical fragment. Source-less root findings
+            # use another coordinate space and must never be relabeled below.
+            context_title_findings = [finding for finding in title_findings if finding.source == selected.source]
+        local_findings = _context_findings(selected_document, context_title_findings)
         if selected.source is not None:
             local_findings = [
                 dataclasses.replace(finding, source=selected.source) if finding.source is None else finding

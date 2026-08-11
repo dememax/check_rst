@@ -1646,6 +1646,34 @@ def test_cli_context_included_section_reads_its_physical_fragment(
 
 
 @pytest.mark.integration
+def test_cli_context_included_section_does_not_relabel_root_title_finding(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Root-owned title findings must not enter a fragment's coordinate space."""
+    root = rst_repo / "index.rst"
+    root.write_text(
+        "######\nRoot\n######\n\n########\nSecond\n########\n\n.. include:: fragment.rst\n",
+        encoding="utf-8",
+    )
+    fragment = rst_repo / "fragment.rst"
+    fragment.write_text(
+        "##########\nIncluded\n##########\n\nOne.\n\nTwo.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "fragment:Included", str(root)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "second effective top-level title 'Included'" in out
+    assert "second effective top-level title 'Second'" not in out
+
+
+@pytest.mark.integration
 def test_cli_context_ambiguous_exact_match_lists_candidates_without_guessing(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
