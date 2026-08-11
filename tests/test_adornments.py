@@ -1963,6 +1963,33 @@ def test_changed_rst_files_from_nested_directory_uses_worktree_root(
 
 
 @pytest.mark.integration
+def test_changed_rst_files_and_ranges_support_linked_worktree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    main = tmp_path / "main"
+    linked = tmp_path / "linked"
+    main.mkdir()
+    _git(main, "init")
+    _git(main, "config", "user.email", "test@example.com")
+    _git(main, "config", "user.name", "Test User")
+    document = main / "document.rst"
+    document.write_text(_GOOD_BLOCK, encoding="utf-8")
+    _git(main, "add", "document.rst")
+    _git(main, "commit", "-m", "base")
+    _git(main, "worktree", "add", "-b", "linked-branch", str(linked))
+    linked_document = linked / "document.rst"
+    linked_document.write_text(_GOOD_BLOCK + "\nChanged.\n", encoding="utf-8")
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", linked)
+
+    assert _helpers._git_worktree_root() == linked
+    assert _helpers._changed_rst_files() == [linked_document]
+    ranges = _helpers._changed_line_ranges(linked_document, linked)
+    assert ranges is not None
+    assert _helpers._in_scope(ranges, 9, 9)
+
+
+@pytest.mark.integration
 def test_changed_rst_files_supports_non_utf8_git_filename(rst_repo: Path) -> None:
     """Git filenames are byte strings; porcelain -z must use surrogateescape."""
     raw_path = os.fsencode(rst_repo) + b"/non_utf8_\xff.rst"
@@ -1998,6 +2025,68 @@ def test_cli_diff_scope_supports_tracked_non_utf8_git_filename(
     output = capfd.readouterr().out
     assert "non_utf8_" in output
     assert "underline-only title" in output
+
+
+@pytest.mark.integration
+def test_changed_rst_files_supports_non_utf8_staged_rename(rst_repo: Path) -> None:
+    old_raw = os.fsencode(rst_repo) + b"/old_\xff.rst"
+    new_raw = os.fsencode(rst_repo) + b"/new_\xfe.rst"
+    fd = os.open(old_raw, os.O_WRONLY | os.O_CREAT, 0o600)
+    os.write(fd, _GOOD_BLOCK.encode())
+    os.close(fd)
+    old_path = Path(os.fsdecode(old_raw))
+    new_path = Path(os.fsdecode(new_raw))
+    _git(rst_repo, "add", old_path.name)
+    _git(rst_repo, "commit", "-m", "non-UTF-8 source")
+    os.rename(old_raw, new_raw)
+    _git(rst_repo, "add", "--all")
+
+    assert _helpers._changed_rst_files() == [new_path]
+
+
+@pytest.mark.integration
+def test_changed_line_ranges_combine_staged_and_unstaged_edits(rst_repo: Path) -> None:
+    document = rst_repo / "document.rst"
+    baseline = [f"line {number}" for number in range(1, 11)]
+    document.write_text("\n".join(baseline) + "\n", encoding="utf-8")
+    _git(rst_repo, "add", "document.rst")
+    _git(rst_repo, "commit", "-m", "base")
+    changed = list(baseline)
+    changed[1] = "staged line 2"
+    document.write_text("\n".join(changed) + "\n", encoding="utf-8")
+    _git(rst_repo, "add", "document.rst")
+    changed[8] = "unstaged line 9"
+    document.write_text("\n".join(changed) + "\n", encoding="utf-8")
+
+    assert _helpers._changed_line_ranges(document, rst_repo) == [(2, 2), (9, 9)]
+
+
+@pytest.mark.integration
+def test_changed_line_ranges_use_whole_file_for_undiffable_states(tmp_path: Path) -> None:
+    outside_git = tmp_path / "outside-git"
+    outside_git.mkdir()
+    standalone = outside_git / "standalone.rst"
+    standalone.write_text(_GOOD_BLOCK, encoding="utf-8")
+    assert _helpers._changed_line_ranges(standalone, outside_git) is None
+
+    unborn = tmp_path / "unborn"
+    unborn.mkdir()
+    _git(unborn, "init")
+    staged = unborn / "staged.rst"
+    staged.write_text(_GOOD_BLOCK, encoding="utf-8")
+    _git(unborn, "add", "staged.rst")
+    assert _helpers._changed_line_ranges(staged, unborn) is None
+
+    committed = tmp_path / "committed"
+    committed.mkdir()
+    _git(committed, "init")
+    _git(committed, "config", "user.email", "test@example.com")
+    _git(committed, "config", "user.name", "Test User")
+    tracked = committed / "tracked.rst"
+    tracked.write_text(_GOOD_BLOCK, encoding="utf-8")
+    _git(committed, "add", "tracked.rst")
+    _git(committed, "commit", "-m", "base")
+    assert _helpers._changed_line_ranges(standalone, committed) is None
 
 
 @pytest.mark.integration

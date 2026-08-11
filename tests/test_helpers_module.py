@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from typing import TYPE_CHECKING
 
 import docutils.nodes
@@ -260,6 +261,48 @@ def test_cli_malformed_git_metadata_reports_discovery_failure(
     assert "git repository discovery failed" in output
     assert "malformed" in output
     assert "not a git repository" not in output
+
+
+@pytest.mark.integration
+def test_cli_bare_repository_uses_clean_no_worktree_diagnostic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    subprocess.run(["git", "init", "--bare", str(tmp_path)], check=True, capture_output=True)
+    monkeypatch.setattr(_helpers, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "not a git repository" in output
+    assert "name files explicitly or use --recursive" in output
+
+
+@pytest.mark.unit
+def test_surrogateescape_status_fallback_reports_subprocess_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    failure = subprocess.CompletedProcess(
+        args=["git", "status"],
+        returncode=128,
+        stdout=b"",
+        stderr=b"fatal: index file corrupt\n",
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: failure)
+
+    with pytest.raises(SystemExit) as exc:
+        _helpers._status_paths_with_surrogateescape(tmp_path)
+
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "git status failed" in output
+    assert "index file corrupt" in output
 
 
 @pytest.mark.integration

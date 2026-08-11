@@ -641,6 +641,31 @@ def test_cli_unmerged_file_uses_nested_owning_repository(
 
 
 @pytest.mark.integration
+def test_unmerged_filter_ignores_conflict_in_unselected_file(rst_repo: Path) -> None:
+    conflict = rst_repo / "conflict.rst"
+    selected = rst_repo / "selected.rst"
+    conflict.write_text("Base\n####\n", encoding="utf-8")
+    selected.write_text(_GOOD_BLOCK, encoding="utf-8")
+    _git(rst_repo, "add", "conflict.rst", "selected.rst")
+    _git(rst_repo, "commit", "-m", "base")
+    _git(rst_repo, "checkout", "-b", "other")
+    conflict.write_text("Theirs\n######\n", encoding="utf-8")
+    _git(rst_repo, "commit", "-am", "theirs")
+    _git(rst_repo, "checkout", "master")
+    conflict.write_text("Ours\n####\n", encoding="utf-8")
+    _git(rst_repo, "commit", "-am", "ours")
+    merge = subprocess.run(
+        ["git", "-C", str(rst_repo), "merge", "other"],
+        capture_output=True,
+        check=False,
+    )
+    assert merge.returncode != 0
+
+    assert _helpers._unmerged_files([selected]) == []
+    assert _helpers._unmerged_files([conflict]) == [conflict]
+
+
+@pytest.mark.integration
 def test_recursive_nonexistent_directory_errors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
