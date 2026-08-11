@@ -410,12 +410,12 @@ def _json_file_model(
     outline_id_counts: collections.Counter[str] = collections.Counter()
     for entry in outline_entries if outline_entries is not None else document.outline:
         d = _entry_asdict(entry)
-        # A cross-file heading's own Sphinx docname (entry.docname) IS its
-        # stable identifier already — never re-derived from this file's
-        # own `docname`, which would collide every cross-file entry onto
-        # this document's id.
+        # Physical include ownership outranks the toctree traversal docname:
+        # context selectors and text output identify the source an editor can
+        # actually open. A plain cross-file heading without provenance still
+        # uses its Sphinx docname rather than the requesting document's id.
         source_id = entry.provenance.source.removesuffix(".rst") if entry.provenance is not None else None
-        base_id = f"{entry.docname or source_id or docname}:{entry.title}"
+        base_id = f"{source_id or entry.docname or docname}:{entry.title}"
         outline_id_counts[base_id] += 1
         occurrence = outline_id_counts[base_id]
         d["id"] = base_id if occurrence == 1 else f"{base_id}#{occurrence}"

@@ -354,6 +354,29 @@ def test_cli_json_stable_section_ids(
 
 
 @pytest.mark.integration
+def test_json_id_is_the_context_selector_for_toctree_included_section(tmp_path: Path) -> None:
+    """Physical include ownership outranks the toctree traversal docname."""
+    path = _rst(tmp_path, "Title\n=====\n")
+    document = _document.Document(path, tmp_path)
+    provenance = _types.SourceProvenance("fragment.rst", _types.SourceOrigin.INCLUDE)
+    entry = _types.OutlineEntry(
+        lineno=1,
+        depth=2,
+        char="-",
+        title="Included",
+        end=2,
+        docname="child",
+        provenance=provenance,
+    )
+
+    model = _reports._json_file_model(document, [], 0, outline_entries=[entry], project_root=tmp_path)
+    candidate = _reports._context_candidates([entry], "index")[0]
+
+    assert model["outline"][0]["id"] == "fragment:Included"
+    assert candidate.selector == model["outline"][0]["id"]
+
+
+@pytest.mark.integration
 def test_cli_json_section_ids_are_unique_for_duplicate_titles(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
