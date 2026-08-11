@@ -397,10 +397,14 @@ def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None =
         return None  # no HEAD tree exists yet → check the whole file
     worktree_root = pathlib.Path(repo.workdir).resolve()
     try:
-        relative = str(path.resolve().relative_to(worktree_root))
+        relative = path.resolve().relative_to(worktree_root)
     except ValueError:
         return None  # outside the repository → not diffable, check whole file
-    if relative not in repo.index:
+    # Git paths are bytes.  os.fsencode reverses Python's surrogateescape
+    # representation on Unix, while pygit2's text path APIs reject those
+    # surrogates and DiffFile.path tries strict UTF-8 decoding.
+    relative_raw = os.fsencode(relative)
+    if relative_raw not in repo.index:
         return None  # untracked → not diffable, check whole file
     try:
         diff = repo.diff("HEAD", None, context_lines=0, flags=_DIFF_SINCE_HEAD_FLAGS)
@@ -411,7 +415,7 @@ def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None =
         raise RuntimeError(f"git diff failed: {exc}") from exc
     ranges: list[tuple[int, int]] = []
     for patch in diff:
-        if patch is None or patch.delta.new_file.path != relative:
+        if patch is None or patch.delta.new_file.raw_path != relative_raw:
             continue
         for hunk in patch.hunks:
             start, count = hunk.new_start, hunk.new_lines

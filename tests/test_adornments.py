@@ -1973,6 +1973,34 @@ def test_changed_rst_files_supports_non_utf8_git_filename(rst_repo: Path) -> Non
 
 
 @pytest.mark.integration
+def test_cli_diff_scope_supports_tracked_non_utf8_git_filename(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """Surrogateescape ownership continues through index and diff lookup."""
+    raw_path = os.fsencode(rst_repo) + b"/non_utf8_\xff.rst"
+    fd = os.open(raw_path, os.O_WRONLY | os.O_CREAT, 0o600)
+    os.write(fd, _GOOD_BLOCK.encode())
+    os.close(fd)
+    path = Path(os.fsdecode(raw_path))
+    _git(rst_repo, "add", path.name)
+    _git(rst_repo, "commit", "-m", "tracked non-UTF-8 filename")
+    fd = os.open(raw_path, os.O_WRONLY | os.O_APPEND)
+    os.write(fd, _APPENDED_UNDERLINE_ONLY.encode())
+    os.close(fd)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    output = capfd.readouterr().out
+    assert "non_utf8_" in output
+    assert "underline-only title" in output
+
+
+@pytest.mark.integration
 def test_changed_rst_files_preserves_non_repository_git_failure(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
