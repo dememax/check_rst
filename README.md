@@ -50,7 +50,7 @@ wheel explicitly instead:
 ```bash
 cd /path/to/check_rst
 python3.14 -m pip wheel --wheel-dir dist .
-python3.14 -m pip install dist/check_rst-0.3.0-py3-none-any.whl
+python3.14 -m pip install dist/check_rst-0.4.0-py3-none-any.whl
 ```
 
 The generated wheel is a pure-Python, platform-independent package. Its exact

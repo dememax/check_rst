@@ -216,12 +216,19 @@ def _status_paths_with_surrogateescape(worktree_root: pathlib.Path) -> list[str]
     those bytes exactly, so os.fsdecode can apply the platform's
     surrogateescape policy without requiring a HEAD revision.
     """
-    result = subprocess.run(
-        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-        cwd=worktree_root,
-        check=False,
-        capture_output=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            cwd=worktree_root,
+            check=False,
+            capture_output=True,
+            # Porcelain stdout is locale-stable, but Git's failure diagnostics
+            # are translated. Preserve PATH and Git-specific environment while
+            # keeping this exceptional CLI boundary deterministic.
+            env=os.environ | {"LC_ALL": "C"},
+        )
+    except OSError as exc:
+        _git_failure("status", exc)
     if result.returncode != 0:
         detail = os.fsdecode(result.stderr).strip() or os.fsdecode(result.stdout).strip() or "unknown Git error"
         _git_failure("status", RuntimeError(detail))

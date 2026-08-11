@@ -571,14 +571,27 @@ Like blank-line normalization, both modifiers require ordinary ``fix`` or
 History protection: bare mode and selective Git scope
 =======================================================
 
-Bare ``check_rst fix`` uses ``git status`` to select the existing
-changed/untracked ``.rst`` files, resolving porcelain paths against
-Git's worktree root even when invoked from a subdirectory.  Adornment
-geometry is scoped to hunks from ``git diff -U0 HEAD``.  Two
+Bare ``check_rst fix`` uses Git status to select the existing
+changed/untracked ``.rst`` files, resolving status paths against Git's
+worktree root even when invoked from a subdirectory.  Adornment geometry is
+scoped to the same hunks as ``git diff -U0 HEAD``.  Two
 document-level policies are deliberately wider: Phase 0 byte hygiene
 (BOM/line-ending/control/trailing-whitespace normalization) is whole-file, and
 hierarchy character remapping is whole-document because a heading
 character's rank has no per-hunk meaning.
+
+Repository discovery, ordinary status, diff ranges, index membership, and
+merge conflicts use ``pygit2`` rather than the Git CLI.  One compatibility
+path is deliberately different: Git permits filenames that are not valid
+UTF-8, while ``pygit2`` exposes status paths as Python strings.  If that API
+cannot decode a status path, ``check_rst`` invokes ``git status
+--porcelain=v1 -z`` to preserve the raw bytes and applies the platform's
+filesystem decoding policy.  The ``git`` executable is therefore a
+conditional requirement only for a worktree whose current status contains
+such a path; if it is unavailable, the command stops with a ``git status
+failed`` diagnostic.  That fallback preserves the caller's environment but
+forces ``LC_ALL=C`` so Git's failure detail is deterministic rather than
+localized.
 
 Every explicitly selected blank-line or editorial-spacing modifier is also a
 whole-document policy.  Git scope limits which files may change; it does not

@@ -305,6 +305,56 @@ def test_surrogateescape_status_fallback_reports_subprocess_failure(
     assert "index file corrupt" in output
 
 
+@pytest.mark.unit
+def test_surrogateescape_status_fallback_forces_c_locale_and_preserves_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Machine-readable Git output and its failure diagnostics are independent
+    of the invoking process's locale without losing unrelated environment."""
+    monkeypatch.setenv("LANG", "fr_FR.UTF-8")
+    monkeypatch.setenv("LC_ALL", "fr_FR.UTF-8")
+    monkeypatch.setenv("CHECK_RST_TEST_SENTINEL", "preserved")
+    invocation: dict[str, object] = {}
+
+    def successful_git(*_args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        invocation.update(kwargs)
+        return subprocess.CompletedProcess(args=["git", "status"], returncode=0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", successful_git)
+
+    assert _helpers._status_paths_with_surrogateescape(tmp_path) == []
+    environment = invocation["env"]
+    assert isinstance(environment, dict)
+    assert environment["LC_ALL"] == "C"
+    assert environment["LANG"] == "fr_FR.UTF-8"
+    assert environment["CHECK_RST_TEST_SENTINEL"] == "preserved"
+    assert os.environ["LC_ALL"] == "fr_FR.UTF-8"
+
+
+@pytest.mark.unit
+def test_surrogateescape_status_fallback_reports_missing_git_executable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The exceptional byte-path fallback remains a clean CLI boundary when
+    the otherwise-optional Git executable is unavailable."""
+
+    def missing_git(*_args: object, **_kwargs: object) -> None:
+        raise FileNotFoundError(2, "No such file or directory", "git")
+
+    monkeypatch.setattr(subprocess, "run", missing_git)
+
+    with pytest.raises(SystemExit) as exc:
+        _helpers._status_paths_with_surrogateescape(tmp_path)
+
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "git status failed" in output
+    assert "No such file or directory" in output
+
+
 @pytest.mark.integration
 def test_directives_mistyped_directive_single_colon_flagged(tmp_path: Path) -> None:
     """'.. code: bash' (single colon) is a legal RST comment — the content

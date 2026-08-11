@@ -34,6 +34,16 @@ checkout when protection from an activated virtual environment is required;
 that launcher belongs to the host configuration, not to a consuming
 repository.
 
+Normal Git integration is provided by the declared ``pygit2`` dependency and
+does not shell out to the Git CLI.  The ``git`` executable is a conditional
+compatibility dependency when a worktree's current status contains a filename
+that is not valid UTF-8: ``pygit2`` cannot expose that status path as a Python
+string, so ``check_rst`` uses Git's NUL-delimited byte output for that query.
+If the executable is unavailable in this exceptional case, the command exits
+with a clean ``git status failed`` diagnostic.  The subprocess preserves the
+caller's environment except for forcing ``LC_ALL=C`` to keep Git's failure
+detail deterministic.
+
 The interpreter boundary must still include every Sphinx extension loaded by
 consumer ``conf.py`` files.  On Gentoo, the preferred host-wide installation
 is therefore a virtual environment created with ``--system-site-packages``
