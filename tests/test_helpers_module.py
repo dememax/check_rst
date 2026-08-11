@@ -42,18 +42,49 @@ def test_atomic_write_failure_preserves_destination_and_removes_temporary_file(
 
 
 @pytest.mark.unit
-def test_atomic_write_preserves_mode_and_updates_a_symlink_target(tmp_path: Path) -> None:
+def test_atomic_write_preserves_mode_owner_and_updates_a_symlink_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     target = tmp_path / "target.rst"
     target.write_bytes(b"original\n")
     target.chmod(0o640)
     link = tmp_path / "link.rst"
     link.symlink_to(target)
+    original = target.stat()
+    ownership: list[tuple[int, int]] = []
+    real_fchown = os.fchown
+
+    def record_fchown(fd: int, uid: int, gid: int) -> None:
+        ownership.append((uid, gid))
+        real_fchown(fd, uid, gid)
+
+    monkeypatch.setattr(os, "fchown", record_fchown)
 
     _helpers._atomic_write_bytes(link, b"replacement\n")
 
     assert link.is_symlink()
     assert target.read_bytes() == b"replacement\n"
     assert target.stat().st_mode & 0o777 == 0o640
+    assert ownership == [(original.st_uid, original.st_gid)]
+    assert (target.stat().st_uid, target.stat().st_gid) == (original.st_uid, original.st_gid)
+
+
+@pytest.mark.unit
+def test_atomic_write_refuses_multiply_linked_destination(tmp_path: Path) -> None:
+    destination = tmp_path / "document.rst"
+    peer = tmp_path / "peer.rst"
+    original = b"shared original\n"
+    destination.write_bytes(original)
+    os.link(destination, peer)
+
+    with pytest.raises(OSError, match="2 hard links"):
+        _helpers._atomic_write_bytes(destination, b"replacement\n")
+
+    assert destination.read_bytes() == original
+    assert peer.read_bytes() == original
+    assert destination.samefile(peer)
+    assert {path.name for path in tmp_path.iterdir()} == {"document.rst", "peer.rst"}
 
 
 @pytest.mark.unit

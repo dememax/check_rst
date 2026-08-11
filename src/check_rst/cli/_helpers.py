@@ -57,11 +57,15 @@ def _atomic_write_bytes(path: pathlib.Path, data: bytes) -> None:
     The temporary file lives beside the destination so ``os.replace`` stays
     on one filesystem.  Resolve a symlink first: the historical in-place
     writers updated its target, and an atomic rename over the link itself
-    would silently change that contract.  The existing permission bits are
-    copied before the candidate is flushed and made visible.
+    would silently change that contract.  Ownership and permission bits are
+    copied before the candidate is flushed and made visible.  A multiply
+    linked target is refused: replacing one directory entry cannot update the
+    shared inode and would silently split the other names onto stale content.
     """
     destination = path.resolve(strict=True) if path.is_symlink() else path
     metadata = destination.stat()
+    if metadata.st_nlink != 1:
+        raise OSError(f"{destination} has {metadata.st_nlink} hard links; refusing atomic replacement")
     fd, temporary_name = tempfile.mkstemp(
         dir=destination.parent,
         prefix=f".{destination.name}.check_rst-",
@@ -70,12 +74,20 @@ def _atomic_write_bytes(path: pathlib.Path, data: bytes) -> None:
     temporary = pathlib.Path(temporary_name)
     descriptor_open = True
     try:
+        # chown can clear set-id mode bits, so restore ownership first and
+        # apply the complete original mode afterward.
+        os.fchown(fd, metadata.st_uid, metadata.st_gid)
         os.fchmod(fd, stat.S_IMODE(metadata.st_mode))
         with os.fdopen(fd, "wb") as stream:
             descriptor_open = False
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
+        current = destination.stat()
+        if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
+            raise OSError(f"{destination} changed identity during atomic replacement")
+        if current.st_nlink != 1:
+            raise OSError(f"{destination} has {current.st_nlink} hard links; refusing atomic replacement")
         os.replace(temporary, destination)
     except BaseException:
         if descriptor_open:
