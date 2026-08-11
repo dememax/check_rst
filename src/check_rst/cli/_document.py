@@ -7,6 +7,7 @@ from __future__ import annotations
 import functools
 import pathlib
 import re
+import types
 from typing import TYPE_CHECKING, cast
 
 import docutils.nodes
@@ -489,7 +490,7 @@ def find_admonitions(path: pathlib.Path, doc: Document | None = None) -> list[Ad
     """
     document = _resolve_document(path, doc)
     entries: list[AdmonitionEntry] = []
-    for node in document.doctree.findall(docutils.nodes.Admonition):
+    for node in document.doctree.findall(lambda n: isinstance(n, docutils.nodes.Admonition)):
         depth = _block_depth(node)
 
         title: str | None = None
@@ -582,6 +583,10 @@ def find_lists(path: pathlib.Path, doc: Document | None = None) -> list[ListEntr
     document = _resolve_document(path, doc)
     entries: list[ListEntry] = []
 
+    # One annotation covers all three loops below: without allow_redefinition,
+    # mypy fixes `node`'s type from the first loop's findall() overload and
+    # flags the later loops' reassignments as incompatible otherwise.
+    node: docutils.nodes.Element
     for node in document.doctree.findall(docutils.nodes.bullet_list):
         container_depth = _block_depth(node)
         items = list(node.children)
@@ -1244,8 +1249,14 @@ def _nested_inline_nodes(
     probe = docutils.utils.new_document(f"{document.get('source', '<string>')}:inline-probe", document.settings)
     inliner = docutils.parsers.rst.states.Inliner()
     inliner.init_customizations(probe.settings)
-    language = docutils.parsers.rst.languages.get_language(probe.settings.language_code, probe.reporter)
-    memo = docutils.parsers.rst.states.Struct(
+    # states.Struct is an unexported alias for types.SimpleNamespace
+    # (docutils: "from types import ... SimpleNamespace as Struct"), so
+    # --no-implicit-reexport (part of strict mode) blocks the dotted access;
+    # construct the real class directly instead — same runtime object.
+    language: types.ModuleType = docutils.parsers.rst.languages.get_language(
+        probe.settings.language_code, probe.reporter
+    )
+    memo = types.SimpleNamespace(
         document=probe,
         reporter=probe.reporter,
         language=language,
@@ -1254,7 +1265,12 @@ def _nested_inline_nodes(
         section_bubble_up_kludge=False,
         inliner=inliner,
     )
-    reparsed, _messages = inliner.parse(str(outer.astext()), _inline_node_line(outer), memo, probe)
+    # docutils ships no stub body for Inliner.parse in this environment's
+    # types-docutils snapshot, so mypy sees it as untyped — narrowest
+    # possible ignore, not a broader override.
+    reparsed, _messages = inliner.parse(  # type: ignore[no-untyped-call]
+        str(outer.astext()), _inline_node_line(outer), memo, probe
+    )
     return tuple(
         node
         for node in reparsed

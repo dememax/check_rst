@@ -748,7 +748,7 @@ def _expand_toctrees(
 
 
 def _expand_one_toctree(
-    node: docutils.nodes.Node,
+    node: docutils.nodes.Element,
     env: sphinx.environment.BuildEnvironment,
     document: Document,
     depth_offset: int,
@@ -761,7 +761,9 @@ def _expand_one_toctree(
     each of those documents' own toctrees, in turn."""
     local_depth = _block_depth(node)
     toctree_depth = depth_offset + local_depth
-    includefiles = list(node.get("includefiles", ()))
+    # Explicit element type: the empty-tuple fallback alone leaves mypy unable
+    # to infer list()'s element type from node.get()'s generic overload.
+    includefiles: list[str] = list(node.get("includefiles", ()))
     maxdepth = node.get("maxdepth", -1)
     provenance = composition.provenance(node)
     start = composition.physical_line(node, _node_line(node))

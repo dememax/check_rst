@@ -155,7 +155,10 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
         if env is not None:
             env._check_rst_active_include = record
         try:
-            result = list(base_run(self))
+            # docutils ships no stub body for Directive.run in this
+            # environment's types-docutils snapshot, so mypy sees it as
+            # untyped — narrowest possible ignore, not a broader override.
+            result = list(base_run(self))  # type: ignore[no-untyped-call]
         except Exception as exc:
             message = " ".join(str(exc).splitlines())
             if "circular inclusion" in message:
@@ -196,15 +199,22 @@ def tracked_docutils_include() -> Iterator[None]:
             directives.register_directive("include", old)
 
 
+# Tracks which wrapped classes instrument_sphinx_include has already produced,
+# so a repeated call (e.g. across tests in one process) doesn't wrap a
+# wrapper.  A set keyed by class identity avoids a dynamically-added class
+# attribute, which docutils' own Directive type has no declared slot for.
+_TRACKED_INCLUDE_BASES: set[type[Directive]] = set()
+
+
 def instrument_sphinx_include() -> None:
     """Wrap the include class registered by the fully initialized Sphinx app."""
     base = directives._directives.get("include")
     if base is None:
         raise RuntimeError("Sphinx did not register its include directive")
-    if getattr(base, "_check_rst_tracking", False):
+    if base in _TRACKED_INCLUDE_BASES:
         return
     tracked = _tracking_include_class(base)
-    tracked._check_rst_tracking = True
+    _TRACKED_INCLUDE_BASES.add(tracked)
     directives.register_directive("include", tracked)
 
 

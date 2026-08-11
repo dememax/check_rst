@@ -232,6 +232,12 @@ def _table_kind_eligible(kind: str) -> bool:
     return kind in _LIST_TABLE_ELIGIBLE_KINDS
 
 
+# types-docutils' tableparser stub declares each parsed row's cells with a
+# list[str] 4th element; at runtime it is a real StringList (confirmed) —
+# ParsedTable's own field type (see _types.py) is the accurate one.
+_ParsedTableRow = list[tuple[int, int, int, docutils.statemachine.StringList] | None]
+
+
 def _parse_aligned_table(lines: list[str]) -> ParsedTable:
     """Parse a grid or simple table's raw source *lines* (border rows
     included, nothing else) via docutils' own GridTableParser/
@@ -245,7 +251,14 @@ def _parse_aligned_table(lines: list[str]) -> ParsedTable:
         if is_grid
         else docutils.parsers.rst.tableparser.SimpleTableParser()
     )
-    colspecs, header_rows, body_rows = parser.parse(docutils.statemachine.StringList(lines))
+    # docutils ships no stub body for TableParser.parse in this environment's
+    # types-docutils snapshot, so mypy sees it as untyped — narrowest
+    # possible ignore, not a broader override; cast() alone doesn't suppress
+    # no-untyped-call, since the error fires on evaluating the call itself.
+    colspecs, header_rows, body_rows = cast(
+        "tuple[list[int], list[_ParsedTableRow], list[_ParsedTableRow]]",
+        parser.parse(docutils.statemachine.StringList(lines)),  # type: ignore[no-untyped-call]
+    )
     return ParsedTable(colspecs, header_rows, body_rows)
 
 
@@ -386,7 +399,10 @@ def _render_list_table_row(
         if cell is None:
             raise AssertionError("spanned cell reached the renderer — caller must reject spans first")
         _, _, _, block = cell
-        cell_lines = list(block)
+        # .data is StringList's own concrete list[str] backing store — more
+        # version-robust than relying on __iter__'s overload matching, and
+        # confirmed content-identical to list(block).
+        cell_lines = list(block.data)
         # docutils pads every cell in a row to the row's tallest cell's
         # line count (confirmed by direct probe) — trailing empty entries
         # are that padding, not real trailing blank lines in the cell's

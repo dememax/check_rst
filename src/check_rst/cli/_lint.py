@@ -245,12 +245,7 @@ def check_directives(
         title = _enclosing_section_title(node)
         return f"in section {title!r}" if title is not None else "(no enclosing section)"
 
-    class _Visitor(docutils.nodes.NodeVisitor):  # type: ignore[misc]
-        # docutils ships no stubs: NodeVisitor resolves as Any, so mypy
-        # can't verify this subclass at all — narrowest possible ignore,
-        # not a broader docutils.* override change (pyproject.toml already
-        # has one, scoped to missing-import only, not to Any-flow errors
-        # like this).
+    class _Visitor(docutils.nodes.NodeVisitor):
         def unknown_visit(self, node: docutils.nodes.Node) -> None:
             pass
 

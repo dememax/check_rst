@@ -13,7 +13,7 @@ import stat
 import subprocess
 import tempfile
 import unicodedata
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, NoReturn, cast
 
 import docutils.frontend
 import docutils.nodes
@@ -664,16 +664,22 @@ def _enclosing_section_title(node: docutils.nodes.Node) -> str | None:
 
 def _findall_node_types(
     root: docutils.nodes.Node,
-    node_types: tuple[type[docutils.nodes.Node], ...],
-) -> Iterator[docutils.nodes.Node]:
+    node_types: tuple[type[docutils.nodes.Element], ...],
+) -> Iterator[docutils.nodes.Element]:
     """Yield descendants matching *node_types* across supported docutils.
 
     Docutils 0.23 accepts a tuple of classes directly as ``Node.findall``'s
     condition, while 0.22 accepts only one class or a callable.  The callable
     form has identical behavior on both versions and keeps the PyPI-compatible
     Sphinx stack and Gentoo's newer docutils stack on one code path.
+
+    Narrowed to Element (not the broader Node): both current callers pass
+    Element-subclass tuples, and Element is what gives them .rawsource/.get.
     """
-    yield from root.findall(lambda node: isinstance(node, node_types))
+    yield from cast(
+        "Iterator[docutils.nodes.Element]",
+        root.findall(lambda node: isinstance(node, node_types)),
+    )
 
 
 def _block_depth(node: docutils.nodes.Node) -> int:
@@ -788,7 +794,7 @@ def _int_to_roman(n: int) -> str:
     return "".join(parts)
 
 
-def _enum_marker(node: docutils.nodes.Node, position: int) -> str:
+def _enum_marker(node: docutils.nodes.Element, position: int) -> str:
     """The rendered marker ('1.', '#.', 'a)', 'iv.', ...) for the item at
     0-based *position* in an enumerated_list — never stored in the
     doctree itself (docutils renders enumerated-list numbering at write
