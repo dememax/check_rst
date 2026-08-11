@@ -2182,6 +2182,40 @@ def test_cli_git_scope_preserves_diff_scope_for_selected_file(
 
 
 @pytest.mark.integration
+def test_cli_git_scope_fix_fails_closed_when_diff_is_unavailable(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A Git failure must not turn selective mutation into a whole-file fix."""
+    document = rst_repo / "document.rst"
+    document.write_text(_BAD_BLOCK, encoding="utf-8")
+    _git(rst_repo, "add", "document.rst")
+    _git(rst_repo, "commit", "-m", "committed historical defect")
+    original = _BAD_BLOCK + "\nChanged prose.\n"
+    document.write_text(original, encoding="utf-8")
+
+    def fail_diff(self: pygit2.Repository, *_args: object, **_kwargs: object) -> object:
+        raise pygit2.GitError("object database corrupt")
+
+    monkeypatch.setattr(pygit2.Repository, "diff", fail_diff)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "fix", "--git-scope", str(document)],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert document.read_text(encoding="utf-8") == original
+    output = capsys.readouterr().out
+    assert "git diff failed" in output
+    assert "object database corrupt" in output
+    assert "0 file(s) fixed" in output
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize("selection", ["bare", "git-scope"])
 @pytest.mark.parametrize("verb_tail", [["fix"], ["fix", "--fast"]], ids=["fix", "fix-fast"])
 def test_git_scoped_fix_reflows_adornments_when_only_title_text_changed(

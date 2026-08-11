@@ -412,8 +412,11 @@ def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None =
         return None  # untracked → not diffable, check whole file
     try:
         diff = repo.diff("HEAD", None, context_lines=0, flags=_DIFF_SINCE_HEAD_FLAGS)
-    except pygit2.GitError:
-        return None  # tolerated: e.g. no HEAD commit yet → check the whole file
+    except pygit2.GitError as exc:
+        # All legitimate no-diff states were classified above.  A repository
+        # failure here cannot safely mean "whole file": in fix mode that would
+        # silently widen selective Git scope and authorize unrelated edits.
+        raise RuntimeError(f"git diff failed: {exc}") from exc
     ranges: list[tuple[int, int]] = []
     for patch in diff:
         if patch is None or patch.delta.new_file.path != relative:
