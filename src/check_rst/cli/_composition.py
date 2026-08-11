@@ -131,7 +131,13 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
             (str(pathlib.Path(str(source)).resolve()), tuple(active_clip))
             for source, active_clip in self.state.document.include_log
         }
-        cycle = initial_resolved if (resolved_identity, clip) in active_identities else None
+        # Docutils' own include_log always carries '' (not None) for absent
+        # start-after/end-before (see Include.run's self.clip_options) — only
+        # the comparison tuple is reshaped to match; the public `clip` above
+        # keeps its None defaults, since IncludeSite's tested contract relies
+        # on them.
+        docutils_clip = (clip[0], clip[1], clip[2] or "", clip[3] or "")
+        cycle = initial_resolved if (resolved_identity, docutils_clip) in active_identities else None
         marker = docutils.nodes.comment()
         marker.source = owner_source
         marker.line = owner_lineno
@@ -160,7 +166,13 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
             # untyped — narrowest possible ignore, not a broader override.
             result = list(base_run(self))  # type: ignore[no-untyped-call]
         except Exception as exc:
-            message = " ".join(str(exc).splitlines())
+            # docutils raises DirectiveError(level, message) via
+            # Exception.__init__(self) with no args, so str(exc) is always
+            # '' — the real text lives in .msg (confirmed against docutils'
+            # own states.Body.run_directive, which itself only ever reads
+            # .msg). getattr(...) falls back to str(exc) for any other
+            # exception type, so no DirectiveError import is needed here.
+            message = " ".join(str(getattr(exc, "msg", exc)).splitlines())
             if "circular inclusion" in message:
                 record["cycle"] = raw_target
             record["exact"] = False
