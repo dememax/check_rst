@@ -824,16 +824,13 @@ class ConditionalEntry:
         return item in str(self)
 
 
-# Found by code review: this exact 7-member union — every per-document
-# structural finder's own output type — was retyped by hand at three call
-# sites (_reports.py, _pipeline.py, _sphinx.py's _merge_toctree_clusters),
-# and the 8-member version below (adding ToctreeEntry once cross-file
-# toctree clusters get spliced in) at four more (_output.py, _pipeline.py,
-# and twice in _sphinx.py). Never ToctreeEntry: a single file's own
-# outline/code-blocks/block-quotes/tables/admonitions/comments/lists are
-# always local to it, whereas a toctree cluster's entries may point at
-# ANOTHER file entirely — see _merge_toctree_clusters, the one place both
-# aliases meet.
+# Found by code review: this union was retyped by hand across report,
+# pipeline, output, and Sphinx merge call sites.  Keep the membership here as
+# the single source of truth instead of documenting a count that becomes stale
+# whenever another structural entry is added.  Never ToctreeEntry: these are
+# entries in one effective document, including physically included fragments;
+# a toctree cluster may point at another document entirely.  See
+# _merge_toctree_clusters, the boundary where LocalEntry widens to MergedEntry.
 type LocalEntry = (
     OutlineEntry
     | CodeBlockEntry
