@@ -902,6 +902,29 @@ def test_heuristic_literalinclude_with_language_option_detected(tmp_path: Path) 
 
 
 @pytest.mark.integration
+def test_heuristic_literalinclude_capitalized_directive_detected(tmp_path: Path) -> None:
+    """Docutils resolves directive names case-insensitively (confirmed:
+    directive lookup normalizes the name via .lower() before the registry
+    match), so '.. LiteralInclude::' is exactly as valid RST as
+    '.. literalinclude::' and must not silently vanish just because the raw
+    text uses different letter casing."""
+    p = _rst(
+        tmp_path,
+        """\
+        Title
+        =====
+
+        .. LiteralInclude:: some-file.txt
+            :lines: 1-5
+            :language: none
+        """,
+    )
+    entries = _document.find_code_blocks_heuristic(p)
+    assert len(entries) == 1
+    assert entries[0].language == "none"
+
+
+@pytest.mark.integration
 def test_heuristic_literalinclude_without_language_or_diff_excluded(
     tmp_path: Path,
 ) -> None:

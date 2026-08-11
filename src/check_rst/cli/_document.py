@@ -674,13 +674,18 @@ def find_lists(path: pathlib.Path, doc: Document | None = None) -> list[ListEntr
 
 # Directive-based tables carry their own syntax name in the source; bare
 # grid/simple tables don't, so kind falls back to the border/rule shape.
-_TABLE_DIRECTIVE_RE = re.compile(r"\.\.\s+(table|list-table|csv-table)::")
+# IGNORECASE: docutils normalizes a directive name to lowercase before the
+# registry lookup (confirmed: directives/__init__.py's directive_name.lower()),
+# so '.. Table::'/'.. CSV-Table::' are exactly as valid as the lowercase form.
+_TABLE_DIRECTIVE_RE = re.compile(r"\.\.\s+(table|list-table|csv-table)::", re.IGNORECASE)
 
 
 _TABLE_DIRECTIVE_KIND = {"table": "table", "list-table": "list", "csv-table": "csv"}
 
 
-_CAPTIONLESS_CSV_MARKER_RE = re.compile(r"^(?P<marker>[ \t]*(?:(?:[*+-]|\d+[.)])[ \t]+)*\.\.\s+csv-table::)[ \t]*$")
+_CAPTIONLESS_CSV_MARKER_RE = re.compile(
+    r"^(?P<marker>[ \t]*(?:(?:[*+-]|\d+[.)])[ \t]+)*\.\.\s+csv-table::)[ \t]*$", re.IGNORECASE
+)
 _CSV_LOCATION_CAPTION_PREFIX = "check-rst-csv-location-"
 
 
@@ -757,7 +762,7 @@ def _table_kind_and_start(lines: list[str], anchor: int) -> tuple[str, int]:
     anchor_line = lines[anchor_idx]
     m = _TABLE_DIRECTIVE_RE.match(anchor_line.strip())
     if m:
-        return _TABLE_DIRECTIVE_KIND[m.group(1)], anchor
+        return _TABLE_DIRECTIVE_KIND[m.group(1).lower()], anchor
     # A directive can begin in the first content line of a list item —
     # notably inside a list-table cell (``* - .. table::``).  The table
     # title's line then points at the list marker, so a start-anchored
@@ -769,9 +774,10 @@ def _table_kind_and_start(lines: list[str], anchor: int) -> tuple[str, int]:
     list_item_directive = re.match(
         r"^[ \t]*(?:(?:[*+-]|\d+[.)])[ \t]+)+(\.\.\s+(table|list-table|csv-table)::)",
         anchor_line,
+        re.IGNORECASE,
     )
     if list_item_directive:
-        return _TABLE_DIRECTIVE_KIND[list_item_directive.group(2)], anchor
+        return _TABLE_DIRECTIVE_KIND[list_item_directive.group(2).lower()], anchor
 
     # Where to start looking for the run of border/rule lines: the anchor
     # itself if it's ALREADY one (docutils 0.23/gl63 — table.line is the
@@ -810,7 +816,7 @@ def _table_kind_and_start(lines: list[str], anchor: int) -> tuple[str, int]:
             i -= 1
             continue
         m = _TABLE_DIRECTIVE_RE.match(line.strip())
-        return (_TABLE_DIRECTIVE_KIND[m.group(1)], i + 1) if m else (bare_kind, bare_start)
+        return (_TABLE_DIRECTIVE_KIND[m.group(1).lower()], i + 1) if m else (bare_kind, bare_start)
     return bare_kind, bare_start
 
 
@@ -1059,14 +1065,16 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
 # produce the same "language" node attribute under a real Sphinx env) — a
 # downstream project's docs use ".. code::" exclusively, never
 # ".. code-block::", so matching only the long form missed 100% of its 75
-# real code-blocks.
-_CODE_BLOCK_MARKER_RE = re.compile(r"^[ \t]*\.\. (?:code-block|code|sourcecode)::[ \t]*(\S*)[ \t]*$")
+# real code-blocks. IGNORECASE for the same reason as _TABLE_DIRECTIVE_RE:
+# docutils normalizes the directive name to lowercase before its registry
+# lookup, so a capitalized ".. Code-Block::" is equally valid RST.
+_CODE_BLOCK_MARKER_RE = re.compile(r"^[ \t]*\.\. (?:code-block|code|sourcecode)::[ \t]*(\S*)[ \t]*$", re.IGNORECASE)
 
 
 # literalinclude's own argument is a file path, not a language — its
 # language (if any) comes from a ":language: X" option line immediately
 # following the directive, found separately via _find_directive_option.
-_LITERALINCLUDE_MARKER_RE = re.compile(r"^[ \t]*\.\. literalinclude::")
+_LITERALINCLUDE_MARKER_RE = re.compile(r"^[ \t]*\.\. literalinclude::", re.IGNORECASE)
 
 
 _OPTION_LINE_RE = re.compile(r"^[ \t]+:([\w-]+):[ \t]*(.*?)[ \t]*$")

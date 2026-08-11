@@ -430,6 +430,29 @@ def test_heuristic_code_blocks_sourcecode_alias_detected(tmp_path: Path) -> None
 
 
 @pytest.mark.integration
+def test_heuristic_code_blocks_capitalized_directive_detected(tmp_path: Path) -> None:
+    """Docutils resolves directive names case-insensitively (confirmed:
+    directive lookup normalizes the name via .lower() before the registry
+    match), so '.. Code-Block::' is exactly as valid RST as
+    '.. code-block::' and must not silently vanish from the heuristic scan
+    just because the raw text uses different letter casing."""
+    p = _rst(
+        tmp_path,
+        """\
+        Title
+        =====
+
+        .. Code-Block:: bash
+
+           echo hi
+        """,
+    )
+    entries = _document.find_code_blocks_heuristic(p)
+    assert len(entries) == 1
+    assert entries[0].language == "bash"
+
+
+@pytest.mark.integration
 def test_heuristic_code_blocks_language_and_bare(tmp_path: Path) -> None:
     """A code-block with a language and a bare one (no language, no options)
     are both found, in order. language is None for the bare one — heuristic
@@ -1937,6 +1960,53 @@ def test_tables_csv_table_detected(tmp_path: Path) -> None:
     assert e.caption == "CSV Caption"
     assert e.dims == (2, 2)
     assert e.preview == "H1 H2 a b"  # both rows chained, header first
+
+
+@pytest.mark.integration
+def test_tables_csv_table_detected_with_capitalized_directive(tmp_path: Path) -> None:
+    """Docutils resolves directive names case-insensitively (confirmed:
+    directive lookup normalizes the name via .lower() before the registry
+    match), so '.. CSV-Table::' is exactly as valid RST as '.. csv-table::'
+    — kind classification must not silently diverge from what a real build
+    would parse just because the raw text uses different letter casing."""
+    p = _rst(
+        tmp_path,
+        """\
+        Title
+        =====
+
+        .. CSV-Table:: CSV Caption
+           :header: "H1", "H2"
+
+           "a", "b"
+        """,
+    )
+    entries = _document.find_tables(p)
+    assert len(entries) == 1
+    assert entries[0].kind == "csv"
+
+
+@pytest.mark.integration
+def test_tables_captionless_csv_table_detected_with_capitalized_directive(tmp_path: Path) -> None:
+    """A captionless '.. CSV-Table::' has no other recoverable signal than
+    the raw marker line itself (see _captionless_csv_marker_lines) — that
+    rescue must also match case-insensitively, or this falls all the way
+    through to the generic 'table' fallback instead of 'csv'."""
+    p = _rst(
+        tmp_path,
+        """\
+        Title
+        =====
+
+        .. CSV-Table::
+           :header: "H1", "H2"
+
+           "a", "b"
+        """,
+    )
+    entries = _document.find_tables(p)
+    assert len(entries) == 1
+    assert entries[0].kind == "csv"
 
 
 @pytest.mark.integration
