@@ -322,7 +322,7 @@ def _changed_rst_files(
     return files
 
 
-def _unmerged_files(files: list[pathlib.Path], project_root: pathlib.Path | None = None) -> list[pathlib.Path]:
+def _unmerged_files(files: list[pathlib.Path]) -> list[pathlib.Path]:
     """Return selected files with unresolved entries in Git's index.
 
     Explicit files can be checked outside Git, so a non-repository working
@@ -331,28 +331,20 @@ def _unmerged_files(files: list[pathlib.Path], project_root: pathlib.Path | None
     both false positives from documented marker examples and false negatives
     from custom conflict-marker widths.
     """
-    initial_root = PROJECT_ROOT if project_root is None else project_root
     repos: dict[pathlib.Path, pygit2.Repository] = {}
     buckets: dict[pathlib.Path, list[pathlib.Path]] = {}
-    invocation_repo = _discover_repo(initial_root)
-    if invocation_repo is not None and invocation_repo.workdir is not None:
-        invocation_root = pathlib.Path(invocation_repo.workdir).resolve()
-        repos[invocation_root] = invocation_repo
-        buckets[invocation_root] = []
 
     for path in files:
         resolved = path.resolve()
-        worktree_root = next(
-            (candidate_root for candidate_root in repos if resolved.is_relative_to(candidate_root)),
-            None,
-        )
-        if worktree_root is None:
-            candidate_repo = _discover_repo(resolved.parent)
-            if candidate_repo is None or candidate_repo.workdir is None:
-                continue
-            worktree_root = pathlib.Path(candidate_repo.workdir).resolve()
-            repos[worktree_root] = candidate_repo
-            buckets.setdefault(worktree_root, [])
+        # Containment does not establish repository ownership: a repository
+        # may be nested inside another one.  Discover from the file itself,
+        # then cache by the authoritative nearest worktree returned by Git.
+        candidate_repo = _discover_repo(resolved.parent)
+        if candidate_repo is None or candidate_repo.workdir is None:
+            continue
+        worktree_root = pathlib.Path(candidate_repo.workdir).resolve()
+        repos.setdefault(worktree_root, candidate_repo)
+        buckets.setdefault(worktree_root, [])
         buckets[worktree_root].append(resolved)
 
     unmerged: set[pathlib.Path] = set()

@@ -1136,7 +1136,7 @@ def _discover_and_validate_files(
                 print(f"check_rst: {path}: not part of --sphinx-src {args.sphinx_src}")
             sys.exit(1)
 
-    unmerged_files = _unmerged_files(files, project_root)
+    unmerged_files = _unmerged_files(files)
     if unmerged_files:
         for path in unmerged_files:
             print(f"check_rst: {path}: unresolved Git merge conflict — resolve before checking or fixing")

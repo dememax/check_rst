@@ -600,6 +600,47 @@ def test_cli_unmerged_file_stops_before_fix_and_preserves_markers(
 
 
 @pytest.mark.integration
+def test_cli_unmerged_file_uses_nested_owning_repository(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An outer invocation must not hide an inner repository's conflict."""
+    inner = rst_repo / "inner"
+    inner.mkdir()
+    _git(inner, "init")
+    _git(inner, "config", "user.email", "test@example.com")
+    _git(inner, "config", "user.name", "Test User")
+    document = inner / "conflict.rst"
+    document.write_text("Base\n####\n", encoding="utf-8")
+    _git(inner, "add", "conflict.rst")
+    _git(inner, "commit", "-m", "base")
+    _git(inner, "checkout", "-b", "other")
+    document.write_text("Theirs\n######\n", encoding="utf-8")
+    _git(inner, "commit", "-am", "theirs")
+    _git(inner, "checkout", "master")
+    document.write_text("Ours\n####\n", encoding="utf-8")
+    _git(inner, "commit", "-am", "ours")
+    merge = subprocess.run(
+        ["git", "-C", str(inner), "merge", "other"],
+        capture_output=True,
+        check=False,
+    )
+    assert merge.returncode != 0
+    original = document.read_bytes()
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix", str(document)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert document.read_bytes() == original
+    output = capsys.readouterr().out
+    assert "unresolved Git merge conflict" in output
+    assert "Phase 1" not in output
+
+
+@pytest.mark.integration
 def test_recursive_nonexistent_directory_errors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
