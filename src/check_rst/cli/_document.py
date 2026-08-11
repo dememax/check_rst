@@ -1086,15 +1086,17 @@ def _find_directive_option(lines: list[str], start: int, name: str) -> str | Non
 
     Directive options are consecutive indented ":name: value" lines
     immediately after the directive marker, ending at the first blank or
-    non-option-shaped line.
+    non-option-shaped line. Docutils lowercases option names before lookup,
+    so the heuristic applies the same normalization.
     """
+    normalized_name = name.lower()
     for line in lines[start:]:
         if not line.strip():
             break
         m = _OPTION_LINE_RE.match(line)
         if not m:
             break
-        if m.group(1) == name:
+        if m.group(1).lower() == normalized_name:
             return m.group(2) or None
     return None
 

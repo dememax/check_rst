@@ -902,6 +902,25 @@ def test_heuristic_literalinclude_with_language_option_detected(tmp_path: Path) 
 
 
 @pytest.mark.integration
+def test_heuristic_literalinclude_language_option_is_case_insensitive(tmp_path: Path) -> None:
+    """Docutils normalizes directive option names before option lookup."""
+    p = _rst(
+        tmp_path,
+        """\
+        Title
+        =====
+
+        .. literalinclude:: some-file.py
+            :Language: python
+        """,
+    )
+
+    entries = _document.find_code_blocks_heuristic(p)
+    assert len(entries) == 1
+    assert entries[0].language == "python"
+
+
+@pytest.mark.integration
 def test_heuristic_literalinclude_capitalized_directive_detected(tmp_path: Path) -> None:
     """Docutils resolves directive names case-insensitively (confirmed:
     directive lookup normalizes the name via .lower() before the registry
@@ -965,6 +984,25 @@ def test_heuristic_literalinclude_diff_option_is_udiff(tmp_path: Path) -> None:
             :diff: other-file.py
         """,
     )
+    entries = _document.find_code_blocks_heuristic(p)
+    assert len(entries) == 1
+    assert entries[0].language == "udiff"
+
+
+@pytest.mark.integration
+def test_heuristic_literalinclude_diff_option_is_case_insensitive(tmp_path: Path) -> None:
+    """A differently cased diff option still forces the udiff language."""
+    p = _rst(
+        tmp_path,
+        """\
+        Title
+        =====
+
+        .. literalinclude:: some-file.py
+            :Diff: other-file.py
+        """,
+    )
+
     entries = _document.find_code_blocks_heuristic(p)
     assert len(entries) == 1
     assert entries[0].language == "udiff"
