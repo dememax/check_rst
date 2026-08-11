@@ -46,7 +46,6 @@ from ._helpers import (
     _has_non_prose_ancestor,
     _indented_extent,
     _node_line,
-    _read_source,
 )
 from ._types import (
     CodeBlockEntry,
@@ -531,17 +530,7 @@ def _composition_source_lines(
     provenance: SourceProvenance | None,
     document: Document,
 ) -> list[str]:
-    if provenance is None:
-        return document.lines
-    if not provenance.exact:
-        return []
-    path = composition.source_path(provenance, document.path)
-    if path is None:
-        return []
-    try:
-        return _read_source(path).splitlines()
-    except OSError, UnicodeError:
-        return []
+    return composition.source_lines(provenance, document.path, document.lines)
 
 
 def find_includes(

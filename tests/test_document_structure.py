@@ -88,6 +88,34 @@ def test_bare_outline_exposes_include_boundary_and_foreign_blocks(tmp_path: Path
 
 
 @pytest.mark.integration
+def test_bare_outline_reads_included_adornment_with_declared_encoding(tmp_path: Path) -> None:
+    """Physical source recovery must use the include directive's encoding."""
+    root = tmp_path / "index.rst"
+    root.write_text(
+        "Index\n=====\n\n.. include:: fragment.rst\n   :encoding: latin-1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "fragment.rst").write_bytes("Café\n----\n".encode("latin-1"))
+
+    included = next(entry for entry in _document.Document(root, tmp_path).outline if entry.title == "Café")
+
+    assert included.char == "-"
+
+
+@pytest.mark.integration
+def test_bare_outline_strips_utf8_bom_from_included_heading(tmp_path: Path) -> None:
+    """An included file gets the same BOM normalization as a root document."""
+    root = tmp_path / "index.rst"
+    root.write_text("Index\n=====\n\n.. include:: fragment.rst\n", encoding="utf-8")
+    (tmp_path / "fragment.rst").write_bytes(b"\xef\xbb\xbfIncluded\n--------\n")
+
+    included = _document.Document(root, tmp_path).outline[1]
+
+    assert included.title == "Included"
+    assert included.char == "-"
+
+
+@pytest.mark.integration
 def test_single_top_level_uses_included_heading_source(tmp_path: Path) -> None:
     """An included peer title is an effective second title at its physical source."""
     root = tmp_path / "index.rst"

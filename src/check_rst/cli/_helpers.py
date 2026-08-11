@@ -425,10 +425,10 @@ _SEPARATORS_TO_LF = "\x1c\x1d\x1e\x85\u2028\u2029"
 _SEPARATORS_TO_SPACE = "\v\f"
 
 
-def _read_source(path: pathlib.Path) -> str:
-    """Read *path* as UTF-8 with NO newline translation — \\r evidence intact."""
+def _read_source(path: pathlib.Path, encoding: str = "utf-8") -> str:
+    """Decode *path* with NO newline translation, preserving \\r evidence."""
     CALL_COUNTS["_read_source"] += 1
-    return path.read_bytes().decode("utf-8")
+    return path.read_bytes().decode(encoding)
 
 
 def _char_label(ch: str) -> str:

@@ -122,16 +122,7 @@ class _DocumentCore:
         logical = _node_line(node)
         provenance = self.composition.provenance(node)
         lineno = self.composition.physical_line(node, logical)
-        source_path = self.composition.source_path(provenance, self.path)
-        if provenance is None:
-            lines = self.lines
-        elif source_path is None or not provenance.exact:
-            lines = []
-        else:
-            try:
-                lines = _read_source(source_path).splitlines()
-            except OSError, UnicodeError:
-                lines = []
+        lines = self.composition.source_lines(provenance, self.path, self.lines)
         return lineno, lines, provenance
 
 
@@ -338,26 +329,9 @@ def build_outline(
     tree = doctree if doctree is not None else document.doctree
     root = source_root if source_root is not None else document.project_root
     composition = CompositionIndex(tree, path, root, root_transformed=root_transformed)
-    source_lines: dict[str, list[str]] = {}
 
     def lines_for(provenance: SourceProvenance | None) -> list[str]:
-        if provenance is None:
-            return document.lines
-        if not provenance.exact:
-            return []
-        cached = source_lines.get(provenance.source)
-        if cached is not None:
-            return cached
-        source_path = composition.source_path(provenance, path)
-        if source_path is None:
-            lines: list[str] = []
-        else:
-            try:
-                lines = _read_source(source_path).splitlines()
-            except OSError, UnicodeError:
-                lines = []
-        source_lines[provenance.source] = lines
-        return lines
+        return composition.source_lines(provenance, path, document.lines)
 
     raw: list[tuple[int, int, str, str, int, int, SourceProvenance | None, list[str]]] = []
     for sec in tree.findall(docutils.nodes.section):
@@ -447,16 +421,7 @@ def find_includes(
     composition = CompositionIndex(tree, path, root, root_transformed=root_transformed)
     entries: list[IncludeEntry] = []
     for node, site, provenance, record in composition.include_nodes:
-        source_path = composition.source_path(provenance, path)
-        if provenance is None:
-            lines = document.lines
-        elif source_path is None or not provenance.exact:
-            lines = []
-        else:
-            try:
-                lines = _read_source(source_path).splitlines()
-            except OSError, UnicodeError:
-                lines = []
+        lines = composition.source_lines(provenance, path, document.lines)
         end = _indented_extent(lines, site.lineno) if lines else site.lineno
         entries.append(
             IncludeEntry(
@@ -984,18 +949,8 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
         provenance = document.composition.provenance(anchor_node)
         anchor = document.composition.physical_line(anchor_node, anchor)
         source_path = document.composition.source_path(provenance, path)
-        if provenance is None:
-            lines = document.lines
-            source_key = str(path.resolve())
-        elif source_path is None:
-            lines = []
-            source_key = provenance.source
-        else:
-            try:
-                lines = _read_source(source_path).splitlines()
-            except OSError, UnicodeError:
-                lines = []
-            source_key = provenance.source
+        lines = document.composition.source_lines(provenance, path, document.lines)
+        source_key = str(path.resolve()) if provenance is None else provenance.source
 
         kind, start = _table_kind_and_start(lines, anchor)
 

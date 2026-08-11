@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import codecs
 import contextlib
 import pathlib
 from typing import TYPE_CHECKING, Any, cast
@@ -12,6 +13,7 @@ import docutils.nodes
 from docutils.parsers.rst import Directive, directives
 from docutils.parsers.rst.directives.misc import Include as DocutilsInclude
 
+from ._helpers import _normalize_source, _read_source
 from ._types import IncludeSite, SourceOrigin, SourceProvenance
 
 if TYPE_CHECKING:
@@ -161,6 +163,17 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
         if env is not None:
             env._check_rst_active_include = record
         try:
+            if codecs.lookup(cast("str", options.get("encoding") or "utf-8")).name == "utf-8":
+                # Root documents pass through Phase 0 before parsing.  The
+                # include directive reads its own target, so select Python's
+                # BOM-aware UTF-8 codec here to give included input the same
+                # leading-BOM semantics without changing the recorded user
+                # option or accepting BOMs as project policy.
+                self.options["encoding"] = "utf-8-sig"
+        except LookupError:
+            # Leave invalid codec names to Docutils' canonical diagnostic.
+            pass
+        try:
             result = list(base_run(self))
         except Exception as exc:
             # docutils raises DirectiveError(level, message) via
@@ -304,6 +317,7 @@ class CompositionIndex:
         self.source_root = source_root
         self.root_transformed = root_transformed
         self._provenance: dict[int, SourceProvenance | None] = {}
+        self._source_lines: dict[tuple[pathlib.Path, str], list[str]] = {}
         self.include_nodes: list[
             tuple[docutils.nodes.comment, IncludeSite, SourceProvenance | None, dict[str, object]]
         ] = []
@@ -414,6 +428,33 @@ class CompositionIndex:
             return None
         path = pathlib.Path(provenance.source)
         return path if path.is_absolute() else self.source_root / path
+
+    def source_lines(
+        self,
+        provenance: SourceProvenance | None,
+        root_path: pathlib.Path,
+        root_lines: list[str],
+    ) -> list[str]:
+        """Return normalized physical lines using the active include codec."""
+        if provenance is None:
+            return root_lines
+        if not provenance.exact:
+            return []
+        path = self.source_path(provenance, root_path)
+        if path is None:
+            return []
+        options = dict(provenance.include_chain[-1].options) if provenance.include_chain else {}
+        encoding = options.get("encoding") or "utf-8"
+        key = (path, encoding)
+        cached = self._source_lines.get(key)
+        if cached is not None:
+            return cached
+        try:
+            lines = _normalize_source(_read_source(path, encoding))[0].splitlines()
+        except LookupError, OSError, UnicodeError:
+            lines = []
+        self._source_lines[key] = lines
+        return lines
 
     def source_end(self, provenance: SourceProvenance | None, lines: list[str]) -> int:
         if not lines:
