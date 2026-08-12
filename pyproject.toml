@@ -16,11 +16,39 @@ license = "GPL-3.0-only"
 authors = [
     { name = "Maxime P. DEMENTYEV", email = "dememax@hotmail.com" },
 ]
+# Run-time dependencies: needed for check_rst to FUNCTION once installed —
+# `pip install check-rst` always pulls these in, the same as any executable's
+# own library dependencies.
 dependencies = [
     "docutils>=0.22.4,<0.24",
     "Sphinx>=9.1,<10",
     "snowballstemmer>=3.1,<4",
     "pygit2>=1.19,<2",
+]
+
+# Compile-time (dev-only) dependencies: mypy and Ruff check and type-check
+# this project's own source — they are useless to someone who has installed
+# check_rst to run it as an executable, so they live here, pulled in only by
+# `pip install check-rst[dev]`, never by a plain `pip install check-rst`.
+# Same category as `dependencies` above in the sense that a "supported
+# range" is a tested claim, not a guess (see AGENTS.md, "Packaging and
+# compatibility") — but that claim is about developer-tooling reproducibility,
+# not about what check_rst needs to run.
+[project.optional-dependencies]
+# Pinned for the same reason ruff's version is pinned below (see
+# [tool.ruff].required-version): mypy's own findings for Docutils-touched
+# code depend entirely on which dated snapshot of types-docutils resolves
+# a given attribute/return type — confirmed directly (2026-08-12) that an
+# environment with NO stub for docutils at all (Gentoo: neither docutils
+# itself nor mypy ships one) makes every docutils value silently resolve
+# as Any, passing cleanly while checking nothing; an environment with an
+# older or newer types-docutils snapshot reports a genuinely different
+# error set for the exact same source. Without a floor, "mypy passes" is
+# not a reproducible claim across machines or across time on the same
+# machine.
+dev = [
+    "mypy>=2.2,<3",
+    "types-docutils>=0.22.3.20260724",
 ]
 
 [project.scripts]

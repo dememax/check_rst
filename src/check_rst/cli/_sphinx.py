@@ -338,6 +338,9 @@ def find_references(env: sphinx.environment.BuildEnvironment, docname: str) -> l
             resolved = _resolve_xref_target(env, docname, reftype, target)
             entries.append(ReferenceEntry(docname, _node_line(node), reftype, target, resolved))
         elif isinstance(node, toctree):
+            # Explicit cast: the empty-tuple .get() fallback alone leaves
+            # mypy unable to infer the generator's element type (same root
+            # cause as _expand_one_toctree's includefiles annotation).
             entries.extend(
                 ReferenceEntry(
                     docname,
@@ -346,7 +349,7 @@ def find_references(env: sphinx.environment.BuildEnvironment, docname: str) -> l
                     target,
                     target,
                 )
-                for target in node.get("includefiles", ())
+                for target in cast("list[str]", node.get("includefiles", ()))
             )
     return entries
 
@@ -603,12 +606,17 @@ def find_conditionals(
         lineno = composition.physical_line(node, logical_line)
         lines = _composition_source_lines(composition, provenance, document)
         end = _indented_extent(lines, lineno) if lines else lineno
+        # Both branches above only continue past `else` for a real Element
+        # (only_node's isinstance check narrows one; the duck-typed ifconfig
+        # check by class name/module doesn't narrow node's static type at
+        # all) — cast rather than re-derive that at the type level.
+        element = cast("docutils.nodes.Element", node)
         entries.append(
             ConditionalEntry(
                 lineno=lineno,
                 depth=_block_depth(node),
                 kind=kind,
-                expression=str(node.get("expr", "")),
+                expression=str(element.get("expr", "")),
                 end=end,
                 provenance=provenance,
             )

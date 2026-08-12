@@ -1265,9 +1265,11 @@ def _nested_inline_nodes(
     # (docutils: "from types import ... SimpleNamespace as Struct"), so
     # --no-implicit-reexport (part of strict mode) blocks the dotted access;
     # construct the real class directly instead — same runtime object.
-    language: types.ModuleType = docutils.parsers.rst.languages.get_language(
-        probe.settings.language_code, probe.reporter
-    )
+    # language's own type comes from get_language's stub return
+    # (_RstLanguageModule, a Protocol) — a real language submodule IS a
+    # types.ModuleType at runtime, but declaring that explicitly here fights
+    # the stub's own, more precise modeling; let mypy infer it instead.
+    language = docutils.parsers.rst.languages.get_language(probe.settings.language_code, probe.reporter)
     memo = types.SimpleNamespace(
         document=probe,
         reporter=probe.reporter,

@@ -129,9 +129,13 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
             options.get("end-before"),
         )
         resolved_identity = str(pathlib.Path(initial_resolved).resolve())
+        # include_log is a real instance attribute docutils sets in
+        # document.__init__ — no published type stub declares it (dated
+        # snapshots checked directly, 2026-08-12: absent from types-docutils'
+        # nodes.pyi), so mypy can't see it without this narrow ignore.
         active_identities = {
             (str(pathlib.Path(str(source)).resolve()), tuple(active_clip))
-            for source, active_clip in self.state.document.include_log
+            for source, active_clip in self.state.document.include_log  # type: ignore[attr-defined]
         }
         # Docutils' own include_log always carries '' (not None) for absent
         # start-after/end-before (see Include.run's self.clip_options) — only
@@ -210,13 +214,17 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
 @contextlib.contextmanager
 def tracked_docutils_include() -> Iterator[None]:
     """Temporarily instrument bare Docutils' standard include directive."""
-    old = directives._directives.get("include")
+    # _directives is docutils' own private registry dict — real at runtime,
+    # but leading-underscore names aren't part of its published type stub
+    # (dated snapshots checked directly, 2026-08-12), hence the narrow
+    # ignore at each of this module's three accesses.
+    old = directives._directives.get("include")  # type: ignore[attr-defined]
     directives.register_directive("include", _tracking_include_class(DocutilsInclude))
     try:
         yield
     finally:
         if old is None:
-            directives._directives.pop("include", None)
+            directives._directives.pop("include", None)  # type: ignore[attr-defined]
         else:
             directives.register_directive("include", old)
 
@@ -230,7 +238,7 @@ _TRACKED_INCLUDE_BASES: set[type[Directive]] = set()
 
 def instrument_sphinx_include() -> None:
     """Wrap the include class registered by the fully initialized Sphinx app."""
-    base = directives._directives.get("include")
+    base = directives._directives.get("include")  # type: ignore[attr-defined]
     if base is None:
         raise RuntimeError("Sphinx did not register its include directive")
     if base in _TRACKED_INCLUDE_BASES:
