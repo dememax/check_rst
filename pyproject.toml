@@ -26,29 +26,31 @@ dependencies = [
     "pygit2>=1.19,<2",
 ]
 
-# Compile-time (dev-only) dependencies: mypy and Ruff check and type-check
-# this project's own source — they are useless to someone who has installed
-# check_rst to run it as an executable, so they live here, pulled in only by
-# `pip install check-rst[dev]`, never by a plain `pip install check-rst`.
-# Same category as `dependencies` above in the sense that a "supported
-# range" is a tested claim, not a guess (see AGENTS.md, "Packaging and
-# compatibility") — but that claim is about developer-tooling reproducibility,
-# not about what check_rst needs to run.
+# Compile-time (dev-only) dependencies: mypy type-checks this project's own
+# source — useless to someone who has installed check_rst to run it as an
+# executable, so it lives here, pulled in only by `pip install
+# check-rst[dev]`, never by a plain `pip install check-rst`. Ruff is NOT
+# part of this extra: it stays the system executable AGENTS.md's validation
+# section calls for, self-checked via [tool.ruff].required-version below
+# rather than pip-installed. Same "tested claim, not a guess" category as
+# `dependencies` above (AGENTS.md, "Packaging and compatibility") — but this
+# claim is about developer-tooling reproducibility, not what check_rst needs
+# to run.
 [project.optional-dependencies]
-# Pinned for the same reason ruff's version is pinned below (see
-# [tool.ruff].required-version): mypy's own findings for Docutils-touched
-# code depend entirely on which dated snapshot of types-docutils resolves
-# a given attribute/return type — confirmed directly (2026-08-12) that an
-# environment with NO stub for docutils at all (Gentoo: neither docutils
-# itself nor mypy ships one) makes every docutils value silently resolve
-# as Any, passing cleanly while checking nothing; an environment with an
-# older or newer types-docutils snapshot reports a genuinely different
-# error set for the exact same source. Without a floor, "mypy passes" is
-# not a reproducible claim across machines or across time on the same
-# machine.
+# Both bounds are floor-and-ceiling of what was actually run (2026-08-12),
+# not a guessed next-major-version cutoff: mypy 2.2/2.3 and this exact
+# types-docutils snapshot. Pinned because mypy's own findings for
+# Docutils-touched code depend entirely on which dated snapshot of
+# types-docutils resolves a given attribute/return type — confirmed
+# directly that an environment with NO stub for docutils at all (neither
+# docutils itself nor mypy ships one) makes every docutils value silently
+# resolve as Any, passing cleanly while checking nothing, while an older or
+# newer types-docutils snapshot reports a genuinely different error set for
+# the exact same source. Without both bounds, "mypy passes" is not a
+# reproducible claim across machines or across time on the same machine.
 dev = [
-    "mypy>=2.2,<3",
-    "types-docutils>=0.22.3.20260724",
+    "mypy>=2.2,<2.4",
+    "types-docutils==0.22.3.20260724",
 ]
 
 [project.scripts]

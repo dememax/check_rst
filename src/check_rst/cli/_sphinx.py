@@ -583,6 +583,7 @@ def find_conditionals(
     consuming project's eventual HTML/LaTeX/etc. structure.
     """
     from sphinx.addnodes import only as only_node
+    from sphinx.ext.ifconfig import ifconfig
 
     document = _resolve_document(pathlib.Path(env.doc2path(docname)), doc)
     tree = env.get_doctree(docname) if doctree is None else doctree
@@ -595,9 +596,14 @@ def find_conditionals(
         )
     entries: list[ConditionalEntry] = []
     for node in tree.findall():
+        # isinstance against the real ifconfig class (same import
+        # resolve_html_structure already uses in this file) rather than
+        # duck-typing by __module__/__name__ — this also narrows node's
+        # static type to only_node | ifconfig, both Element subclasses, so
+        # no separate cast is needed for the .get() call below.
         if isinstance(node, only_node):
             kind = "only"
-        elif node.__class__.__module__ == "sphinx.ext.ifconfig" and node.__class__.__name__ == "ifconfig":
+        elif isinstance(node, ifconfig):
             kind = "ifconfig"
         else:
             continue
@@ -606,17 +612,12 @@ def find_conditionals(
         lineno = composition.physical_line(node, logical_line)
         lines = _composition_source_lines(composition, provenance, document)
         end = _indented_extent(lines, lineno) if lines else lineno
-        # Both branches above only continue past `else` for a real Element
-        # (only_node's isinstance check narrows one; the duck-typed ifconfig
-        # check by class name/module doesn't narrow node's static type at
-        # all) — cast rather than re-derive that at the type level.
-        element = cast("docutils.nodes.Element", node)
         entries.append(
             ConditionalEntry(
                 lineno=lineno,
                 depth=_block_depth(node),
                 kind=kind,
-                expression=str(element.get("expr", "")),
+                expression=str(node.get("expr", "")),
                 end=end,
                 provenance=provenance,
             )

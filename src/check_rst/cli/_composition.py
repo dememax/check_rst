@@ -211,20 +211,30 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
     return cast("type[Directive]", type("_CheckRstTrackedInclude", (base,), {"run": run}))
 
 
+def _directive_registry() -> dict[str, type[Directive]]:
+    """Return docutils' own private include-directive registry dict.
+
+    directives._directives is real at runtime, but leading-underscore
+    names aren't part of its published type stub (dated snapshots checked
+    directly, 2026-08-12) — one narrow ignore here instead of one at each
+    of this module's three call sites. The cast is required too: the
+    ignore only silences attr-defined on the access itself, not
+    warn_return_any's separate complaint about returning the resulting
+    Any from a function declared to return a concrete dict type.
+    """
+    return cast("dict[str, type[Directive]]", directives._directives)  # type: ignore[attr-defined]
+
+
 @contextlib.contextmanager
 def tracked_docutils_include() -> Iterator[None]:
     """Temporarily instrument bare Docutils' standard include directive."""
-    # _directives is docutils' own private registry dict — real at runtime,
-    # but leading-underscore names aren't part of its published type stub
-    # (dated snapshots checked directly, 2026-08-12), hence the narrow
-    # ignore at each of this module's three accesses.
-    old = directives._directives.get("include")  # type: ignore[attr-defined]
+    old = _directive_registry().get("include")
     directives.register_directive("include", _tracking_include_class(DocutilsInclude))
     try:
         yield
     finally:
         if old is None:
-            directives._directives.pop("include", None)  # type: ignore[attr-defined]
+            _directive_registry().pop("include", None)
         else:
             directives.register_directive("include", old)
 
@@ -238,7 +248,7 @@ _TRACKED_INCLUDE_BASES: set[type[Directive]] = set()
 
 def instrument_sphinx_include() -> None:
     """Wrap the include class registered by the fully initialized Sphinx app."""
-    base = directives._directives.get("include")  # type: ignore[attr-defined]
+    base = _directive_registry().get("include")
     if base is None:
         raise RuntimeError("Sphinx did not register its include directive")
     if base in _TRACKED_INCLUDE_BASES:
