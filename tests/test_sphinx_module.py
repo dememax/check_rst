@@ -763,6 +763,192 @@ def test_bare_filenames_flags_mention_matching_known_docname(tmp_path: Path) -> 
     assert "guide" in violations[0].text
 
 
+@pytest.mark.unit
+def test_local_asset_suffix_protocol_is_explicit_and_stable() -> None:
+    assert (
+        frozenset(
+            {
+                ".cfg",
+                ".conf",
+                ".csv",
+                ".diff",
+                ".ini",
+                ".json",
+                ".jsonl",
+                ".log",
+                ".markdown",
+                ".md",
+                ".patch",
+                ".toml",
+                ".tsv",
+                ".txt",
+                ".xml",
+                ".yaml",
+                ".yml",
+            }
+        )
+        == _sphinx._TEXT_ASSET_SUFFIXES
+    )
+    assert frozenset({".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"}) == _sphinx._IMAGE_ASSET_SUFFIXES
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("asset_name", ["plan.md", "diagram.svg"])
+def test_bare_filenames_flags_existing_local_text_and_image_assets(
+    tmp_path: Path,
+    asset_name: str,
+) -> None:
+    env = _build_multi_file_env(
+        tmp_path,
+        {"a": f"A\n=\n\nRequired reading: ``{asset_name}``.\n"},
+    )
+    (tmp_path / asset_name).write_text("asset\n", encoding="utf-8")
+    doc = _document.Document(tmp_path / "a.rst", tmp_path)
+
+    violations = _sphinx.check_bare_filenames(env, "a", doc)
+
+    assert len(violations) == 1
+    assert violations[0].severity == "WARNING"
+    assert asset_name in violations[0].text
+    assert ":download:" in violations[0].text
+
+
+@pytest.mark.integration
+def test_bare_filenames_resolves_project_relative_local_asset_path(tmp_path: Path) -> None:
+    sphinx_src = tmp_path / "docs"
+    sphinx_src.mkdir()
+    env = _build_multi_file_env(
+        sphinx_src,
+        {"proreus-gui/roadmap": ("Roadmap\n=======\n\nRequired reading: ``docs/proreus-gui/milestone-d-plan.md``.\n")},
+    )
+    asset = sphinx_src / "proreus-gui" / "milestone-d-plan.md"
+    asset.write_text("plan\n", encoding="utf-8")
+    doc = _document.Document(sphinx_src / "proreus-gui" / "roadmap.rst", tmp_path)
+
+    violations = _sphinx.check_bare_filenames(env, "proreus-gui/roadmap", doc)
+
+    assert len(violations) == 1
+    assert "docs/proreus-gui/milestone-d-plan.md" in violations[0].text
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("body", "asset_name"),
+    [
+        (
+            "Read ``plan.md``.\n\nDownload it: :download:`the plan <plan.md>`.\n",
+            "plan.md",
+        ),
+        (
+            "Read ``sample.txt`` below.\n\n.. literalinclude:: sample.txt\n",
+            "sample.txt",
+        ),
+        (
+            "Read ``included.txt`` below.\n\n.. include:: included.txt\n",
+            "included.txt",
+        ),
+        (
+            "View ``diagram.svg`` below.\n\n.. image:: diagram.svg\n",
+            "diagram.svg",
+        ),
+        (
+            "View ``figure.svg`` below.\n\n.. figure:: figure.svg\n",
+            "figure.svg",
+        ),
+    ],
+)
+def test_bare_filenames_ignores_local_asset_integrated_by_sphinx(
+    tmp_path: Path,
+    body: str,
+    asset_name: str,
+) -> None:
+    (tmp_path / asset_name).write_text("asset\n", encoding="utf-8")
+    env = _build_multi_file_env(tmp_path, {"a": f"A\n=\n\n{body}"})
+    doc = _document.Document(tmp_path / "a.rst", tmp_path)
+
+    assert _sphinx.check_bare_filenames(env, "a", doc) == []
+
+
+@pytest.mark.integration
+def test_bare_filenames_treats_file_role_as_intentional_filename_mention(tmp_path: Path) -> None:
+    env = _build_multi_file_env(
+        tmp_path,
+        {"a": "A\n=\n\nEdit :file:`settings.toml` locally.\n"},
+    )
+    (tmp_path / "settings.toml").write_text("key = 'value'\n", encoding="utf-8")
+    doc = _document.Document(tmp_path / "a.rst", tmp_path)
+
+    assert _sphinx.check_bare_filenames(env, "a", doc) == []
+
+
+@pytest.mark.integration
+def test_bare_filenames_does_not_globally_match_local_asset_basename(tmp_path: Path) -> None:
+    env = _build_multi_file_env(
+        tmp_path,
+        {"guide/a": "A\n=\n\nRequired reading: ``plan.md``.\n"},
+    )
+    unrelated = tmp_path / "other" / "plan.md"
+    unrelated.parent.mkdir()
+    unrelated.write_text("unrelated plan\n", encoding="utf-8")
+    doc = _document.Document(tmp_path / "guide" / "a.rst", tmp_path)
+
+    assert _sphinx.check_bare_filenames(env, "guide/a", doc) == []
+
+
+@pytest.mark.integration
+def test_bare_filenames_ignores_configured_sphinx_source_suffix(tmp_path: Path) -> None:
+    (tmp_path / "conf.py").write_text(
+        "project = 'test'\nroot_doc = 'a'\nsource_suffix = {'.rst': 'restructuredtext', '.txt': 'restructuredtext'}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "a.rst").write_text("A\n=\n\nSee ``guide.txt``.\n", encoding="utf-8")
+    (tmp_path / "guide.txt").write_text("Guide\n=====\n", encoding="utf-8")
+    env, _warnings = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    doc = _document.Document(tmp_path / "a.rst", tmp_path)
+
+    assert "guide" in env.found_docs
+    assert _sphinx.check_bare_filenames(env, "a", doc) == []
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("asset_location", ["missing", "outside"])
+def test_bare_filenames_ignores_unresolved_or_outside_source_asset(
+    tmp_path: Path,
+    asset_location: str,
+) -> None:
+    sphinx_src = tmp_path / "docs"
+    sphinx_src.mkdir()
+    env = _build_multi_file_env(
+        sphinx_src,
+        {"a": "A\n=\n\nRequired reading: ``private-plan.md``.\n"},
+    )
+    if asset_location == "outside":
+        (tmp_path / "private-plan.md").write_text("private\n", encoding="utf-8")
+    doc = _document.Document(sphinx_src / "a.rst", tmp_path)
+
+    assert _sphinx.check_bare_filenames(env, "a", doc) == []
+
+
+@pytest.mark.integration
+def test_bare_filenames_attributes_included_asset_mention_to_fragment(tmp_path: Path) -> None:
+    env = _build_multi_file_env(
+        tmp_path,
+        {
+            "index": "Index\n=====\n\n.. include:: fragments/note.rst\n",
+            "fragments/note": ("Included note\n-------------\n\nRead ``included-plan.md`` before continuing.\n"),
+        },
+    )
+    asset = tmp_path / "fragments" / "included-plan.md"
+    asset.write_text("plan\n", encoding="utf-8")
+    doc = _document.Document(tmp_path / "index.rst", tmp_path)
+
+    violations = _sphinx.check_bare_filenames(env, "index", doc)
+
+    assert len(violations) == 1
+    assert violations[0].lineno == 4
+    assert violations[0].source == "fragments/note.rst"
+
+
 @pytest.mark.integration
 def test_bare_filenames_ignores_self_mention(tmp_path: Path) -> None:
     env = _build_multi_file_env(
@@ -895,6 +1081,34 @@ def test_cli_bare_filenames_warning_shown(
     out = capsys.readouterr().out
     assert "WARNING:" in out
     assert "guide" in out
+
+
+@pytest.mark.integration
+def test_cli_local_asset_warning_shown(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\nroot_doc = "a"\n', encoding="utf-8")
+    (rst_repo / "a.rst").write_text("A\n=\n\nRequired reading: ``plan.md``.\n", encoding="utf-8")
+    (rst_repo / "plan.md").write_text("# Plan\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "check",
+            str(rst_repo / "a.rst"),
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    out = capsys.readouterr().out
+    assert "WARNING: plan.md names a real local asset" in out
+    assert "use :download:, include/literalinclude, image/figure, or :file:" in out
 
 
 @pytest.mark.integration

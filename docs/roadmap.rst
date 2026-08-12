@@ -456,7 +456,7 @@ fix``.  See "A second top-level title is legal RST and a real defect" in
 Homoglyph / mixed-alphabet detection
 ======================================
 
-*(implemented 2026-07-26)*
+*(implemented 2026-07-26; extended to local assets 2026-08-12)*
 
 (Max, 2026-07-24: "when letters look similar, but only one letter is from
 another alphabet") — ``check_homoglyphs`` flags a WORD (not a line — this
@@ -468,20 +468,25 @@ hand-curated confusables table (no library on this system provides one), and
 the real 6-catch, 8-correctly-silent evidence from scanning this Journal's own
 corpus.
 
-========================================================================
-Bare filename mentioned in prose instead of a real ``:doc:``/``:ref:``
-========================================================================
+====================================================================
+Bare document or asset filename mentioned without real integration
+====================================================================
 
 *(implemented 2026-07-26)*
 
-(Max, 2026-07-23, real downstream-project evidence) — ``check_bare_filenames`` pairs
-naturally with the reference-intelligence family, the mirror image of "did you
-mean": here a reference is missing where one should exist, not broken.  See "A
-missing reference is the mirror image of a broken one" in
-:doc:`rules` for the full rationale, the basename-matching design,
-the three deliberate silence conditions (unknown basename, self-mention, more
-than 5 docs sharing a basename — confirmed by this Journal's own 1072
-``Notes.rst`` files), and the real evidence from both projects.
+(Max, 2026-07-23 and 2026-08-12, real downstream-project evidence) —
+``check_bare_filenames`` pairs naturally with the reference-intelligence
+family, the mirror image of "did you mean": here a document reference or local
+asset integration is missing where one should exist, not broken.
+
+The initial implementation matched ``.rst`` basenames against known Sphinx
+documents.  The 2026-08-12 extension also recognizes an agreed protocol of
+common text/document and image suffixes, but only when the exact prose path
+resolves to a real file inside the Sphinx source tree.  It never generalizes the
+document rule into a project-wide asset-basename search.  See "A missing
+reference is the mirror image of a broken one" and "Local assets need Sphinx
+integration, not only a filename" in :doc:`rules` for the distinct confidence
+gates, integration mechanisms, and deliberate silence conditions.
 
 ================================================
 Semantic-diff coverage below the section level

@@ -889,13 +889,139 @@ _BARE_FILENAME_RE = re.compile(r"\b([\w-]+)\.rst\b")
 _MAX_BARE_FILENAME_CANDIDATES = 5
 
 
+_TEXT_ASSET_SUFFIXES = frozenset(
+    {
+        ".cfg",
+        ".conf",
+        ".csv",
+        ".diff",
+        ".ini",
+        ".json",
+        ".jsonl",
+        ".log",
+        ".markdown",
+        ".md",
+        ".patch",
+        ".toml",
+        ".tsv",
+        ".txt",
+        ".xml",
+        ".yaml",
+        ".yml",
+    }
+)
+_IMAGE_ASSET_SUFFIXES = frozenset({".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"})
+_LOCAL_ASSET_SUFFIXES = _TEXT_ASSET_SUFFIXES | _IMAGE_ASSET_SUFFIXES
+_LOCAL_ASSET_SUFFIX_RE = "|".join(
+    re.escape(suffix.removeprefix(".")) for suffix in sorted(_LOCAL_ASSET_SUFFIXES, key=len, reverse=True)
+)
+# Asset paths are deliberately stricter than arbitrary filesystem paths: a
+# prose token has no quoting grammar, so spaces would make its boundary
+# ambiguous. Inline literals with such paths can be supported separately when
+# real evidence supplies the intended syntax.
+_LOCAL_ASSET_RE = re.compile(
+    rf"(?<![\w/.-])(?P<path>(?:[.\w@+~-]+/)*[.\w@+~-]+\.(?:{_LOCAL_ASSET_SUFFIX_RE}))(?![\w.-])",
+    re.IGNORECASE,
+)
+
+
+def _node_source_path(node: docutils.nodes.Node, fallback: pathlib.Path) -> pathlib.Path:
+    """Return the nearest physical source Sphinx retained for *node*."""
+    current: docutils.nodes.Node | None = node
+    while current is not None:
+        source = current.source
+        if source and not source.startswith("<"):
+            return pathlib.Path(source)
+        current = current.parent
+    return fallback
+
+
+def _is_inside_file_role(node: docutils.nodes.Node) -> bool:
+    """Whether *node* is explicitly marked as a semantic filename."""
+    current = node.parent
+    while current is not None:
+        if isinstance(current, docutils.nodes.literal) and current.get("role") == "file":
+            return True
+        current = current.parent
+    return False
+
+
+def _resolve_local_asset(
+    env: sphinx.environment.BuildEnvironment,
+    doc: Document,
+    owner_source: pathlib.Path,
+    target: str,
+) -> pathlib.Path | None:
+    """Resolve an exact prose asset path without a project-wide basename guess."""
+    target_path = pathlib.Path(target)
+    if target_path.suffix.lower() not in _LOCAL_ASSET_SUFFIXES:
+        return None
+
+    source_root = pathlib.Path(getattr(env, "srcdir", doc.project_root)).resolve()
+    roots = (owner_source.parent, source_root, doc.project_root)
+    candidates = (target_path,) if target_path.is_absolute() else tuple(root / target_path for root in roots)
+    seen: set[pathlib.Path] = set()
+    for raw_candidate in candidates:
+        candidate = raw_candidate.resolve()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            candidate.relative_to(source_root)
+        except ValueError:
+            continue
+        if candidate.is_file() and _docname_for(env, candidate) is None:
+            return candidate
+    return None
+
+
+def _integrated_local_assets(
+    env: sphinx.environment.BuildEnvironment,
+    docname: str,
+    doc: Document,
+    doctree: docutils.nodes.document,
+) -> set[pathlib.Path]:
+    """Return assets Sphinx deliberately consumes for this document."""
+    source_root = pathlib.Path(getattr(env, "srcdir", doc.project_root))
+    integrated: set[pathlib.Path] = set()
+    dependencies = getattr(env, "dependencies", {})
+    for dependency in dependencies.get(docname, ()):
+        path = pathlib.Path(dependency)
+        integrated.add((path if path.is_absolute() else source_root / path).resolve())
+
+    # Image collection is builder-aware and may rewrite the URI later. Resolve
+    # it while the read-phase doctree still carries the author's local target.
+    for image in doctree.findall(docutils.nodes.image):
+        uri = image.get("uri")
+        if not isinstance(uri, str):
+            continue
+        owner_source = _node_source_path(image, doc.path)
+        resolved = _resolve_local_asset(env, doc, owner_source, uri)
+        if resolved is not None:
+            integrated.add(resolved)
+    return integrated
+
+
+def _finding_source(path: pathlib.Path, doc: Document) -> str | None:
+    """Express an included physical source in the project's coordinates."""
+    resolved = path.resolve()
+    if resolved == doc.path.resolve():
+        return None
+    try:
+        return str(resolved.relative_to(doc.project_root.resolve()))
+    except ValueError:
+        return str(resolved)
+
+
 def check_bare_filenames(
     env: sphinx.environment.BuildEnvironment,
     docname: str,
     doc: Document,
 ) -> list[Finding]:
-    """Flag a bare '<name>.rst' filename mentioned as plain prose text
-    where a real :doc:/:ref: cross-reference belongs (Max, 2026-07-23,
+    """Flag a real local filename mentioned without reader-facing integration.
+
+    For a bare '<name>.rst', a real :doc:/:ref: cross-reference belongs
+    (Max, 2026-07-23,
     evidence from a downstream project: several 'coding-standards.rst' prose mentions in
     that project's own docs are plain text, not links) — the mirror image
     of "did you mean": here a reference is MISSING where one should
@@ -909,6 +1035,14 @@ def check_bare_filenames(
     _MAX_BARE_FILENAME_CANDIDATES docs (too common a basename to be a
     specific suggestion — confirmed by real evidence, see above).
     Otherwise lists every remaining candidate, never guesses a single one.
+
+    Supported text and image asset paths use a narrower confidence gate: the
+    exact token must resolve to a regular file inside Sphinx's source tree,
+    relative to its physical owner, Sphinx source root, or configured project
+    root. Unlike documents, assets never use a project-wide basename index.
+    Sphinx dependencies (:download:, include, literalinclude) and image nodes
+    prove deliberate integration anywhere in the same effective document;
+    :file: proves an intentional filename mention that need not offer access.
 
     Scans the same author-facing prose Text nodes as check_homoglyphs
     (_has_non_prose_ancestor) — deliberately including inline literal spans
@@ -933,6 +1067,7 @@ def check_bare_filenames(
     # unit tests and by direct library callers.
     get_doctree = getattr(env, "get_doctree", None)
     sphinx_doctree = get_doctree(docname) if callable(get_doctree) else doc.doctree
+    integrated_assets = _integrated_local_assets(env, docname, doc, sphinx_doctree)
     for text_node in sphinx_doctree.findall(docutils.nodes.Text):
         if _has_non_prose_ancestor(text_node, extra_types=(docutils.nodes.reference, pending_xref)):
             continue
@@ -951,6 +1086,29 @@ def check_bare_filenames(
                     Severity.WARNING,
                     f"{name}.rst mentioned as plain text — did you mean a "
                     f":doc:/:ref: cross-reference? possible target(s): {targets}",
+                )
+            )
+        if _is_inside_file_role(text_node):
+            continue
+        owner_source = _node_source_path(text_node, doc.path)
+        for match in _LOCAL_ASSET_RE.finditer(s):
+            target = match.group("path")
+            asset = _resolve_local_asset(env, doc, owner_source, target)
+            if asset is None or asset in integrated_assets:
+                continue
+            lineno = base_line + s[: match.start()].count("\n")
+            try:
+                resolved_target = str(asset.relative_to(doc.project_root.resolve()))
+            except ValueError:
+                resolved_target = str(asset)
+            findings.append(
+                Finding(
+                    lineno,
+                    Severity.WARNING,
+                    f"{target} names a real local asset but is mentioned as plain text — "
+                    "use :download:, include/literalinclude, image/figure, or :file: when "
+                    f"reader access is intentionally unnecessary; resolved target: {resolved_target!r}",
+                    source=_finding_source(owner_source, doc),
                 )
             )
     return findings

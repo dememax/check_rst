@@ -629,6 +629,49 @@ to — left as evidence that WARNING severity is doing its job, the tool
 reports the mechanical fact, the AI decides whether a link actually
 belongs there.
 
+===========================================================
+Local assets need Sphinx integration, not only a filename
+===========================================================
+
+A non-RST file can have the same missing-integration defect without being a
+Sphinx document.  The real 2026-08-12 evidence was a roadmap calling a local
+Markdown task brief "required reading" while spelling its path inside an
+inline literal.  The rendered page offered no way to retrieve it.
+
+An ordinary RST hyperlink does not solve that case reliably.  Sphinx emits the
+relative URL but does not copy an arbitrary source asset into the HTML output;
+the resulting deployed link can therefore return 404.  Choose the mechanism
+that states what the file means to the reader:
+
+* ``:download:`` copies an artifact and links to the generated copy.
+* ``include`` or ``literalinclude`` incorporates text or source content.
+* ``image`` or ``figure`` renders a supported image.
+* ``:file:`` deliberately marks a filename when reader access is unnecessary;
+  it is semantic text, not a download.
+
+This rule diagnoses inert prose, including an inline literal; it does not yet
+audit an existing ordinary hyperlink's deployment.  Proving that such a target
+is copied through ``html_extra_path``, a static path, or an extension is a
+separate builder-delivery check rather than a reason to guess here.
+
+The checker cannot choose among those meanings, so this remains a non-fixable
+WARNING.  Its confidence boundary is intentionally narrower than the document
+rule: the exact mentioned path must resolve, relative to its physical RST owner,
+the Sphinx source root, or the configured project root, to a regular file still
+inside the Sphinx source tree.  A project-wide basename match would turn common
+source and build-file discussion into noise.  A configured Sphinx source suffix
+is also excluded because that path names a document, not an asset.
+
+The supported text/document protocol is ``.cfg``, ``.conf``, ``.csv``,
+``.diff``, ``.ini``, ``.json``, ``.jsonl``, ``.log``, ``.markdown``, ``.md``,
+``.patch``, ``.toml``, ``.tsv``, ``.txt``, ``.xml``, ``.yaml``, and ``.yml``.
+The image protocol is ``.gif``, ``.jpeg``, ``.jpg``, ``.png``, ``.svg``, and
+``.webp``.  These sets are explicit compatibility policy, not an attempt to
+recognize every filename-shaped token.  Unknown, missing, unsupported,
+outside-source, and merely same-basename files stay silent.  Files that happen
+to exist beside documentation but are never mentioned are a separate orphan-
+asset question and are outside this rule.
+
 **********************************************************
 Finding one item among many: the two-level list contract
 **********************************************************
