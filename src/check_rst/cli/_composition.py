@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
 
 _INCLUDE_MARKER = "check_rst_include"
+type _IncludeClip = tuple[int | None, int | None, str | None, str | None]
+type _IncludeLog = list[tuple[object, _IncludeClip]]
 
 
 def is_include_marker(node: docutils.nodes.Node) -> bool:
@@ -98,6 +100,41 @@ def _clip_span(path: pathlib.Path, options: dict[str, object]) -> tuple[int, int
     return start_offset, last_line, True
 
 
+def _document_include_log(document: docutils.nodes.document) -> _IncludeLog:
+    """Return Docutils' runtime include stack across its current stub gap."""
+    include_log = vars(document).get("include_log")
+    if not isinstance(include_log, list):
+        raise RuntimeError("Docutils document has no include_log list")
+    return cast("_IncludeLog", include_log)
+
+
+def _docutils_include_clip(options: dict[str, object]) -> _IncludeClip:
+    """Build the source-and-clip identity in the active Docutils format."""
+    # Docutils 0.22.4 uses unchanged_required and '' for absent text clips;
+    # 0.23 uses unchanged and None so an explicit empty value can mean an
+    # empty-line boundary. Derive the default from that runtime API boundary
+    # rather than flattening two semantically distinct 0.23 values.
+    option_spec = DocutilsInclude.option_spec
+    if option_spec is None:
+        raise RuntimeError("Docutils Include directive has no option specification")
+    text_default: str | None = "" if option_spec["start-after"] is directives.unchanged_required else None
+    return cast(
+        "_IncludeClip",
+        (
+            options.get("start-line"),
+            options.get("end-line"),
+            options.get("start-after", text_default),
+            options.get("end-before", text_default),
+        ),
+    )
+
+
+def _active_include_cycle(initial_resolved: str, clip: _IncludeClip, include_log: _IncludeLog) -> str | None:
+    """Return the active target matching Docutils' source-and-clip identity."""
+    active_identities = {(str(pathlib.Path(str(source)).resolve()), active_clip) for source, active_clip in include_log}
+    return initial_resolved if (initial_resolved, clip) in active_identities else None
+
+
 def _tracking_include_class(base: type[Directive]) -> type[Directive]:
     """Return a transparent include subclass which leaves an invisible marker.
 
@@ -122,28 +159,21 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
             initial_resolved = str(absolute)
         else:
             initial_resolved = str((pathlib.Path(owner_source).parent / raw_target).resolve())
-        clip = (
-            options.get("start-line"),
-            options.get("end-line"),
-            options.get("start-after"),
-            options.get("end-before"),
+        # The public record normalizes absent fields to None across supported
+        # Docutils versions; cycle matching separately uses Docutils' native
+        # tuple because its 0.22.4 and 0.23 defaults differ.
+        clip = cast(
+            "_IncludeClip",
+            (
+                options.get("start-line"),
+                options.get("end-line"),
+                options.get("start-after"),
+                options.get("end-before"),
+            ),
         )
+        docutils_clip = _docutils_include_clip(options)
         resolved_identity = str(pathlib.Path(initial_resolved).resolve())
-        # include_log is a real instance attribute docutils sets in
-        # document.__init__ — no published type stub declares it (dated
-        # snapshots checked directly, 2026-08-12: absent from types-docutils'
-        # nodes.pyi), so mypy can't see it without this narrow ignore.
-        active_identities = {
-            (str(pathlib.Path(str(source)).resolve()), tuple(active_clip))
-            for source, active_clip in self.state.document.include_log  # type: ignore[attr-defined]
-        }
-        # Docutils' own include_log always carries '' (not None) for absent
-        # start-after/end-before (see Include.run's self.clip_options) — only
-        # the comparison tuple is reshaped to match; the public `clip` above
-        # keeps its None defaults, since IncludeSite's tested contract relies
-        # on them.
-        docutils_clip = (clip[0], clip[1], clip[2] or "", clip[3] or "")
-        cycle = initial_resolved if (resolved_identity, docutils_clip) in active_identities else None
+        cycle = _active_include_cycle(resolved_identity, docutils_clip, _document_include_log(self.state.document))
         marker = docutils.nodes.comment()
         marker.source = owner_source
         marker.line = owner_lineno
@@ -214,15 +244,14 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
 def _directive_registry() -> dict[str, type[Directive]]:
     """Return docutils' own private include-directive registry dict.
 
-    directives._directives is real at runtime, but leading-underscore
-    names aren't part of its published type stub (dated snapshots checked
-    directly, 2026-08-12) — one narrow ignore here instead of one at each
-    of this module's three call sites. The cast is required too: the
-    ignore only silences attr-defined on the access itself, not
-    warn_return_any's separate complaint about returning the resulting
-    Any from a function declared to return a concrete dict type.
+    The registry is deliberately absent from Docutils' public type stub.
+    Validate the private runtime boundary once and expose its known type to
+    the rest of this module.
     """
-    return cast("dict[str, type[Directive]]", directives._directives)  # type: ignore[attr-defined]
+    registry = vars(directives).get("_directives")
+    if not isinstance(registry, dict):
+        raise RuntimeError("Docutils directive registry is unavailable")
+    return cast("dict[str, type[Directive]]", registry)
 
 
 @contextlib.contextmanager

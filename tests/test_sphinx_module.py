@@ -15,12 +15,30 @@ from typing import TYPE_CHECKING
 
 import pytest
 from _support import _GOOD_BLOCK, BuildSphinxEnv, _build_multi_file_env
+from docutils.parsers.rst import directives as docutils_directives
+from docutils.parsers.rst.directives.misc import Include as DocutilsInclude
 
 from check_rst import cli
 from check_rst.cli import _composition, _document, _formatting, _helpers, _reports, _sphinx, _types
 
 if TYPE_CHECKING:
     import docutils.nodes
+
+
+@pytest.mark.unit
+def test_tracking_include_uses_docutils_version_native_clip_identity(tmp_path: Path) -> None:
+    """Cycle pre-detection preserves the active Docutils clip semantics."""
+    source = tmp_path / "index.rst"
+    option_spec = DocutilsInclude.option_spec
+    assert option_spec is not None
+    text_default = "" if option_spec["start-after"] is docutils_directives.unchanged_required else None
+    clip = _composition._docutils_include_clip({})
+    assert clip == (None, None, text_default, text_default)
+    assert _composition._active_include_cycle(
+        str(source),
+        clip,
+        [(str(source), clip)],
+    ) == str(source)
 
 
 @pytest.mark.integration

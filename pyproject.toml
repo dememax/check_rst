@@ -16,9 +16,7 @@ license = "GPL-3.0-only"
 authors = [
     { name = "Maxime P. DEMENTYEV", email = "dememax@hotmail.com" },
 ]
-# Run-time dependencies: needed for check_rst to FUNCTION once installed —
-# `pip install check-rst` always pulls these in, the same as any executable's
-# own library dependencies.
+# Run-time dependencies pulled in by a normal check-rst installation.
 dependencies = [
     "docutils>=0.22.4,<0.24",
     "Sphinx>=9.1,<10",
@@ -26,31 +24,16 @@ dependencies = [
     "pygit2>=1.19,<2",
 ]
 
-# Compile-time (dev-only) dependencies: mypy type-checks this project's own
-# source — useless to someone who has installed check_rst to run it as an
-# executable, so it lives here, pulled in only by `pip install
-# check-rst[dev]`, never by a plain `pip install check-rst`. Ruff is NOT
-# part of this extra: it stays the system executable AGENTS.md's validation
-# section calls for, self-checked via [tool.ruff].required-version below
-# rather than pip-installed. Same "tested claim, not a guess" category as
-# `dependencies` above (AGENTS.md, "Packaging and compatibility") — but this
-# claim is about developer-tooling reproducibility, not what check_rst needs
-# to run.
+# Static-analysis dependencies pulled in only by `pip install check-rst[dev]`.
+# Ruff remains the system executable required by AGENTS.md and self-checks
+# against [tool.ruff].required-version below.
 [project.optional-dependencies]
-# Both bounds are floor-and-ceiling of what was actually run (2026-08-12),
-# not a guessed next-major-version cutoff: mypy 2.2/2.3 and this exact
-# types-docutils snapshot. Pinned because mypy's own findings for
-# Docutils-touched code depend entirely on which dated snapshot of
-# types-docutils resolves a given attribute/return type — confirmed
-# directly that an environment with NO stub for docutils at all (neither
-# docutils itself nor mypy ships one) makes every docutils value silently
-# resolve as Any, passing cleanly while checking nothing, while an older or
-# newer types-docutils snapshot reports a genuinely different error set for
-# the exact same source. Without both bounds, "mypy passes" is not a
-# reproducible claim across machines or across time on the same machine.
+# Match the Gentoo validation baseline exactly. Ubuntu development environments
+# reproduce these versions rather than accepting different pip resolutions;
+# dated stub snapshots can otherwise change mypy's Docutils findings.
 dev = [
-    "mypy>=2.2,<2.4",
-    "types-docutils==0.22.3.20260724",
+    "mypy==2.2.0",
+    "types-docutils==0.22.3.20260518",
 ]
 
 [project.scripts]
@@ -77,7 +60,7 @@ markers = [
 [tool.ruff]
 line-length = 120
 target-version = "py314"
-required-version = ">=0.16.1,<=0.16.2"
+required-version = "==0.16.2"
 
 [tool.ruff.lint]
 # B:   flake8-bugbear (design/logic issues)

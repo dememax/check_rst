@@ -94,10 +94,18 @@ the system Python already satisfies every pinned dependency — runtime
 "Packaging and compatibility"), run directly against it. A venv is not a
 rule violation when the system genuinely lacks what's needed at the
 pinned versions — it is the expected, inevitable fallback (e.g. a system
-Python with no Sphinx package at all, or an older mypy than the pinned
-floor). Python commands must use Python 3.14 explicitly. Ruff is the
+Python with no Sphinx package at all, or a mypy version different from the
+pinned version). Python commands must use Python 3.14 explicitly. Ruff is the
 system executable either way — it is self-checked against its own pinned
 `[tool.ruff].required-version`, never pip-installed.
+
+Use Ruff and mypy at the maximum practical strictness for this codebase.
+Fix findings in the implementation or make the relevant invariant visible
+through precise annotations, narrowing, protocols, or typed adapters. Do not
+weaken analyzer configuration or add broad module/file suppressions merely to
+obtain a clean run. A remaining suppression must be the narrowest available
+error-code-specific form and document the verified analyzer or third-party
+typing limitation that requires it.
 
 Run Python tests and static checks from the repository root:
 

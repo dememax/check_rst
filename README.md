@@ -72,6 +72,36 @@ importable by the same interpreter that runs `check_rst`. Use ordinary
 dependency-resolving `pip install` in a self-contained environment when its
 projects also install their Sphinx extensions there.
 
+To reproduce the Gentoo validation stack on Ubuntu, install the same tested
+direct dependency versions rather than accepting pip's Docutils downgrade.
+Upstream Sphinx 9.1.0 metadata declares `docutils<0.23`; Gentoo removes that
+upper bound before building Sphinx. The following mirrors that one
+metadata adjustment, so the resulting environment remains coherent under
+`pip check` while running Sphinx 9.1.0 with Docutils 0.23:
+
+```bash
+python3.14 -m venv ~/opt/check_rst-ubuntu
+install -d /tmp/check_rst-sphinx-source
+~/opt/check_rst-ubuntu/bin/python -m pip download \
+    --no-deps --no-binary=:all: --dest /tmp/check_rst-sphinx-source \
+    Sphinx==9.1.0
+tar -xf /tmp/check_rst-sphinx-source/sphinx-9.1.0.tar.gz \
+    -C /tmp/check_rst-sphinx-source
+sed -i 's/docutils>=0.21,<0.23/docutils>=0.21/' \
+    /tmp/check_rst-sphinx-source/sphinx-9.1.0/pyproject.toml
+~/opt/check_rst-ubuntu/bin/python -m pip install \
+    /tmp/check_rst-sphinx-source/sphinx-9.1.0 \
+    docutils==0.23 snowballstemmer==3.1.1 pygit2==1.19.3 \
+    mypy==2.2.0 types-docutils==0.22.3.20260518 \
+    pytest==9.1.1 pytest-cov==7.1.0 setuptools==83.0.0
+~/opt/check_rst-ubuntu/bin/python -m pip install \
+    --no-build-isolation --no-deps --editable /path/to/check_rst
+~/opt/check_rst-ubuntu/bin/python -m pip check
+```
+
+Ruff is not installed into this environment. Use the system Ruff 0.16.2,
+which is the exact version required by `pyproject.toml`.
+
 For development, install the checkout in editable mode:
 
 ```bash
