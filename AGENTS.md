@@ -87,9 +87,17 @@ that makes it safe.
 
 ## Validation
 
-Use the system toolchain, not an activated virtual environment. Python
-commands must use Python 3.14 explicitly. Ruff is the system executable and
-its version is pinned in `pyproject.toml`.
+Prefer the system toolchain over an activated virtual environment: when
+the system Python already satisfies every pinned dependency — runtime
+(`docutils`/`Sphinx`/`snowballstemmer`/`pygit2`) and dev
+(`mypy`/`types-docutils`, `[project.optional-dependencies].dev` — see
+"Packaging and compatibility"), run directly against it. A venv is not a
+rule violation when the system genuinely lacks what's needed at the
+pinned versions — it is the expected, inevitable fallback (e.g. a system
+Python with no Sphinx package at all, or an older mypy than the pinned
+floor). Python commands must use Python 3.14 explicitly. Ruff is the
+system executable either way — it is self-checked against its own pinned
+`[tool.ruff].required-version`, never pip-installed.
 
 Run Python tests and static checks from the repository root:
 

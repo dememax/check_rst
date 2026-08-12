@@ -245,6 +245,13 @@ def check_directives(
         title = _enclosing_section_title(node)
         return f"in section {title!r}" if title is not None else "(no enclosing section)"
 
+    # NodeVisitor resolves correctly here only when the pinned types-docutils
+    # dev dependency (pyproject.toml, [project.optional-dependencies].dev)
+    # is actually present in the environment running mypy — without it,
+    # NodeVisitor is untyped (Any), and --disallow-subclassing-any (part of
+    # strict = true) flags this subclass with "cannot subclass ... has type
+    # Any". Hitting that error means the environment is missing the pinned
+    # stub, not that this line needs a suppression added back.
     class _Visitor(docutils.nodes.NodeVisitor):
         def unknown_visit(self, node: docutils.nodes.Node) -> None:
             pass
