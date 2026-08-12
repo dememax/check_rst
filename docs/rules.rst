@@ -584,7 +584,7 @@ Matched by basename, not full path — confirmed by direct probe against
 that downstream project: the docname Sphinx actually resolves is
 ``product-gui/coding-standards``, but neither real prose mention
 spells out that path, only the filename.  Needs the live Sphinx
-environment (``env.found_docs``), same as ``--refs`` and "did you
+environment (``env.found_docs``), same as ``refs`` and "did you
 mean" — verified mode only.
 
 Silence has to be as deliberate as the WARNING itself, or the feature

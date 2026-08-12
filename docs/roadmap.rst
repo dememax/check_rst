@@ -1,47 +1,121 @@
 .. Copyright (C) 2026 Maxime P. DEMENTYEV
 .. SPDX-License-Identifier: GPL-3.0-only
-.. Design ideas: agreed, accepted, deferred, and declined — check_rst project
+.. Current status and retained design history — check_rst project
 
-##################################
-Future directions: triaged ideas
-##################################
+############################################
+Roadmap: current status and design history
+############################################
 
-Triaged 2026-07-18 from external AI reviews.  This list seeds the
-feedback loop in :doc:`development`: when real usage produces evidence for an item here
-— or against a declined one — that is exactly the observation worth
-reporting.  Nothing here is a commitment; it is the current best
-ordering of effort.
+Seeded 2026-07-18 from external AI reviews and extended whenever real usage
+produced new evidence.  The running design record below deliberately preserves
+the motivation, rejected forks, former CLI spellings, and implementation-time
+measurements that explain how a decision was reached.  Those historical facts
+are not the current interface or status ledger.
 
-******************
-Agreed direction
-******************
+The implementation, tests, current CLI help, and normative documentation are
+the authority for what exists.  The status index below summarizes that evidence
+as of 2026-08-12.  When later evidence changes an entry, update its status here
+and its own ``Current status`` line while retaining the dated design history.
+
+****************
+Current status
+****************
+
+=================================
+Shipped / implementation record
+=================================
+
+The following capabilities are implemented and protected by tests:
+
+* JSON document model (current interface: ``check --format=json``).
+* "Did you mean" reference suggestions; ``refs``; and ``context``.
+* Blockquote, code-block, table, admonition, comment, and list entries in
+  ``outline``; table identification; structure-only ``outline``; and
+  ``--sections-only``.
+* Per-repository configuration.
+* Short underline-only title recognition, parsed composition provenance,
+  effective single-title enforcement, homoglyph detection, missing document or
+  local-asset integration, and nested-inline detection.
+* ``diff-json`` section/finding comparison.
+* Trailing-whitespace normalization, opt-in blank-line normalization, and
+  opt-in title/prose spacing policies.
+* Footer statistics, top/rare prose words, entry ranges, outline enrichment,
+  the summary/``--quiet`` contract, and ``--max-output-lines``.
+* ``fix --fast``/``diff --fast``, single-colon directive lint, the standing
+  combined-Sphinx black-box fixture, recursive toctree outlines, the subcommand
+  CLI, and the ``list-table`` transformation.
+* The self-contained ``hierarchy`` verb, shipped independently on 2026-08-09
+  and documented in :doc:`guide`; it has no separate historical proposal below.
+
+==================
+Agreed next work
+==================
+
+Three concrete capabilities remain agreed but unimplemented:
+
+* ``list-targets [PATTERN]``.
+* Table-column queries.
+* A consolidated edit-validation cycle.
+
+============================================
+Deferred, awaiting evidence, or not queued
+============================================
+
+These entries are intentionally not presented as one uniform priority:
+
+* Indentation normalization — awaiting frequency evidence.
+* Documentation smells — candidate family awaiting separate triage.
+* Semantic-diff coverage below sections — accepted extension, deferred.
+* Configurable outline-preview length — logged, not implemented.
+* Structure-aware list-to-section transformation — accepted, deferred.
+* Native Markdown parsing — deferred; the documented Pandoc bridge may remain
+  sufficient.
+* Foreign-adornment configuration — deferred with its original urgency gone.
+* Diff-hunk classification — logged from one workaround, not queued.
+
+==========
+Declined
+==========
+
+Grid-table auto-alignment, similarity-ranked hierarchy suggestions, cross-page
+content consistency, navigation/search, raw Phase 0 min/max-frequency display,
+and splitting ``_helpers.py`` without a stronger trigger remain declined.  The
+last decision's quantitative snapshot is refreshed in its own entry below.
+
+**********************************
+Original agreed-direction record
+**********************************
 
 A read-only ``Document`` facade — one normalization and one scan per
 file, checkers consume the object, fixers keep the mutating buffer —
 with machine-readable output on top.  Staged plan, each stage
 separately shippable:
 
-========================
-The model + ``--json``
-========================
+=========================
+The JSON document model
+=========================
 
-*(implemented 2026-07-19)*
+*Current status: shipped 2026-07-19; exposed as* ``check --format=json``
+*since the 2026-08-07 subcommand redesign.*
 
 A read-only ``Document`` facade — one object per file holding the normalized
 text, lines, hygiene findings, doctree, outline, quotes and diff ranges,
 computed at most once and shared by every checker (the one-read/one-parse
 contract is pinned by ``CALL_COUNTS`` assertions, not wall-clock; fixers keep
-their mutating buffer, and a fresh Document after ``--fix`` writes makes
-invalidation explicit in the object lifetime).  ``--json`` dumps the model:
+their mutating buffer, and a fresh Document after ``fix`` writes makes
+invalidation explicit in the object lifetime).  ``check --format=json`` dumps the model:
 per-file findings, outline with stable ``docname:title`` ids (the
 autosectionlabel prefix convention), code-blocks, blockquote previews,
 statistics, and the run summary — one JSON object on stdout, nothing else, exit
-code semantics unchanged; read-only, so not combinable with
-``--fix``/``--diff``.
+code semantics unchanged; read-only, so not combinable with mutation or diff
+output.
 
 ========================
 Reference intelligence
 ========================
+
+Current status: mixed. Suggestions and ``refs`` are shipped;
+``list-targets`` is agreed next work.
 
 Derived from the Phase 2 in-process Sphinx environment (*not* from parsing
 ``objects.inv`` — that artifact needs a completed HTML build and holds less
@@ -52,7 +126,7 @@ than the live ``env`` already in hand).  Three parts, staged separately (Max:
 "Did you mean" suggestions
 ----------------------------
 
-*(implemented 2026-07-22)*
+*Current status: shipped 2026-07-22.*
 
 Attached to a broken ``:doc:``/``:ref:`` finding, wherever it surfaces (Phase
 2's own in-process build or Phase 3's ``sphinx-build`` subprocess — both
@@ -67,7 +141,7 @@ human/AI on a typo'd cross-reference target.
 ``list-targets [PATTERN]``
 ----------------------------
 
-*Not yet implemented.*
+*Current status: agreed next work; not implemented.*
 
 A deterministic menu of valid ``:ref:``/``:doc:`` targets.  This repo alone has
 7396 ``:ref:`` labels (autosectionlabel puts one on every heading) and 1444
@@ -82,11 +156,12 @@ positional ``PATTERN`` with no required file at all, unlike any of the
 shapes already built (``full``, ``fast``, ``single-file`` all need at least
 one file argument).
 
------------------
-``--refs FILE``
------------------
+---------------
+``refs FILE``
+---------------
 
-*(implemented 2026-07-22, toctrees added 2026-07-25)*
+*Current status: shipped 2026-07-22; toctrees added 2026-07-25; renamed from*
+``--refs`` *on 2026-08-07.*
 
 Per-file incoming/outgoing reference reports (for this Journal: "which
 aggregation pages point at this calendar note").  Outgoing scans *FILE*'s own
@@ -99,17 +174,18 @@ resolves to *FILE*'s own docname.  Role target resolution reuses Sphinx's own
 logic exactly — ``sphinx.util.docname_join`` for ``:doc:``,
 ``env.domaindata['std']['anonlabels']`` for ``:ref:``/``:term:`` — so a
 reference this reports as resolved is exactly one Phase 3 would accept.  A
-self-contained mode, same family as ``--diff-json``.
+self-contained mode, same family as ``diff-json``.
 
-=======================
-``--context <entry>``
-=======================
+========================
+``context ENTRY FILE``
+========================
 
-*(implemented 2026-07-28)*
+*Current status: shipped 2026-07-28; renamed from* ``--context`` *on
+2026-08-07.*
 
 A targeted pre-edit briefing for ANY entry in the resolved document model, not
 only a section.  Selection consumes the same heterogeneous entry stream as
-``--outline``; generic dataclass-field matching and a generated
+``outline``; generic dataclass-field matching and a generated
 ``docname:kind@line`` selector mean future entry classes and anonymous
 containers work without registration in the resolver.  Stable section ids take
 precedence, then exact title/term/caption/preview values.  A unique match
@@ -128,21 +204,21 @@ a complete outline is too large for a targeted query.
 Blockquote entries in ``--outline``
 =====================================
 
-*(implemented 2026-07-18)*
+*Current status: shipped 2026-07-18.*
 
 (Max).  Since the blockquote exemption, quote zones are semantically
 significant: they explain why no bold/rubric warnings fire there, and they show
 composition — a note that is 80% quotation reads differently from one that is
 80% original prose.  Each entry carries an ellipsis-truncated preview of the
 quote's beginning (Max: a quick view in the structure); nested quotes report
-once via the outer entry; bare docutils, so both --outline modes are served by
+once via the outer entry; bare Docutils, so both outline display modes are served by
 the same function.
 
 =============================
 Per-repo configuration file
 =============================
 
-*(implemented 2026-07-18)*
+*Current status: shipped 2026-07-18.*
 
 (Max) — ``.check_rst.toml`` (dedicated file wins) or ``pyproject.toml
 [tool.check_rst]``, in the spirit of ``.clang-format``/``.prettierrc``: holds
@@ -162,6 +238,9 @@ instruction layers shrank exactly as predicted.
 Table queries
 ===============
 
+*Current status: agreed next work. Table identification is shipped; column
+extraction is not.*
+
 "give me column 2 of table 'VCS comparison'". A ``list-table`` linearizes a 2-D
 structure row-major (A1, A2, A3, B1, B2, B3, …); recovering a column is stride
 arithmetic over a long item stream — exactly the reshaping LLMs lose sync on,
@@ -180,22 +259,24 @@ proper is still open.
 A structure-only view
 =======================
 
-*(implemented 2026-07-18)*
+*Current status: shipped 2026-07-18. The original* ``--outline-only`` *mode
+became structure-only* ``outline`` *by default on 2026-08-07.*
 
 (assessment finding on a real foreign document): "just show me the outline" of
 an error-heavy file took four stacked flags (``--quiet --skip-fixable
 --no-warnings --outline``) — and collided with the "never suppress with
 --no-warnings" rule, written for the validation loop but stated unscoped.
-Resolved by BOTH proposed means: ``--outline-only`` (a display filter —
-findings still counted in the footer, exit code honest, per "trims display,
-never information"), and the rule rewording, now explicitly scoped to the
-validation loop.
+Initially resolved by both proposed means: ``--outline-only`` (a display
+filter — findings still counted in the footer, exit code honest, per "trims
+display, never information") and a rule rewording scoped to the validation
+loop.  The subcommand redesign then made that structure-only view the default
+``outline`` behavior; ``--with-findings`` now layers findings back on.
 
 ============================================================
 Code-block previews, no-quote language, and outline totals
 ============================================================
 
-*(implemented 2026-07-20)*
+*Current status: shipped 2026-07-20.*
 
 (Max) — extends the "Blockquote entries in ``--outline``" preview contract to
 code-blocks: every code-block now carries a preview of its own content,
@@ -218,7 +299,7 @@ entry list.  Blockquote's own preview bound moved from 60 characters/``…`` to
 Table entries in ``--outline``
 ================================
 
-*(implemented 2026-07-20)*
+*Current status: shipped 2026-07-20.*
 
 (Max) — a third entry kind alongside code-blocks and blockquotes, listing every
 table with its syntax ``kind`` (``grid``/``simple``/``table``/
@@ -238,7 +319,7 @@ which do need one). This is groundwork for the still-open "Table queries" idea
 Admonition entries in ``--outline``
 =====================================
 
-*(implemented 2026-07-22)*
+*Current status: shipped 2026-07-22.*
 
 A fourth entry kind, found live: a ``.. important::`` tl;dr this very page
 carries (see the top of this page) was completely invisible to ``--outline``,
@@ -258,7 +339,7 @@ need to include them in the statistics: total, by section").
 Comment entries in ``--outline``
 ==================================
 
-*(implemented 2026-07-22)*
+*Current status: shipped 2026-07-22.*
 
 A fifth entry kind, closing the mistyped-directive lint's blind spot
 generically (Max: "we cannot cover all cases... they could be more complex
@@ -272,15 +353,15 @@ blockquotes/ admonitions/tables.
 A consolidated edit-validation cycle
 ======================================
 
-*(agreed 2026-07-29; not yet implemented)*
+*Current status: agreed next work since 2026-07-29; not implemented.*
 
 Expose one command (working name ``--edit-cycle``) that performs the existing
-``--skip-fixable`` → ``--fix-only`` → final-validation contract while reusing work
+``check --skip-fixable`` → ``fix --fast`` → final-validation contract while reusing work
 that applies to the same immutable input state.  Before ``--fix-only`` existed,
 the list-to-section edit on this page measured 15.9 s, 15.6 s, and 15.1 s for
-``--skip-fixable``, ordinary ``--fix``, and final validation — about 47 seconds
+``check --skip-fixable``, ordinary ``fix``, and final validation — about 47 seconds
 in three near-identical Sphinx builds before the separate 17.3-second outline
-verification.  ``--fix-only`` has since removed the middle build.  A combined
+verification.  The current ``fix --fast`` has since removed the middle build.  A combined
 command could still reuse the first verified state when the mutation plan is
 empty; a real mutation necessarily invalidates it and requires one post-fix
 build.  The command must retain explicit stage-labelled results, the final
@@ -288,15 +369,15 @@ honest exit status, Git-scope enforcement, and the rule that fixes are always
 followed by validation; this is execution reuse, not a weaker workflow.  No
 cache may silently cross an input-state boundary.
 
-********************
-Accepted, deferred
-********************
+***********************************
+Original accepted/deferred record
+***********************************
 
 =======================================================================
 ``_first_appearance_adornments`` blind to short underline-only titles
 =======================================================================
 
-*(implemented 2026-07-21)*
+*Current status: shipped 2026-07-21.*
 
 (Max, 2026-07-20, initially reported — wrongly — as a Sphinx incremental-build
 caching reliability question; reevaluated and corrected 2026-07-21 once a
@@ -330,9 +411,11 @@ genuinely persisting finding.
 Semantic diffs / document fingerprints
 ========================================
 
-*(implemented 2026-07-22)*
+*Current status: shipped 2026-07-22; exposed as the* ``diff-json`` *verb since
+2026-08-07.*
 
-``--diff-json OLD.json NEW.json`` compares two previously-produced ``--json``
+``diff-json OLD.json NEW.json`` compares two previously produced
+``check --format=json``
 dumps: files matched by path, outline entries by their stable ``docname:title``
 id, findings by ``(severity, text)`` — deliberately never by line number, which
 drifts with any unrelated edit elsewhere in the file (a finding that merely
@@ -345,12 +428,14 @@ re-confirmed 2026-07-21 by a real downstream-project session hitting the exact g
 closes: "several times this session I rewrote a whole file... and had to
 manually eyeball 'same warning count, same categories as before' rather than
 get a machine answer."  A self-contained mode — no RST is read or checked, and
-no other flag applies alongside it — cheap once the ``--json`` model existed
+no other flag applies alongside it — cheap once the JSON model existed
 (stage 1), meaningless before it.
 
 ===========================
 Indentation normalization
 ===========================
+
+*Current status: awaiting frequency evidence; not queued.*
 
 (field/definition list bodies) — a real LLM failure mode, but ``--fix``
 rewriting body indentation is content-adjacent mutation; docutils already
@@ -359,6 +444,8 @@ reports the breakage. Wants evidence of actual frequency first.
 ======================
 Documentation smells
 ======================
+
+*Current status: candidate family awaiting separate triage; not queued.*
 
 A metrics WARNING family, different personality from correctness checking.
 Originally parked until the ``Document`` model landed (stage 1); that landed
@@ -373,14 +460,15 @@ single-item list; table never referenced; image never referenced.  These split
 into two pieces of very different weight: everything except the last two is a
 structural count or adjacency check over data ``--outline`` or the doctree
 already exposes — nearly free; table/image "never referenced" needs a
-corpus-wide asset/reference scan, the same cost class as ``--refs``' incoming
+corpus-wide asset/reference scan, the same cost class as ``refs``' incoming
 scan, not a per-file check — its own design round, not a ride-along.
 
 =================================================
 Parsed composition provenance and control paths
 =================================================
 
-*(implemented 2026-08-10; deliberately separated from the title-rule batch)*
+*Current status: shipped 2026-08-10; deliberately separated from the
+title-rule batch.*
 
 Effective structure cannot be validated from the root file's line array once
 Docutils has expanded ``.. include::``.  The first live probe demonstrated
@@ -430,8 +518,8 @@ Phase 3 HTML builder on a copy.
 Single top-level heading enforcement
 ======================================
 
-*(source-only WARNING implemented 2026-07-26; effective ERROR completed
-2026-08-11)*
+*Current status: shipped. Source-only WARNING implemented 2026-07-26;
+effective ERROR completed 2026-08-11.*
 
 (Max, 2026-07-23: "the level-1 heading can only be one — it represents the
 document's title") — confirmed live before implementation that a document with
@@ -456,7 +544,7 @@ fix``.  See "A second top-level title is legal RST and a real defect" in
 Homoglyph / mixed-alphabet detection
 ======================================
 
-*(implemented 2026-07-26; extended to local assets 2026-08-12)*
+*Current status: shipped 2026-07-26.*
 
 (Max, 2026-07-24: "when letters look similar, but only one letter is from
 another alphabet") — ``check_homoglyphs`` flags a WORD (not a line — this
@@ -472,7 +560,8 @@ corpus.
 Bare document or asset filename mentioned without real integration
 ====================================================================
 
-*(implemented 2026-07-26)*
+*Current status: shipped 2026-07-26; extended to local text/document and image
+assets 2026-08-12.*
 
 (Max, 2026-07-23 and 2026-08-12, real downstream-project evidence) —
 ``check_bare_filenames`` pairs naturally with the reference-intelligence
@@ -492,9 +581,11 @@ gates, integration mechanisms, and deliberate silence conditions.
 Semantic-diff coverage below the section level
 ================================================
 
+*Current status: accepted extension, deferred.*
+
 (Max, 2026-07-24, from the same illustrative example that reconfirmed
-``--diff-json``'s own value: "moved code block", "added one cross-reference") —
-``--diff-json`` today matches outline entries, hierarchy, and findings; it has
+``diff-json``'s own value: "moved code block", "added one cross-reference") —
+``diff-json`` today matches outline entries, hierarchy, and findings; it has
 no equivalent match for individual code-blocks or references
 moving/appearing/disappearing within an otherwise- unchanged section.  Logged,
 not yet implemented — a real refinement to an already-shipped feature, not a
@@ -504,7 +595,7 @@ new one.
 Nested inline markup detection
 ================================
 
-*(implemented 2026-08-02)*
+*Current status: shipped 2026-08-02.*
 
 (Max, 2026-07-26, spotted live in ``**``ListEntry``**``) — RST inline markup
 never nests, in either direction: confirmed by direct probe, ``**``code``**``,
@@ -600,6 +691,8 @@ Detection is implemented; auto-fix remains deliberately unimplemented.
 A CLI option for snippet/preview truncation length
 ====================================================
 
+*Current status: logged; not implemented or queued.*
+
 (Max, 2026-07-22) — every block-preview kind (code-block, blockquote, table,
 admonition, comment) shares one hardcoded constant,
 ``_OUTLINE_PREVIEW_LEN=74``, with no way to widen or narrow it per run.
@@ -611,7 +704,7 @@ a sensible default, never a silent behavior change.
 A ``ListEntry`` outline kind for bullet/enumerated/definition lists
 =====================================================================
 
-*(implemented 2026-07-26)*
+*Current status: shipped 2026-07-26.*
 
 Found by the AI's own friction, 2026-07-22: hunting for a specific item inside
 what were then this page's numbered "Agreed direction" and bulleted "Accepted,
@@ -627,13 +720,13 @@ definition lists) and the real nesting-depth bug it caught before shipping.
 Structure-aware list-to-section refactoring
 =============================================
 
-*(accepted 2026-07-29; deferred)*
+*Current status: accepted 2026-07-29; deferred.*
 
 The real conversion of this roadmap exposed the reusable operation: five list
 containers yielded 40 disposition entries and five nested list items, plus two
 adjacent prose blocks whose correct section ownership still required judgment.
 A future refactoring command should select exactly one outline container by the
-same stable selector accepted by ``--context`` and perform a deterministic
+same stable selector accepted by ``context`` and perform a deterministic
 transformation rather than infer titles.  For example, with ``N=8``, copy the
 first eight plain-text words of each item's first direct paragraph into a
 provisional heading while retaining the *complete* original item as the new
@@ -663,13 +756,13 @@ until another independent use case appears.
 ``--sections-only`` for ``--outline``
 =======================================
 
-*(implemented 2026-07-26)*
+*Current status: shipped 2026-07-26.*
 
 (Max, 2026-07-22) — filters by KIND, not depth: every leaf entry (code-block,
 blockquote, table, admonition, comment, list) is suppressed regardless of how
 shallow it sits, unlike ``--outline-depth`` which bounds by depth regardless of
 kind — the two compose rather than overlap.  A display filter, same contract as
-``--outline-only``: the ``levels:``/``blocks:`` legend and every heading's own
+structure-only ``outline``: the ``levels:``/``blocks:`` legend and every heading's own
 bracketed subtree counts still reflect the whole document, computed against the
 full entry list, never the filtered one — a leaf kind disappears from the tree,
 never from the statistics.  The hidden-entries note names every reason at once
@@ -678,6 +771,9 @@ never from the statistics.  The hidden-entries note names every reason at once
 =========================================
 Markdown analysis via the pandoc bridge
 =========================================
+
+*Current status: documented bridge shipped; native Markdown parsing remains
+deferred and may be unnecessary.*
 
 (Max, 2026-07-18; verified by probe the same day) — instead of a native ``.md``
 frontend, convert and analyze::
@@ -706,7 +802,7 @@ frontend stays deferred; the bridge may make it unnecessary.
 Trailing whitespace on every source line
 ==========================================
 
-*(implemented 2026-08-02)*
+*Current status: shipped 2026-08-02.*
 
 (Max, 2026-08-02) — Phase 0 now reports and fixes trailing spaces and tabs on
 every source line, not only adornment-shaped lines.  This is a parser-equivalent
@@ -720,7 +816,7 @@ adornment lines retain their more specific diagnostic because hidden title
 geometry can otherwise cause a misleading structural diagnosis.
 
 The tracked corpus contained 801 affected lines across 263 files when the
-feature was evaluated.  ``--fix-only`` reports the bounded mutation as
+feature was evaluated.  ``fix --fast`` reports the bounded mutation as
 ``trailing whitespace lines N``.  Internal whitespace is deliberately outside
 this guarantee: docutils preserves it in text nodes, and blank-line runs can be
 content inside whitespace-preserving constructs, so either change needs a
@@ -730,7 +826,7 @@ separate context-aware policy rather than extending this hygiene pass.
 Opt-in redundant blank-line normalizer
 ========================================
 
-*(implemented 2026-08-02)*
+*Current status: shipped 2026-08-02.*
 
 (Max, 2026-08-02) — repeated blank separators are now available through
 ``--normalize-blank-lines``, a modifier accepted only by ordinary ``--fix`` and
@@ -756,7 +852,7 @@ all-blank files need different predicates: a leading run is removed completely
 when a first document element follows, while an all-blank source is retained
 because it has no first element.  The operation is whole-document and
 explicitly opt-in; default ``--fix`` remains byte hygiene plus adornment and
-hierarchy correction.  Parser-free ``--fix-only`` and ``--diff-only`` reject
+hierarchy correction.  Parser-free ``fix --fast`` and ``diff --fast`` reject
 the option rather than weakening their established performance contract.
 
 TDD covers ordinary block separators, section adjacency, lists, grid tables,
@@ -772,7 +868,7 @@ safety to inference.
 Opt-in title and prose space policies
 =======================================
 
-*(implemented 2026-08-02)*
+*Current status: shipped 2026-08-02.*
 
 Evaluation rejected one undifferentiated internal-whitespace cleanup.  The
 tracked corpus contained 13,227 internal ASCII-space runs across 6,826 lines in
@@ -818,7 +914,7 @@ explicitly.
 Footer statistics
 ===================
 
-*(implemented same day)*
+*Current status: shipped 2026-07-18; statistics extended 2026-07-19.*
 
 (Max): the summary line reports totals from Phase 0's own read — lines with the
 empty-line count and ratio (empty lines are RST's block delimiter, so the ratio
@@ -830,7 +926,7 @@ spread in chars and bytes under the same collapse rule.  Extended 2026-07-19
 (Max): spaces with their share of chars; a ``words:`` line (raw-text tokens —
 markup included, deliberately not a prose count) with total, distinct and
 once-only counts and the length spread; chars gained distinct and once-only
-counts, and ``--json`` lists the once-only characters as ``U+XXXX`` — for
+counts, and ``check --format=json`` lists the once-only characters as ``U+XXXX`` — for
 characters the once-set is tiny and is an oddity scan (the June corpus: 11 of
 190, including a stray variation selector and a lone Vietnamese letter).
 Evaluating this also found by probe that a non-UTF-8 file crashed Phase 0 with
@@ -841,7 +937,7 @@ offset, same fix class as the not-a-git-repo diagnostic.
 Top prose words
 =================
 
-*(implemented 2026-07-19)*
+*Current status: shipped 2026-07-19.*
 
 (Max) — the meaningful frequency statistic the raw layer couldn't provide, from
 existing dependencies only, after a four-domain scan: the Python stdlib has no
@@ -860,7 +956,7 @@ omitted, never degraded to stopword noise.  Footer shows the top 13 with an
 explicit "(yet N suppressed)" note and a first-match jump target per word
 (``@line`` for a single file, ``@docname:line`` across a corpus — the corpus
 form is knowingly heavy; bounding it is an open display question) — bounded
-output, never silent truncation; ``--json`` carries the top 10 with the
+output, never silent truncation; ``check --format=json`` carries the top 10 with the
 suppressed count.  June 2026 live: ``product (111), source (56), frame (46),
 name (41), rst (41) (yet 3196 suppressed)`` — a thematic fingerprint of the
 month.
@@ -869,7 +965,7 @@ month.
 Rare prose words
 ==================
 
-*(implemented 2026-07-19)*
+*Current status: shipped 2026-07-19.*
 
 (Max) — the other extreme of the frequency distribution, in its honest form
 after two probe-driven corrections.  A corpus-scale "least frequent word" is
@@ -889,22 +985,22 @@ as a base for another language"; vérifier/vérifiée now group).  The one-edit
 criterion replaced a 0.87 similarity cutoff after the cutoff missed a real,
 confessed, journal-attested mistake by 0.013: померял (1 occurrence) vs померил
 (146) — found and flagged by the feature it motivated. Footer top-13 with the
-suppression note and first-match jump targets; ``--json`` carries
+suppression note and first-match jump targets; ``check --format=json`` carries
 ``rare_words`` with the same contract.
 
 =========================
 Ranges, not start lines
 =========================
 
-*(implemented 2026-07-19)*
+*Current status: shipped 2026-07-19.*
 
 (Max): outline entries — sections, code-blocks, blockquotes — carry their full
 extent (``508-613:``), computed from the outline sequence and indentation.
 Evidence: reading two foreign documents from a downstream project via
-``--outline-only`` + ``sed``
+structure-only ``outline`` + ``sed``
 needed exactly these ranges, and the end lines had to be re-derived by hand
 from the *next* entry — deterministic arithmetic that is the tool's half of the
-contract. Chosen over the ``--context <section>`` alternative as the cheap
+contract. Chosen over the ``context ENTRY FILE`` alternative as the cheap
 first step (stage 3 remains on the roadmap); generalized as a principle: where
 check_rst informs about a line number, it informs about the range instead,
 where applicable.  Findings deliberately keep single-line anchors.
@@ -913,7 +1009,7 @@ where applicable.  Findings deliberately keep single-line anchors.
 Outline enrichment
 ====================
 
-*(implemented same day)*
+*Current status: shipped 2026-07-19.*
 
 (Max, by analogy with the summary line): every heading shows its
 direct-subsection count when non-zero (``[3 subsections]``), making each
@@ -933,7 +1029,7 @@ indentation.
 Summary line and ``--quiet``
 ==============================
 
-*(implemented same day)*
+*Current status: shipped 2026-07-18.*
 
 From session-transcript evidence (2026-07-18): mining all seven Claude session
 logs of this project found 93 real ``check_rst`` executions, of which ~20 piped
@@ -951,13 +1047,13 @@ becomes findings plus one line.
 A whole-report output line budget
 ===================================
 
-*(implemented 2026-07-31)*
+*Current status: shipped 2026-07-31.*
 
 Repeated ``check_rst ... | head`` use exposed a gap between the existing
 semantic display controls and a caller that simply has a hard context budget.
 ``--max-output-lines N`` is the honest, whole-report alternative: it limits
 what is emitted, never what is checked, and preserves the run's real exit
-status.  The limit is applied after ``--quiet``, ``--outline-only``,
+status.  The limit is applied after ``--quiet``, structure-only ``outline``,
 ``--sections-only``, ``--outline-depth``, and other semantic filters, so those
 remain the first choice when the caller knows what information it needs.
 
@@ -983,14 +1079,12 @@ useful rerun hint belong in the explanatory statistics line, while the final
 line remains the authoritative failed status.  Only parser failures that
 prevent the option itself from being recognized fall outside this contract.
 
-Initial scope is ordinary text checks, ``--fix``, outline modes, and the later
-``--fix-only`` mode.  Structured or copyable outputs are rejected until they
-have a format-specific design:
-truncated ``--json`` must never become invalid or masquerade as a complete
-model, and truncated ``--diff``/``--diff-only`` output must never resemble an
-applicable patch.  ``--diff-json``, ``--refs``, and ``--context`` likewise need
-complete semantic/reference reports and are therefore rejected rather than
-silently inheriting generic line truncation.
+The current scope is ``check``, ``fix``, and ``outline`` text reports, including
+``fix --fast``.  Structured or copyable outputs are rejected: truncated
+``check --format=json`` must never become invalid or masquerade as a complete
+model, and truncated ``diff``/``diff --fast`` output must never resemble an
+applicable patch.  ``diff-json``, ``refs``, and ``context`` likewise need
+complete semantic/reference reports and therefore reject the generic limit.
 
 Implementation uses a report/output sink, not a parser over the tool's own
 rendered text after the fact: the checker continues to completion while the
@@ -1003,13 +1097,14 @@ diagnostic was skipped, diagnostic classification, filter composition, early
 failure behavior, and explicit rejection of incompatible modes.  Terminal
 wrapping is irrelevant; the budget counts newline-delimited program output.
 
-============================
-A fast ``--fix-only`` mode
-============================
+====================================
+Fast mechanical fix and diff modes
+====================================
 
-*(implemented 2026-07-30)*
+*Current status: shipped as* ``--fix-only``/``--diff-only`` *on 2026-07-30;
+current interface* ``fix --fast``/``diff --fast`` *since 2026-08-07.*
 
-The current ``--fix`` correctly favors safety: it applies the two deterministic
+Ordinary ``fix`` correctly favors safety: it applies the two deterministic
 mutators, then continues through the remaining Python rules, the Sphinx-aware
 phase, and the real Sphinx build.  None of those later phases computes an edit,
 however.  Phase 0 byte normalization and Phase 1's raw-line adornment/hierarchy
@@ -1017,18 +1112,18 @@ logic are the complete mutation boundary; they need docutils' display-width and
 valid-adornment definitions, but no docutils parse, Sphinx environment,
 extension, reference graph, HTML build, stopword table, or stemmer.
 
-``--fix-only`` is the write-side counterpart of ``--diff-only``.  The
-ordinary ``--fix`` keeps its full post-fix validation contract; no dynamic or
+``fix --fast`` is the write-side counterpart of ``diff --fast``.  Ordinary
+``fix`` keeps its full post-fix validation contract; no dynamic or
 implicit phase skipping.  The fast three-step workflow becomes a full human
 review, one mechanical mutation pass, then one full confirmation::
 
-    check_rst --skip-fixable
-    check_rst --fix-only
-    check_rst
+    check_rst check --skip-fixable
+    check_rst fix --fast
+    check_rst check
 
 It uses exactly the same file selection, Git allowlist/diff scoping, whole-file
 hygiene and hierarchy exceptions, path validation, and unresolved-merge
-preflight as ``--fix``.  Before any write it reads, UTF-8-decodes, and computes
+preflight as ordinary ``fix``.  Before any write it reads, UTF-8-decodes, and computes
 the fix plan for every selected file; one invalid input aborts without partially
 mutating valid siblings.  It then applies hygiene followed by structure and
 recomputes the plan as a local convergence postcondition.  Other Phase 1
@@ -1044,7 +1139,7 @@ mutation; ``--skip-fixable`` is redundant and should be rejected.  Prefer this
 goal-oriented mode over a generic ``--phases 0,1`` interface, which would expose
 implementation structure and create a large compatibility matrix.
 
-Fix output is mutation-oriented rather than a shortened normal check.
+Fast fix output is mutation-oriented rather than a shortened normal check.
 Before writing, state the effective scope (Git-selected/diff-scoped versus
 explicit/whole-file, with the whole-file hygiene/hierarchy exceptions).  For
 each changed file, report structured categories and counts — for example,
@@ -1052,12 +1147,12 @@ each changed file, report structured categories and counts — for example,
 status footer.  Remaining diagnostics are additionally present under ordinary
 ``--fix``; generic phase banners, per-file OK lines, and unrelated statistics
 belong under ``--verbose``.  The implementation adds a structured, converged
-``FixPlan``/``FixResult`` path for ``--fix-only`` and both preview modes while
+``FixPlan``/``FixResult`` path for the fast modes and preview paths while
 retaining the older Boolean fixer entry points for direct callers.  The same
 structured counts give the whole-report output limiter meaningful omitted-record
 categories.
 
-TDD pins selection/scope parity with ``--fix``, plan-all-before-write
+TDD pins selection/scope parity with ordinary ``fix``, plan-all-before-write
 atomicity for invalid UTF-8 and other input failures, hygiene-before-structure
 ordering, one-pass convergence, no docutils/Sphinx parse or build, inactive
 configured Sphinx settings, rejected meaningless options, hygiene-only
@@ -1068,7 +1163,7 @@ semantics.
 Single-colon directive typo lint
 ==================================
 
-*(implemented same day)*
+*Current status: shipped 2026-07-18.*
 
 Proposed 2026-07-18 while evaluating an ideas note that contained one (``..
 code: bash``), implemented within hours: a WARNING when a comment's first line
@@ -1081,8 +1176,11 @@ positives.
 Foreign-adornment exemption in per-repo config
 ================================================
 
+*Current status: deferred; the motivating urgency is gone, but the request is
+not retracted.*
+
 (from heavy real usage in a downstream-project session, 2026-07-20 — dozens
-of invocations across ~15 files): a plain ``check_rst <file>`` on one of the
+of invocations across ~15 files): a plain ``check_rst check <file>`` on one of the
 downstream project's four
 pandoc-converted, deliberately underline-only adopted documents
 (``product-yocto-*.rst``/``product-apps-claude.rst``) reports ~59 ``ERROR:
@@ -1107,19 +1205,21 @@ a genuinely permanent foreign-style exception may still be wanted here or in
 another repo one day — but its urgency here is gone; noted so it does not sit
 prioritized on a stale driver.
 
-===================================================================
-``--diff --classify``: tag each hunk by what kind of change it is
-===================================================================
+=================================================================
+``diff --classify``: tag each hunk by what kind of change it is
+=================================================================
+
+*Current status: logged from one workaround; not accepted or queued.*
 
 (an independent Claude Code session on a downstream project, 2026-07-21).
 Before recommending a
 real normalize of six adopted documents, that session hand-rolled a grep filter
-over ``check_rst --diff`` output to answer "did this touch only adornment
+over ``check_rst diff`` output to answer "did this touch only adornment
 lines, never prose?" — hardcoding the adornment character set from outside the
 tool rather than deriving it from check_rst's own model of what it just changed
 (see "Why you can trust --fix" in :doc:`guide`, which states the underlying
 guarantee directly and should already remove most of the need for this).  A
-sturdier, tool-side answer: ``--diff`` tags each hunk
+sturdier, tool-side answer: ``diff --classify`` would tag each hunk
 ``adornment``/``hygiene``/``content`` (the last should never appear, making its
 presence itself the interesting signal) instead of a human re-deriving "is this
 line only symbols" from the outside. First occurrence of this specific
@@ -1130,7 +1230,7 @@ uses to prioritize — logged, not queued.
 A black-box subprocess test against a standing, combined Sphinx fixture
 =========================================================================
 
-*(implemented 2026-08-09)*
+*Current status: shipped 2026-08-09.*
 
 (Max, 2026-07-26) — a real, confirmed gap, not a duplicate of existing
 coverage: CLI tests call ``check_rst.main()`` in-process with monkeypatched
@@ -1157,7 +1257,7 @@ entirely (the worst-case version of the risk — any cosmetic wording
 change anywhere in the output breaks the test, whether or not
 anything meaningful changed, and a Sphinx/docutils version bump could
 break it for reasons unrelated to check_rst's own code).  Instead,
-assert structural facts from ``--json`` output (depth, kind, counts —
+assert structural facts from ``check --format=json`` output (depth, kind, counts —
 exactly the tripwire that would have caught the ``ListEntry`` bug,
 and facts that rarely change on purpose, so they do not create sync
 churn) plus a handful of targeted substring assertions against the
@@ -1184,6 +1284,9 @@ table conversion without pinning complete console transcripts.
 =========================================================
 Extend ``--outline`` across ``.. toctree::`` boundaries
 =========================================================
+
+*Current status: shipped 2026-07-26; nested-container provenance completed
+2026-08-02.*
 
 (Max, 2026-07-26) — the first entry kind whose items point at OTHER files, not
 the one being outlined.  Grounded in a real 4-file, 2-level-deep nested-toctree
@@ -1303,8 +1406,8 @@ Implementation
 ----------------
 
 (2026-07-26): ``ToctreeEntry`` plus
-``find_toctrees``/``_expand_toctrees``/``_expand_one_toctree`` in
-``src/check_rst/cli.py``, exactly matching this design — a plain
+``find_toctrees``/``_expand_toctrees``/``_expand_one_toctree``, now in
+``src/check_rst/cli/_sphinx.py``, exactly matching this design — a plain
 docname-path-tracked recursion (no dependency on ``TocTree.get_toctree_for``,
 since a per-document ``env.get_doctree`` walk was simpler and already the
 pattern every other ``find_*`` function in Phase 2 uses), one cluster per
@@ -1324,7 +1427,7 @@ heuristic-mode invisibility; later changes added related toctree coverage.
 Resolved: nested toctree containers retain provenance
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-*(implemented 2026-08-02)*
+*Current status: shipped 2026-08-02.*
 
 Found 2026-07-30 while regenerating this page's worked examples against real
 output: existing coverage checked every cross-file HEADING's own
@@ -1343,7 +1446,7 @@ Resolved by giving ``ToctreeEntry.docname`` the same predicate as
 non-empty value identifies an entry pulled from that foreign document.  Text
 rendering now prefixes foreign nested containers and foreign cycle markers,
 while the root container remains bare.  JSON exposes the same nullable field
-instead of deleting it, so text, structured output, and ``--context`` share one
+instead of deleting it, so text, structured output, and ``context`` share one
 provenance model.
 
 The TDD red phase pinned all three boundaries independently: nested text
@@ -1359,8 +1462,8 @@ design and fixture that exposed it, per the report-friction contract in
 Subcommands: flag-soup incompatibilities become verbs
 =======================================================
 
-*(implemented 2026-08-07; global project-identity options and --no-config
-added 2026-08-08)*
+Current status: shipped 2026-08-07; global project-identity options and
+``--no-config`` added 2026-08-08.
 
 ``_validate_cli_args`` used to be a hand-written incompatibility matrix over
 roughly 30 flags: a mutually-exclusive mode group (``--fix``/``--fix-only``/
@@ -1477,7 +1580,7 @@ What still needs a runtime check regardless of tier
 -----------------------------------------------------
 
 Subcommands removed *mode* conflicts, not *value* validation:
-``--max-output-lines >= 2``, ``--outline-depth >= 1``, ``--context``
+``--max-output-lines >= 2``, ``--outline-depth >= 1``, ``context ENTRY``
 non-empty, ``--word-samples >= 0`` stayed exactly as they were, now on
 whichever parser owns each flag (``_validate_check_args``,
 ``_validate_outline_args``, ``_validate_context_args``).
@@ -1564,7 +1667,8 @@ Fixed (``args.fix_only or args.diff_only``, both branches); pinned by
 Targeted aligned-table to list-table transformation
 =====================================================
 
-*(accepted 2026-08-02; implemented 2026-08-08 as the* ``list-table`` *verb)*
+*Current status: accepted 2026-08-02; shipped 2026-08-08 as the*
+``list-table`` *verb.*
 
 The role/instance/context-state table distilled from the Claude feedback case
 provided the motivating example: its prose-heavy cells are clearer and cheaper
@@ -1680,7 +1784,7 @@ already located the table's true last content line. For a table whose
 docutils only reports the multi-line cell's first physical line, so the old
 approach stopped there, one or more lines short of the real trailing border.
 This silently truncated the reported range for **any** grid table with a
-multi-line final row, in ``--outline``/``--context`` too, not only for this
+multi-line final row, in ``outline``/``context`` too, not only for this
 feature's own use of it. Fixed by also extending through a grid table's own
 bare ``|``-led continuation lines before looking for the border (no other
 RST construct produces one immediately following confirmed table content).
@@ -1741,13 +1845,15 @@ Parser/range invariants and canonical-tree divergence are reported separately
 as ``source-model`` and ``semantic-proof`` errors/refusals.  They never escape
 as a traceback and never authorize a guessed rewrite.
 
-***************************************************
-Declined, with reasons — counter-evidence welcome
-***************************************************
+***********************************************************
+Declined decisions and reasons — counter-evidence welcome
+***********************************************************
 
 ===========================
 Grid table auto-alignment
 ===========================
+
+*Current status: declined; counter-evidence welcome.*
 
 This project's house style is ``list-table`` precisely because it needs no
 character arithmetic; building an aligner for a syntax the workflow avoids is
@@ -1758,6 +1864,8 @@ grid tables needing fixes.
 Similarity-ranked hierarchy suggestions
 =========================================
 
+*Current status: declined as semantic judgment.*
+
 ("where should OAuth2 go") — semantic similarity is the AI's half of the
 contract by the tool's founding principle; the parser's half is already
 ``--outline``.
@@ -1766,6 +1874,8 @@ contract by the tool's founding principle; the parser's half is already
 Cross-page content consistency
 ================================
 
+*Current status: declined as semantic judgment.*
+
 ("PUT documented here, missing there") — reasoning about meaning, not
 structure.
 
@@ -1773,12 +1883,18 @@ structure.
 Navigation/search
 ===================
 
+*Current status: declined; existing search plus structural queries cover the
+observed need.*
+
 ("where is MQTT discussed") — ``git grep`` across the journal's full history
 plus ``--outline`` for context already covers it.
 
 ===============================
 Min/max-frequent word display
 ===============================
+
+*Current status: declined at the raw Phase 0 layer; the useful prose-level
+alternative is shipped.*
 
 (evaluated 2026-07-19, by probe): the min end is degenerate — 73% of the June
 corpus vocabulary occurs exactly once, so "the least frequent word" is an
@@ -1795,12 +1911,15 @@ decline stands for the raw Phase 0 layer, where it belongs.
 Splitting ``_helpers.py`` into smaller domain modules
 =======================================================
 
+*Current status: declined without a stronger cohesion or growth trigger.*
+
 (evaluated 2026-08-10, from the 8-agent review of the interrupted-period
-work, f0676f0..ba4813d, which called it a "dumping ground"): checked by
-line count first — at 750 lines it is not actually an outlier, sitting
-below 6 of the other 11 ``cli/`` modules (``_pipeline.py`` 808,
-``_list_table.py`` 818, ``_sphinx.py`` 819, ``_formatting.py`` 984,
-``_reports.py`` 1036, ``_document.py`` 1058).  The real complaint is
+work, f0676f0..ba4813d, which called it a "dumping ground"): the historical
+snapshot put it at 750 lines, below 6 of the other 11 ``cli/`` modules.  The
+2026-08-12 refresh reaches the same conclusion: 905 lines, below 6 of the
+other 12 modules (``_pipeline.py`` 937, ``_formatting.py`` 1012,
+``_reports.py`` 1227, ``_document.py`` 1287, ``_sphinx.py`` 1313, and
+``__init__.py`` 1411).  The real complaint is
 cohesion, not size: it mixes six unrelated concerns (Git operations,
 adornment/hierarchy policy constants, source hygiene/normalization,
 title-block iteration, doctree-node helpers, enum-marker rendering)
