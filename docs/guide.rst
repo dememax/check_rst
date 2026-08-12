@@ -1224,6 +1224,103 @@ even defined on ``diff``'s own parser) reject it: truncated JSON must
 not become invalid or look complete, and a truncated patch must not look
 applicable.
 
+===========================================
+Reducing output without hiding the result
+===========================================
+
+This is not a fourth verbosity level.  Verbosity changes how much narration
+accompanies the same query; most useful reductions instead ask a smaller,
+well-defined question of the document model.  Output grows along independent
+axes: selected files, progress narration, structural breadth, entry kinds and
+depths, diagnostic volume, and mutation candidates.  Choose the control that
+matches the axis.  A shorter answer is trustworthy only when its omitted
+information is either irrelevant to that question or explicitly counted.
+
+.. list-table:: Output-reduction axes
+   :header-rows: 1
+   :widths: 18 27 28 27
+
+   * - Axis
+     - Control
+     - What remains authoritative
+     - What is deliberately omitted
+   * - Progress narration
+     - ``--quiet`` on ``check``, ``fix``, ``outline``, or ``list-table``
+     - Findings, requested reports or previews, final summary, and exit status
+     - Phase banners, progress notices, config echo, and optional statistics
+   * - Structural kinds and depth
+     - ``outline --sections-only`` and/or ``--outline-depth N``
+     - Whole-document legends, subtree counts, and an explicit hidden-entry
+       count
+     - Leaf kinds and/or entries below the requested depth
+   * - Navigation expansion
+     - ``--no-toctree`` on ``check``, ``outline``, or ``context``
+     - The selected source document's own structure and includes
+     - Structure reached only by following its toctree edges
+   * - One known entry
+     - ``context ENTRY FILE``, optionally with ``--no-toctree``
+     - Exact range, path, immediate relatives, anchored findings, and
+       references for the selected entry
+     - Unrelated entries elsewhere in the effective document
+   * - Hard text budget
+     - ``--max-output-lines N`` on ``check``, ``fix``, or ``outline``
+     - Complete validation, exit status, final summary, and classified counts
+       of hidden detail
+     - Detail lines beyond the retained prefix
+   * - Table conversion candidates
+     - ``list-table --only N`` and/or ``--skip N``
+     - A complete diff or write result for the selected table scope
+     - Conversions outside that explicitly requested scope
+   * - File selection
+     - Explicit files, ``--git-scope``, or ``--recursive --exclude PATTERN``
+     - The documented whole-file or changed-line contract for selected files
+     - Unselected files; this changes audit scope, not just presentation
+
+The safest escalation order is therefore semantic before positional:
+
+1. Ask only for the needed product.  Use ``outline`` for structure,
+   ``context`` for one entry, ``refs`` for reference relationships, and
+   ``hierarchy`` for the adornment ranking instead of extracting those facts
+   from a complete ``check`` report.
+2. Remove narration with ``--quiet``.  This is the only general reduction
+   that preserves every diagnostic line and the complete status.
+3. Bound structural breadth with ``--sections-only``, ``--outline-depth``, or
+   ``--no-toctree`` when the omitted branch is outside the question.  For an
+   index page whose toctree reaches a whole documentation set, the last flag
+   is the difference between "this file" and "the effective navigation
+   subtree" — neither answer is universally correct.
+4. Use ``--max-output-lines`` only when the caller has a hard context budget.
+   It is safe as a validation result, not lossless as a transcript: inspect
+   the reported suppressed classes and rerun with the stated full-output
+   limit or a narrower semantic query when hidden detail matters.
+
+For example::
+
+    # Every diagnostic and the final status, without progress narration.
+    check_rst check --quiet docs/guide.rst
+
+    # This physical file's section tree, without leaves or toctree descendants.
+    check_rst outline --sections-only --no-toctree docs/index.rst
+
+    # One exact entry, without expanding navigation below the selected file.
+    check_rst context --no-toctree 'guide:Piping anti-patterns' docs/guide.rst
+
+    # A complete validation whose omitted detail remains counted and visible.
+    check_rst check --quiet --max-output-lines 40 --git-scope docs/guide.rst
+
+Do not use ``--no-warnings``, ``--skip-fixable``, ``--no-adornments``,
+``--no-directives``, or ``--fast`` as generic verbosity controls.  They change
+which findings or phases exist in the result.  They are valid only when an
+errors-only, non-fixable-only, or deliberately reduced-phase question was
+actually requested.
+
+Some outputs are atomic and consequently have no line-budget option.
+``check --format=json`` and ``diff-json`` must remain valid complete data;
+``diff`` and ``list-table`` previews must remain complete patches; ``refs``,
+``context``, and ``hierarchy`` are purpose-specific answers for which no line
+budget is defined.  Use ``--quiet`` where the command supports it, but never
+manufacture a partial JSON object or patch with ``head`` or ``tail``.
+
 ======================
 Piping anti-patterns
 ======================
