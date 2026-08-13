@@ -1199,10 +1199,7 @@ def _findings_from_sphinx_output(
         if m:
             p = pathlib.Path(m.group("path")).resolve()
             if p in explicit:
-                try:
-                    rel = p.relative_to(root)
-                except ValueError:
-                    rel = p
+                rel = _relative_to_root(p, root) or p
                 line = m.group("line")
                 findings.append(
                     Finding(
@@ -1222,13 +1219,9 @@ def _is_sphinx_fixable_duplicate(
     """Return whether Sphinx merely restated a suppressed fixable defect."""
     if not any(message in finding.text for message in _FIXABLE_SPHINX_MESSAGES):
         return False
-    root = project_root.resolve()
     for path in suppressed_paths:
         resolved = path.resolve()
-        try:
-            displayed = resolved.relative_to(root)
-        except ValueError:
-            displayed = resolved
+        displayed = _relative_to_root(resolved, project_root) or resolved
         if finding.text.startswith(f"{displayed}: "):
             return True
     return False

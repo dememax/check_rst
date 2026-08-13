@@ -332,6 +332,18 @@ def test_cli_json_no_warnings_filters_sphinx_findings(
     assert data.get("sphinx_findings", []) == []
 
 
+@pytest.mark.unit
+def test_docname_id_outside_project_root_falls_back_to_stem(tmp_path: Path) -> None:
+    """A path outside the selected project root must fall back to its
+    bare filename stem (no extension, no directory), not raise."""
+    project_root = tmp_path / "proj"
+    outside = tmp_path / "elsewhere" / "notes.rst"
+
+    result = _reports._docname_id(outside, project_root)
+
+    assert result == "notes"
+
+
 @pytest.mark.integration
 def test_cli_json_stable_section_ids(
     rst_repo: Path,

@@ -374,11 +374,8 @@ def _docname_id(path: pathlib.Path, project_root: pathlib.Path | None = None) ->
     """Stable document name for section ids: path relative to the project
     root, without extension — the autosectionlabel prefix convention."""
     root = _helpers.PROJECT_ROOT if project_root is None else project_root
-    try:
-        rel = path.resolve().relative_to(root.resolve())
-    except ValueError:
-        return path.stem
-    return str(rel.with_suffix(""))
+    relative = _helpers._relative_to_root(path.resolve(), root)
+    return str(relative.with_suffix("")) if relative is not None else path.stem
 
 
 def _json_file_model(

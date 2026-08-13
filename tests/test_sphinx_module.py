@@ -41,6 +41,19 @@ def test_tracking_include_uses_docutils_version_native_clip_identity(tmp_path: P
     ) == str(source)
 
 
+@pytest.mark.unit
+def test_normalise_source_outside_source_root_falls_back_to_absolute_path(tmp_path: Path) -> None:
+    """A node's own recorded source can legitimately sit outside the
+    configured source_root (e.g. an include pulling from outside the
+    project tree) — must report the resolved absolute path, not raise."""
+    outside = tmp_path / "outside" / "file.rst"
+    source_root = tmp_path / "docs"
+
+    result = _composition._normalise_source(str(outside), source_root)
+
+    assert result == str(outside.resolve())
+
+
 @pytest.mark.integration
 def test_clip_span_unknown_encoding_hits_unparenthesized_except(tmp_path: Path) -> None:
     """Regression coverage for _clip_span's PEP 758 unparenthesized

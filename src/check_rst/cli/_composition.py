@@ -13,7 +13,7 @@ import docutils.nodes
 from docutils.parsers.rst import Directive, directives
 from docutils.parsers.rst.directives.misc import Include as DocutilsInclude
 
-from ._helpers import _normalize_source, _read_source
+from ._helpers import _normalize_source, _read_source, _relative_to_root
 from ._types import IncludeSite, SourceOrigin, SourceProvenance
 
 if TYPE_CHECKING:
@@ -356,11 +356,9 @@ def mark_source_read_after(app: object, docname: str, source: list[str]) -> None
 def _normalise_source(source: str, source_root: pathlib.Path) -> str:
     if source.startswith("<") and source.endswith(">"):
         return source
-    path = pathlib.Path(source)
-    try:
-        return str(path.resolve().relative_to(source_root.resolve()))
-    except ValueError:
-        return str(path.resolve())
+    resolved = pathlib.Path(source).resolve()
+    relative = _relative_to_root(resolved, source_root)
+    return str(relative) if relative is not None else str(resolved)
 
 
 def _source_origin(source: str) -> SourceOrigin:
