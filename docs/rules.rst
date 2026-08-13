@@ -421,11 +421,13 @@ affects exit status; deciding the page title remains an author judgment, so
 ``fix`` must not choose one.  ``--skip-fixable`` suppresses only findings
 explicitly owned by deterministic mutation and therefore retains this ERROR.
 
-The diagnostic gives a bounded repair *shape*, not a semantic answer: choose
-the page title, insert it before the existing sections with a nine-character
-underline using an adornment symbol unused anywhere in the effective document,
-then run ``check_rst fix``.  The new symbol establishes a new outer level;
-``fix`` materializes the canonical overline, underline width, and hierarchy.
+The diagnostic gives a bounded repair *shape*, not a semantic answer.  Run
+``check_rst outline --sections-only FILE``: after its section total, the
+``levels:`` legend reports the next free section character from check_rst's
+canonical hierarchy.  Choose the page title, insert it before the existing
+sections with a nine-character underline using that character, then run
+``check_rst fix``.  The new symbol establishes a new outer level; ``fix``
+materializes the canonical overline, underline width, and hierarchy.
 
 The rule consumes the parsed section tree rather than guessing from the root
 file's first adornment character.  Standard ``include`` content therefore

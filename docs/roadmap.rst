@@ -519,7 +519,8 @@ Single top-level heading enforcement
 ======================================
 
 *Current status: shipped. Source-only WARNING implemented 2026-07-26;
-effective ERROR completed 2026-08-11.*
+effective ERROR completed 2026-08-11; remediation lookup completed
+2026-08-13.*
 
 (Max, 2026-07-23: "the level-1 heading can only be one — it represents the
 document's title") — confirmed live before implementation that a document with
@@ -534,11 +535,12 @@ active for the Phase 3 HTML builder.  Foreign physical sources are reported
 directly; transformed and synthetic sources use line 0 rather than a fabricated
 edit coordinate.
 
-The once-per-run hint gives the accepted repair shape: insert the chosen page
-title before the existing sections with a nine-character underline made from
-an adornment symbol unused in the effective document, then run ``check_rst
-fix``.  See "A second top-level title is legal RST and a real defect" in
-:doc:`rules` for the full rationale and the real HTML-toctree defect.
+The once-per-run hint gives the accepted repair shape and points at ``outline``:
+its ``levels:`` legend reports the next free section character after the total.
+Insert the chosen page title before the existing sections with a nine-character
+underline made from that character, then run ``check_rst fix``.  See "A second
+top-level title is legal RST and a real defect" in :doc:`rules` for the full
+rationale and the real HTML-toctree defect.
 
 ======================================
 Homoglyph / mixed-alphabet detection
@@ -937,7 +939,8 @@ offset, same fix class as the not-a-git-repo diagnostic.
 Top prose words
 =================
 
-*Current status: shipped 2026-07-19.*
+*Current status: shipped 2026-07-19; next-free-character guidance added
+2026-08-13.*
 
 (Max) — the meaningful frequency statistic the raw layer couldn't provide, from
 existing dependencies only, after a four-domain scan: the Python stdlib has no
@@ -1023,7 +1026,10 @@ folded into a single ``levels:`` legend carrying the depth→char mapping and
 per-level section counts — the mapping is constant within a document (docutils
 fixes a char's level at first appearance), so repeating it per entry was noise;
 depth stays recoverable from a lone grepped line via its 4-spaces-per-level
-indentation.
+indentation.  The legend now also reports the first free character, chosen in
+check_rst's canonical order, after the section total, or explicitly reports
+that none is free.  This turns the formerly manual set subtraction needed for a
+new outer level into deterministic output.
 
 ==============================
 Summary line and ``--quiet``
@@ -1319,7 +1325,7 @@ its position is local to the file being outlined.  See the resolved provenance
 case under "Implementation" below::
 
     Outline: index.rst
-      levels: 1 '=' (1), 2 '-' (2), 3 sections total
+      levels: 1 '=' (1), 2 '-' (2), 3 sections total; next free section char: '#'
       blocks: 2 toctrees
       1-20:= Index [2 subsections, 2 toctrees]
           6-15:- Section A [2 toctrees]
@@ -1391,7 +1397,7 @@ own fixed property regardless (the same "trims display, never information"
 contract already established, not a special case for this feature)::
 
     Outline: index.rst
-      levels: 1 '=' (1), 2 '-' (2), 3 sections total
+      levels: 1 '=' (1), 2 '-' (2), 3 sections total; next free section char: '#'
       1-20:= Index [2 subsections, 2 toctrees]
           6-15:- Section A [2 toctrees]
               sub1:1-13:= Sub One [1 subsection]

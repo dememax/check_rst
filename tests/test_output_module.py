@@ -11,10 +11,57 @@ import pytest
 from _support import _BAD_BLOCK, _GOOD_BLOCK
 
 from check_rst import cli
-from check_rst.cli import _output, _types
+from check_rst.cli import _helpers, _output, _types
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+@pytest.mark.unit
+def test_outline_levels_legend_chooses_first_free_char_in_canonical_order(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    entries: list[_types.MergedEntry] = [
+        _types.OutlineEntry(1, 1, "#", "Root"),
+        _types.OutlineEntry(2, 2, "=", "Sub"),
+    ]
+
+    _output._print_outline_entries(entries, None, False, sections_only=True)
+
+    legend = capsys.readouterr().out.splitlines()[0]
+    assert legend.endswith("2 sections total; next free section char: '*'")
+
+
+@pytest.mark.unit
+def test_outline_levels_legend_reports_when_every_section_char_is_used(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    entries: list[_types.MergedEntry] = [
+        _types.OutlineEntry(index, index, char, f"Level {index}")
+        for index, char in enumerate(_helpers.HIERARCHY, start=1)
+    ]
+
+    _output._print_outline_entries(entries, None, False, sections_only=True)
+
+    legend = capsys.readouterr().out.splitlines()[0]
+    assert legend.endswith(f"{len(_helpers.HIERARCHY)} sections total; no free section char")
+
+
+@pytest.mark.unit
+def test_second_top_level_title_hint_points_to_outline_legend(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _output._hints_shown.clear()
+    finding = _types.Finding(
+        2,
+        _types.Severity.ERROR,
+        "second effective top-level title 'Second'",
+    )
+
+    assert _output._print_findings([finding], "doc.rst", no_warnings=False) == (1, 0)
+
+    output = capsys.readouterr().out
+    assert "check_rst outline's levels legend reports the next free section char" in output
 
 
 @pytest.mark.unit

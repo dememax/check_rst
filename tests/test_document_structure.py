@@ -1032,7 +1032,7 @@ def test_cli_outline_legend_shows_total_sections(
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
-    assert "levels: 1 '#' (1), 2 '*' (2), 3 '=' (1), 4 sections total" in out
+    assert ("levels: 1 '#' (1), 2 '*' (2), 3 '=' (1), 4 sections total; next free section char: '-'") in out
 
 
 @pytest.mark.integration

@@ -894,8 +894,13 @@ bold prose.
     check_rst --sphinx-src . --build-dir /tmp/repo-sphinx-build outline --with-findings <file>
 
 prints a ``levels:`` legend — each depth with its adornment character
-and section count, plus the document's total section count, stated
-once since the mapping is constant within a document — then a
+and section count, plus the document's total section count and the first
+free character chosen in check_rst's canonical order (or an explicit
+``no free section char`` when all valid characters are present), stated
+once since the mapping is constant within a document.  That final field
+answers which character can introduce a new outer level without manually
+subtracting the observed set; it is also the remediation lookup for a
+``second effective top-level title`` ERROR.  The outline then prints a
 ``blocks:`` line totalling code-blocks, blockquotes, and tables
 document-wide (omitted when the document has none of them) — then
 every heading as a line **range** and title, indented 4 spaces per
@@ -1135,10 +1140,11 @@ were pure repeated noise after the first read.
        at all)
 
 The ``levels:`` legend is the one deliberate exception folded *into*
-the default rather than promoted out of it: section structure is core
-information an AI orients by on every read, not verbose detail — it
-was already unconditional whenever ``outline`` ran, and stays that
-way.  ``blocks:`` — one line, but strictly a summary the entries below
+the default rather than promoted out of it: section structure and its
+next free character are core information an AI orients by on every read,
+not verbose detail — the legend was already unconditional whenever
+``outline`` ran, and stays that way.  ``blocks:`` — one line, but strictly a
+summary the entries below
 it already contain — is the one demoted alongside the genuinely
 detailed lines.
 

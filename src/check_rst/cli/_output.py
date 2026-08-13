@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from typing import TextIO
 
 
+from ._helpers import HIERARCHY
 from ._types import (
     AdmonitionEntry,
     BlockQuoteEntry,
@@ -242,11 +243,14 @@ def _print_outline_entries(
             n_lists += 1
     if level_chars:
         total_sections = sum(level_counts.values())
+        used_chars = {char for chars in level_chars.values() for char in chars}
+        next_free = next((char for char in HIERARCHY if char not in used_chars), None)
         legend = ", ".join(
             f"{depth} " + "/".join(repr(c) for c in chars) + f" ({level_counts[depth]})"
             for depth, chars in sorted(level_chars.items())
         )
-        print(f"  levels: {legend}, {total_sections} {_plural(total_sections, 'section')} total")
+        free_hint = f"next free section char: {next_free!r}" if next_free is not None else "no free section char"
+        print(f"  levels: {legend}, {total_sections} {_plural(total_sections, 'section')} total; {free_hint}")
     if verbose and (
         n_code
         or n_quotes
@@ -412,8 +416,9 @@ _FINDING_HINTS: tuple[tuple[str, str], ...] = (
     ("standalone bold line ", "verify it is not substituting a section title (bold is for inline emphasis only)"),
     (
         "second effective top-level title ",
-        "choose the page title, insert it before the existing sections with a nine-character underline "
-        "using an adornment symbol unused in the effective document, then run check_rst fix",
+        "check_rst outline's levels legend reports the next free section char (the first unused char in "
+        "canonical order); choose the page title, insert it before the existing sections with a "
+        "nine-character underline using that char, then run check_rst fix",
     ),
 )
 

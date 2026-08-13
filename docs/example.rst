@@ -98,13 +98,13 @@ Analysis: the structure oracle
 adds the ``blocks:``/``lines:``/``words:``/top-and-rare-prose-words level-2
 lines the main guide's "Verbosity levels" section describes; ``levels:`` and
 the entries themselves would already be there without it.  This transcript was
-regenerated on 2026-07-30 with Python 3.14.6, Sphinx 9.1.0, docutils 0.23, and
+regenerated on 2026-08-13 with Python 3.14.6, Sphinx 9.1.0, docutils 0.23, and
 snowballstemmer 3.1.1.  The top/rare-word tail depends on Sphinx's stopword
 tables and snowballstemmer and must be regenerated, not copied as a stable
 golden value, when that runtime changes::
 
     Outline: station.rst
-      levels: 1 '#' (1), 2 '*' (2), 3 sections total
+      levels: 1 '#' (1), 2 '*' (2), 3 sections total; next free section char: '='
       blocks: 1 code block, 1 blockquote, 1 table
       2-41:# Weather station [2 subsections, 1 code block, 1 blockquote, 1 table]
           8-35:* Sensors [1 code block, 1 blockquote, 1 table]
