@@ -42,6 +42,51 @@ def test_tracking_include_uses_docutils_version_native_clip_identity(tmp_path: P
 
 
 @pytest.mark.integration
+def test_clip_span_unknown_encoding_hits_unparenthesized_except(tmp_path: Path) -> None:
+    """Regression coverage for _clip_span's PEP 758 unparenthesized
+    multi-except (Python 3.14 syntax, not a Python-2 typo — see the
+    comment at its definition): an unknown codec name must raise
+    LookupError from path.read_text, land in that except clause, and
+    fall back to the inexact/no-span result rather than propagating."""
+    target = tmp_path / "fragment.rst"
+    target.write_text("Body.\n", encoding="utf-8")
+
+    result = _composition._clip_span(target, {"encoding": "totally-bogus-codec-xyz"})
+
+    assert result == (0, None, False)
+
+
+@pytest.mark.integration
+def test_composition_source_lines_unknown_encoding_hits_unparenthesized_except(tmp_path: Path) -> None:
+    """Same PEP 758 except clause, the second of this module's two sites
+    (CompositionIndex.source_lines) — an include whose declared encoding
+    doesn't exist must fall back to an empty line list, not crash or
+    silently propagate LookupError."""
+    root = tmp_path / "index.rst"
+    (tmp_path / "fragment.rst").write_text("Body.\n", encoding="utf-8")
+    doctree = _helpers._parse_rst(root, "Index\n=====\n")
+    composition = _composition.CompositionIndex(doctree, root, tmp_path)
+    provenance = _types.SourceProvenance(
+        source="fragment.rst",
+        origin=_types.SourceOrigin.INCLUDE,
+        include_chain=(
+            _types.IncludeSite(
+                source="index.rst",
+                lineno=1,
+                target="fragment.rst",
+                mode="parsed",
+                options=(("encoding", "totally-bogus-codec-xyz"),),
+            ),
+        ),
+        exact=True,
+    )
+
+    lines = composition.source_lines(provenance, root, ["Index", "====="])
+
+    assert lines == []
+
+
+@pytest.mark.integration
 def test_docname_for_unreachable_file_returns_none(tmp_path: Path) -> None:
     """A file outside the Sphinx project's source tree resolves to None,
     not a crash — Phase 2 must be able to skip it gracefully."""

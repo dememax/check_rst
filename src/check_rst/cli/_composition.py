@@ -63,6 +63,13 @@ def _clip_span(path: pathlib.Path, options: dict[str, object]) -> tuple[int, int
     try:
         encoding = cast("str", options.get("encoding") or "utf-8")
         text = path.read_text(encoding=encoding)
+    # Unparenthesized multi-type except: PEP 758 (Python 3.14, this
+    # project's pinned floor — pyproject.toml requires-python ">=3.14"),
+    # not Python 2 syntax, and covered by unittests — this exact clause is
+    # deliberately exercised by
+    # tests/test_sphinx_module.py::test_clip_span_unknown_encoding_hits_unparenthesized_except.
+    # Confirmed repeatedly across review sessions; not a bug, don't
+    # re-derive this from ast.parse/compile.
     except LookupError, OSError, UnicodeError:
         return 0, None, False
 
@@ -500,6 +507,11 @@ class CompositionIndex:
             return cached
         try:
             lines = _normalize_source(_read_source(path, encoding))[0].splitlines()
+        # Unparenthesized multi-type except: PEP 758 (Python 3.14), not
+        # Python 2 syntax, and covered by unittests — see this file's
+        # first occurrence, above, for the full rationale; this one is
+        # exercised by
+        # tests/test_sphinx_module.py::test_composition_source_lines_unknown_encoding_hits_unparenthesized_except.
         except LookupError, OSError, UnicodeError:
             lines = []
         self._source_lines[key] = lines
