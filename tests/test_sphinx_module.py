@@ -1539,6 +1539,26 @@ def test_verified_include_cycle_is_visible_in_composition_entries(tmp_path: Path
 
 
 @pytest.mark.integration
+def test_missing_include_target_is_not_misreported_as_a_cycle(tmp_path: Path) -> None:
+    """The reactive branch reads Docutils' own live clip_options/include_log
+    instead of matching its diagnostic's wording — confirm it doesn't
+    false-positive on some *other* DirectiveError a failed include raises
+    (a missing target), only on a genuine circular inclusion."""
+    (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
+    index = tmp_path / "index.rst"
+    index.write_text("Index\n=====\n\n.. include:: nonexistent.rst\n", encoding="utf-8")
+
+    env, warnings = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
+    document = _document.Document(index, tmp_path)
+    includes = _sphinx.find_includes(env, "index", document)
+
+    assert "nonexistent.rst" in warnings
+    assert len(includes) == 1
+    assert includes[0].target == "nonexistent.rst"
+    assert includes[0].cycle is None
+
+
+@pytest.mark.integration
 def test_include_cycle_identity_allows_disjoint_clip_of_active_source(tmp_path: Path) -> None:
     """Filename alone is not a cycle: Docutils keys the active edge by clipping too."""
     (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")

@@ -223,15 +223,25 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
             pass
         try:
             result = list(base_run(self))
-        except Exception as exc:
-            # docutils raises DirectiveError(level, message) via
-            # Exception.__init__(self) with no args, so str(exc) is always
-            # '' — the real text lives in .msg (confirmed against docutils'
-            # own states.Body.run_directive, which itself only ever reads
-            # .msg). getattr(...) falls back to str(exc) for any other
-            # exception type, so no DirectiveError import is needed here.
-            message = " ".join(str(getattr(exc, "msg", exc)).splitlines())
-            if "circular inclusion" in message:
+        except Exception:
+            # Read Docutils' own live decision data instead of matching its
+            # diagnostic's English wording (which it never promises to keep
+            # stable): self.clip_options is set at the very top of Include's
+            # run(), long before its own include_log cycle check, and stays
+            # a plain instance attribute on this same `self` whether run()
+            # returned or raised (confirmed by reading both supported
+            # Docutils versions directly, and by a live trace of a real
+            # cycle). A hit here can only mean a genuinely still-active
+            # ancestor (include_log entries are pushed on include-start,
+            # popped on include-end), so there is no false-positive risk.
+            # getattr(..., None) guards the one path where clip_options was
+            # never set (file_insertion_enabled=False, raised earlier) —
+            # skipping the cycle check there is correct, since that error
+            # can't be a circular inclusion.
+            clip_options = getattr(self, "clip_options", None)
+            if clip_options is not None and _active_include_cycle(
+                resolved_identity, clip_options, _document_include_log(self.state.document)
+            ):
                 record["cycle"] = raw_target
             record["exact"] = False
             raise
