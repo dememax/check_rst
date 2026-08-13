@@ -36,7 +36,8 @@ The following capabilities are implemented and protected by tests:
 * Short underline-only title recognition, parsed composition provenance,
   effective single-title enforcement, homoglyph detection, missing document or
   local-asset integration, and nested-inline detection.
-* ``diff-json`` section/finding comparison.
+* ``diff-json`` section/finding comparison, including separate section
+  adornment, depth, parent, sibling-order, and topology facts.
 * Trailing-whitespace normalization, opt-in blank-line normalization, and
   opt-in title/prose spacing policies.
 * Footer statistics, top/rare prose words, entry ranges, outline enrichment,
@@ -484,9 +485,11 @@ id, findings by ``(severity, text)`` — deliberately never by line number, whic
 drifts with any unrelated edit elsewhere in the file (a finding that merely
 shifted lines must never show up as both resolved and added).  Reports, per
 changed file, which section ids were added/removed and whether any surviving
-section's depth or adornment character changed ("added subsection, hierarchy
-unchanged" is the literal shape of the report, not just the idea), plus which
-findings are new versus resolved.  Logged 2026-07-18, independently
+section's adornment, depth, derived parent, or relative sibling order changed,
+plus which findings are new versus resolved.  Since 2026-08-13, topology means
+the section set and its ordered parent/child graph: an added subsection changes
+topology, while an adornment-only change explicitly leaves topology unchanged.
+Logged 2026-07-18, independently
 re-confirmed 2026-07-21 by a real downstream-project session hitting the exact gap this
 closes: "several times this session I rewrote a whole file... and had to
 manually eyeball 'same warning count, same categories as before' rather than
@@ -646,8 +649,8 @@ gates, integration mechanisms, and deliberate silence conditions.
 Semantic-diff coverage below the section level
 ================================================
 
-*Current status: accepted and promoted to planned work 2026-08-13; staged
-implementation has not started.*
+*Current status: accepted and promoted to planned work 2026-08-13; stage 1
+shipped the same day, stages 2–7 remain planned.*
 
 (Max, 2026-07-24, from the same illustrative example that reconfirmed
 ``diff-json``'s own value: "moved code block", "added one cross-reference") —
@@ -851,13 +854,14 @@ tests before the full suite and strict Ruff/mypy checks; exercise both supported
 Docutils endpoints and parser/Sphinx modes wherever the new fingerprint depends
 on them.
 
-#. Separate section representation from topology.  Replace the present
-   combined ``hierarchy_changed`` fact with adornment, depth, parent, and order
-   changes.  Derive the ordered parent graph from the outline stream.  Protect
-   adornment-only, depth/reparent, sibling reorder, addition/removal, duplicate
-   title, and unchanged cases.  This stage must be able to say "adornment
-   changed; topology unchanged" without claiming that a changed depth is merely
-   presentation.
+#. Shipped 2026-08-13: separate section representation from topology.
+   ``diff-json`` now reports adornment, depth, derived parent, and relative
+   sibling-order changes independently.  Additions/removals change topology;
+   an inserted sibling does not falsely reorder survivors; and an
+   adornment-only change says "topology unchanged".  Unit coverage protects
+   depth/reparenting, sibling reorder, addition, duplicate-title ids, and the
+   unchanged case; a real paired-snapshot CLI regression protects the
+   adornment-only predicate.
 #. Add Git state selection and hunk ownership.  Introduce ``compare`` with the
    HEAD/index/worktree and revision pairs above; retain snapshot input as one
    adapter to the same core.  Use pygit2 facts rather than parsing Git's text

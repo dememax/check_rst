@@ -1177,39 +1177,166 @@ def test_diff_json_dumps_summary_deltas() -> None:
 
 
 @pytest.mark.unit
-def test_diff_json_dumps_outline_added_section_hierarchy_unchanged() -> None:
-    """The doc's own worked example: 'added subsection, hierarchy
-    unchanged' — a new section id appears, but every surviving section
-    keeps its (depth, char)."""
+def test_diff_json_dumps_added_section_changes_topology_without_reordering_survivors() -> None:
+    """An insertion changes the section set, but does not reorder every
+    surviving sibling merely because its absolute ordinal shifted."""
     old = _json_dump(
         outline=[
             {"id": "doc:Title", "depth": 1, "char": "#", "title": "Title"},
-            {"id": "doc:Sub", "depth": 2, "char": "*", "title": "Sub"},
+            {"id": "doc:A", "depth": 2, "char": "*", "title": "A"},
+            {"id": "doc:B", "depth": 2, "char": "*", "title": "B"},
         ]
     )
     new = _json_dump(
         outline=[
             {"id": "doc:Title", "depth": 1, "char": "#", "title": "Title"},
-            {"id": "doc:Sub", "depth": 2, "char": "*", "title": "Sub"},
             {"id": "doc:New", "depth": 2, "char": "*", "title": "New"},
+            {"id": "doc:A", "depth": 2, "char": "*", "title": "A"},
+            {"id": "doc:B", "depth": 2, "char": "*", "title": "B"},
         ]
     )
     diff = _reports._diff_json_dumps(old, new)
     file_diff = diff["files"]["doc.rst"]
     assert file_diff["outline"]["added"] == ["doc:New"]
     assert file_diff["outline"]["removed"] == []
-    assert file_diff["outline"]["hierarchy_changed"] == []
+    assert file_diff["outline"]["adornment_changed"] == []
+    assert file_diff["outline"]["depth_changed"] == []
+    assert file_diff["outline"]["parent_changed"] == []
+    assert file_diff["outline"]["order_changed"] == []
+    assert file_diff["outline"]["topology_changed"] is True
     assert file_diff["status"] == "changed"
+    assert "outline: +1 section(s), topology changed" in _reports._format_json_diff(diff)
 
 
 @pytest.mark.unit
-def test_diff_json_dumps_hierarchy_changed_flags_the_id() -> None:
-    """A surviving section that changed depth or char is named, not just
-    flagged true/false — the reader needs to know WHICH one."""
-    old = _json_dump(outline=[{"id": "doc:Sub", "depth": 2, "char": "*", "title": "Sub"}])
-    new = _json_dump(outline=[{"id": "doc:Sub", "depth": 3, "char": "=", "title": "Sub"}])
+def test_diff_json_dumps_adornment_change_preserves_topology() -> None:
+    """Changing only the adornment character is source representation,
+    not a change to the ordered parent/child graph."""
+    old = _json_dump(outline=[{"id": "doc:Title", "depth": 1, "char": "#", "title": "Title"}])
+    new = _json_dump(outline=[{"id": "doc:Title", "depth": 1, "char": "*", "title": "Title"}])
+
     diff = _reports._diff_json_dumps(old, new)
-    assert diff["files"]["doc.rst"]["outline"]["hierarchy_changed"] == ["doc:Sub"]
+    outline = diff["files"]["doc.rst"]["outline"]
+
+    assert outline["adornment_changed"] == [{"id": "doc:Title", "old": "#", "new": "*"}]
+    assert outline["depth_changed"] == []
+    assert outline["parent_changed"] == []
+    assert outline["order_changed"] == []
+    assert outline["topology_changed"] is False
+    report = _reports._format_json_diff(diff)
+    assert "adornment changed: doc:Title ('#' -> '*')" in report
+    assert "topology unchanged" in report
+
+
+@pytest.mark.unit
+def test_diff_json_dumps_depth_and_parent_changes_are_separate_facts() -> None:
+    old = _json_dump(
+        outline=[
+            {"id": "doc:Title", "depth": 1, "char": "#", "title": "Title"},
+            {"id": "doc:A", "depth": 2, "char": "*", "title": "A"},
+            {"id": "doc:Sub", "depth": 3, "char": "=", "title": "Sub"},
+        ]
+    )
+    new = _json_dump(
+        outline=[
+            {"id": "doc:Title", "depth": 1, "char": "#", "title": "Title"},
+            {"id": "doc:A", "depth": 2, "char": "*", "title": "A"},
+            {"id": "doc:Sub", "depth": 2, "char": "*", "title": "Sub"},
+        ]
+    )
+
+    diff = _reports._diff_json_dumps(old, new)
+    outline = diff["files"]["doc.rst"]["outline"]
+
+    assert outline["adornment_changed"] == [{"id": "doc:Sub", "old": "=", "new": "*"}]
+    assert outline["depth_changed"] == [{"id": "doc:Sub", "old": 3, "new": 2}]
+    assert outline["parent_changed"] == [{"id": "doc:Sub", "old": "doc:A", "new": "doc:Title"}]
+    assert outline["order_changed"] == []
+    assert outline["topology_changed"] is True
+    report = _reports._format_json_diff(diff)
+    assert "depth changed: doc:Sub (3 -> 2)" in report
+    assert "parent changed: doc:Sub (doc:A -> doc:Title)" in report
+
+
+@pytest.mark.unit
+def test_diff_json_dumps_reparenting_at_the_same_depth_is_not_a_depth_change() -> None:
+    old = _json_dump(
+        outline=[
+            {"id": "doc:Title", "depth": 1, "char": "#", "title": "Title"},
+            {"id": "doc:A", "depth": 2, "char": "*", "title": "A"},
+            {"id": "doc:Sub", "depth": 3, "char": "=", "title": "Sub"},
+            {"id": "doc:B", "depth": 2, "char": "*", "title": "B"},
+        ]
+    )
+    new = _json_dump(
+        outline=[
+            {"id": "doc:Title", "depth": 1, "char": "#", "title": "Title"},
+            {"id": "doc:A", "depth": 2, "char": "*", "title": "A"},
+            {"id": "doc:B", "depth": 2, "char": "*", "title": "B"},
+            {"id": "doc:Sub", "depth": 3, "char": "=", "title": "Sub"},
+        ]
+    )
+
+    diff = _reports._diff_json_dumps(old, new)
+    outline = diff["files"]["doc.rst"]["outline"]
+
+    assert outline["depth_changed"] == []
+    assert outline["parent_changed"] == [{"id": "doc:Sub", "old": "doc:A", "new": "doc:B"}]
+    assert outline["order_changed"] == []
+    assert outline["topology_changed"] is True
+
+
+@pytest.mark.unit
+def test_diff_json_dumps_reports_relative_order_changes_for_surviving_siblings() -> None:
+    old = _json_dump(
+        outline=[
+            {"id": "doc:Title", "depth": 1, "char": "#", "title": "Title"},
+            {"id": "doc:A", "depth": 2, "char": "*", "title": "A"},
+            {"id": "doc:B", "depth": 2, "char": "*", "title": "B"},
+            {"id": "doc:C", "depth": 2, "char": "*", "title": "C"},
+        ]
+    )
+    new = _json_dump(
+        outline=[
+            {"id": "doc:Title", "depth": 1, "char": "#", "title": "Title"},
+            {"id": "doc:B", "depth": 2, "char": "*", "title": "B"},
+            {"id": "doc:A", "depth": 2, "char": "*", "title": "A"},
+            {"id": "doc:C", "depth": 2, "char": "*", "title": "C"},
+        ]
+    )
+
+    diff = _reports._diff_json_dumps(old, new)
+    outline = diff["files"]["doc.rst"]["outline"]
+
+    assert outline["order_changed"] == [
+        {"id": "doc:A", "parent": "doc:Title", "old": 1, "new": 2},
+        {"id": "doc:B", "parent": "doc:Title", "old": 2, "new": 1},
+    ]
+    assert outline["topology_changed"] is True
+    report = _reports._format_json_diff(diff)
+    assert "order changed: doc:A under doc:Title (1 -> 2)" in report
+    assert "order changed: doc:B under doc:Title (2 -> 1)" in report
+
+
+@pytest.mark.unit
+def test_diff_json_dumps_duplicate_title_ids_remain_distinct() -> None:
+    old = _json_dump(
+        outline=[
+            {"id": "doc:Same", "depth": 1, "char": "#", "title": "Same"},
+            {"id": "doc:Same#2", "depth": 1, "char": "#", "title": "Same"},
+        ]
+    )
+    new = _json_dump(
+        outline=[
+            {"id": "doc:Same", "depth": 1, "char": "#", "title": "Same"},
+            {"id": "doc:Same#2", "depth": 1, "char": "*", "title": "Same"},
+        ]
+    )
+
+    outline = _reports._diff_json_dumps(old, new)["files"]["doc.rst"]["outline"]
+
+    assert outline["adornment_changed"] == [{"id": "doc:Same#2", "old": "#", "new": "*"}]
+    assert outline["topology_changed"] is False
 
 
 @pytest.mark.unit
@@ -1371,6 +1498,48 @@ def test_cli_diff_json_end_to_end(
     assert "1" in out
     assert "2" in out
     assert "Another point" in out
+
+
+@pytest.mark.integration
+def test_cli_diff_json_reports_adornment_only_change_as_topology_unchanged(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    document = rst_repo / "test.rst"
+    old_path = rst_repo / "old.json"
+    new_path = rst_repo / "new.json"
+    document.write_text("#######\nTitle\n#######\n\nA\n=\n\nB\n=\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "check", "--format=json", "--no-adornments", str(document)],
+    )
+    with pytest.raises(SystemExit) as old_exit:
+        cli.main()
+    assert old_exit.value.code == 0
+    old_path.write_text(capsys.readouterr().out, encoding="utf-8")
+
+    document.write_text("*******\nTitle\n*******\n\nA\n-\n\nB\n-\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "check", "--format=json", "--no-adornments", str(document)],
+    )
+    with pytest.raises(SystemExit) as new_exit:
+        cli.main()
+    assert new_exit.value.code == 0
+    new_path.write_text(capsys.readouterr().out, encoding="utf-8")
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "diff-json", str(old_path), str(new_path)])
+    with pytest.raises(SystemExit) as diff_exit:
+        cli.main()
+
+    assert diff_exit.value.code == 0
+    out = capsys.readouterr().out
+    assert "outline: topology unchanged" in out
+    assert "adornment changed: test:Title ('#' -> '*')" in out
+    assert "adornment changed: test:A ('=' -> '-')" in out
+    assert "adornment changed: test:B ('=' -> '-')" in out
 
 
 @pytest.mark.integration

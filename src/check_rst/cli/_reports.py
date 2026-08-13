@@ -1076,6 +1076,42 @@ def _load_json_dump(path: pathlib.Path) -> dict[str, Any]:
     return data
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class _SectionState:
+    """Comparison facts for one stable section id.
+
+    Parentage comes from the ordered depth stream, not from adornment
+    characters: changing the source convention must not become a topology
+    change.  The nearest preceding shallower section is the parent, which also
+    keeps malformed/gapped third-party snapshots deterministic rather than
+    indexing an assumed depth stack.
+    """
+
+    depth: int
+    char: str
+    parent: str | None
+
+
+def _section_states(
+    entries: list[dict[str, Any]],
+) -> tuple[dict[str, _SectionState], dict[str | None, list[str]]]:
+    """Derive per-section state and ordered siblings from an outline stream."""
+    states: dict[str, _SectionState] = {}
+    children: dict[str | None, list[str]] = collections.defaultdict(list)
+    ancestors: list[tuple[int, str]] = []
+    for entry in entries:
+        section_id = cast("str", entry["id"])
+        depth = cast("int", entry["depth"])
+        char = cast("str", entry["char"])
+        while ancestors and ancestors[-1][0] >= depth:
+            ancestors.pop()
+        parent = ancestors[-1][1] if ancestors else None
+        states[section_id] = _SectionState(depth=depth, char=char, parent=parent)
+        children[parent].append(section_id)
+        ancestors.append((depth, section_id))
+    return states, children
+
+
 def _diff_json_dumps(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     """Structured semantic diff between two --json dumps (--diff-json).
 
@@ -1089,6 +1125,8 @@ def _diff_json_dumps(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]
     findings by (severity, text).  Deliberately NOT by line number: an
     unrelated earlier edit shifts every line after it, which would
     otherwise show every surviving finding as both resolved and added.
+    Section topology is the section set plus its ordered parent graph;
+    adornment characters are a separate source-representation fact.
     """
     provenance_keys = ("schema_version", "mode", "runtime")
     provenance_changed = [key for key in provenance_keys if old.get(key) != new.get(key)]
@@ -1112,16 +1150,53 @@ def _diff_json_dumps(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]
             files_diff[path] = {"status": "added"}
             continue
         o, n = old_files[path], new_files[path]
-        old_outline = {e["id"]: e for e in o.get("outline", [])}
-        new_outline = {e["id"]: e for e in n.get("outline", [])}
+        old_entries = cast("list[dict[str, Any]]", o.get("outline", []))
+        new_entries = cast("list[dict[str, Any]]", n.get("outline", []))
+        old_outline, old_children = _section_states(old_entries)
+        new_outline, new_children = _section_states(new_entries)
+        common_ids = set(old_outline) & set(new_outline)
         added_ids = sorted(set(new_outline) - set(old_outline))
         removed_ids = sorted(set(old_outline) - set(new_outline))
-        changed_ids = sorted(
-            oid
-            for oid in (set(old_outline) & set(new_outline))
-            if (old_outline[oid]["depth"], old_outline[oid]["char"])
-            != (new_outline[oid]["depth"], new_outline[oid]["char"])
-        )
+        adornment_changed = [
+            {"id": oid, "old": old_outline[oid].char, "new": new_outline[oid].char}
+            for oid in sorted(common_ids)
+            if old_outline[oid].char != new_outline[oid].char
+        ]
+        depth_changed = [
+            {"id": oid, "old": old_outline[oid].depth, "new": new_outline[oid].depth}
+            for oid in sorted(common_ids)
+            if old_outline[oid].depth != new_outline[oid].depth
+        ]
+        parent_changed = [
+            {"id": oid, "old": old_outline[oid].parent, "new": new_outline[oid].parent}
+            for oid in sorted(common_ids)
+            if old_outline[oid].parent != new_outline[oid].parent
+        ]
+
+        # Compare positions only among surviving siblings whose parent also
+        # survived unchanged.  An inserted sibling can shift absolute ordinals
+        # without reordering any existing pair; a reparented section already
+        # has its own exact fact and must not manufacture a second order fact.
+        comparable_ids = {oid for oid in common_ids if old_outline[oid].parent == new_outline[oid].parent}
+        order_changed: list[dict[str, str | int | None]] = []
+        for parent, old_siblings in old_children.items():
+            old_order = [oid for oid in old_siblings if oid in comparable_ids]
+            new_order = [oid for oid in new_children.get(parent, []) if oid in comparable_ids]
+            if old_order == new_order:
+                continue
+            old_positions = {oid: position for position, oid in enumerate(old_order, start=1)}
+            new_positions = {oid: position for position, oid in enumerate(new_order, start=1)}
+            order_changed.extend(
+                {
+                    "id": oid,
+                    "parent": parent,
+                    "old": old_positions[oid],
+                    "new": new_positions[oid],
+                }
+                for oid in old_order
+                if old_positions[oid] != new_positions[oid]
+            )
+        topology_changed = bool(added_ids or removed_ids or depth_changed or parent_changed or order_changed)
 
         def finding_key(f: dict[str, Any]) -> tuple[str, str]:
             return (f["severity"], f["text"])
@@ -1132,13 +1207,17 @@ def _diff_json_dumps(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]
         resolved_findings = list((old_findings - new_findings).elements())
         error_changed = o.get("error") != n.get("error")
 
-        changed = bool(added_ids or removed_ids or changed_ids or added_findings or resolved_findings or error_changed)
+        changed = bool(topology_changed or adornment_changed or added_findings or resolved_findings or error_changed)
         files_diff[path] = {
             "status": "changed" if changed else "unchanged",
             "outline": {
                 "added": added_ids,
                 "removed": removed_ids,
-                "hierarchy_changed": changed_ids,
+                "adornment_changed": adornment_changed,
+                "depth_changed": depth_changed,
+                "parent_changed": parent_changed,
+                "order_changed": order_changed,
+                "topology_changed": topology_changed,
             },
             "findings": {
                 "added": [{"severity": s, "text": t} for s, t in added_findings],
@@ -1195,22 +1274,37 @@ def _format_json_diff(diff: dict[str, Any]) -> str:
 
         lines.append(f"\n{path}: changed")
         outline = fd["outline"]
-        if outline["added"] or outline["removed"] or outline["hierarchy_changed"]:
+        outline_changed = bool(
+            outline["added"]
+            or outline["removed"]
+            or outline["adornment_changed"]
+            or outline["depth_changed"]
+            or outline["parent_changed"]
+            or outline["order_changed"]
+        )
+        if outline_changed:
             parts = []
             if outline["added"]:
                 parts.append(f"+{len(outline['added'])} section(s)")
             if outline["removed"]:
                 parts.append(f"-{len(outline['removed'])} section(s)")
-            parts.append(
-                f"hierarchy changed: {', '.join(outline['hierarchy_changed'])}"
-                if outline["hierarchy_changed"]
-                else "hierarchy unchanged"
-            )
+            parts.append("topology changed" if outline["topology_changed"] else "topology unchanged")
             lines.append(f"  outline: {', '.join(parts)}")
             for oid in outline["added"]:
                 lines.append(f"    + {oid}")
             for oid in outline["removed"]:
                 lines.append(f"    - {oid}")
+            for change in outline["adornment_changed"]:
+                lines.append(f"    adornment changed: {change['id']} ({change['old']!r} -> {change['new']!r})")
+            for change in outline["depth_changed"]:
+                lines.append(f"    depth changed: {change['id']} ({change['old']} -> {change['new']})")
+            for change in outline["parent_changed"]:
+                old_parent = change["old"] if change["old"] is not None else "<document>"
+                new_parent = change["new"] if change["new"] is not None else "<document>"
+                lines.append(f"    parent changed: {change['id']} ({old_parent} -> {new_parent})")
+            for change in outline["order_changed"]:
+                parent = change["parent"] if change["parent"] is not None else "<document>"
+                lines.append(f"    order changed: {change['id']} under {parent} ({change['old']} -> {change['new']})")
 
         findings = fd["findings"]
         if findings["added"] or findings["resolved"]:

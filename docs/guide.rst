@@ -1512,18 +1512,23 @@ directly, from two ``check --format=json`` dumps taken before and after::
       warnings: 0 -> 1 (+1)
 
     guide.rst: changed
-      outline: +1 section(s), hierarchy unchanged
+      outline: +1 section(s), topology changed
         + guide:Rollback
       findings: +1 added, -0 resolved
         + WARNING: bold paragraph opener 'Emergency stop:'
 
-One line answers "did the edit do what I think it did": one new
-section, the rest of the hierarchy untouched, one new WARNING to
-review — not "same warning count, same categories as before" verified
-by eye across two large blobs.  Matching is deliberately not by line
-number: files are matched by path, outline entries by their stable
-``docname:title`` id (the section identity defined under "Entry selectors"
-above), findings by ``(severity, text)``.
+One line answers "did the edit do what I think it did": one new section, which
+changes the topology by definition, and one new WARNING to review — not "same
+warning count, same categories as before" verified by eye across two large
+blobs.  Surviving sections are compared independently for adornment, depth,
+parent, and relative sibling order.  Therefore inserting a sibling does not
+falsely report every later sibling as reordered, while changing only the
+adornment convention produces the explicit result ``topology unchanged`` plus
+one ``adornment changed: ID ('#' -> '*')`` line per affected section.
+
+Matching is deliberately not by line number: files are matched by path,
+outline entries by their stable ``docname:title`` id (the section identity
+defined under "Entry selectors" above), findings by ``(severity, text)``.
 A finding that only *shifted* lines because of an unrelated earlier
 edit must never appear as both resolved and added — matching on content
 instead of position is what makes that true.  Sphinx findings are compared
