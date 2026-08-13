@@ -32,7 +32,7 @@ def test_tracking_include_uses_docutils_version_native_clip_identity(tmp_path: P
     option_spec = DocutilsInclude.option_spec
     assert option_spec is not None
     text_default = "" if option_spec["start-after"] is docutils_directives.unchanged_required else None
-    clip = _composition._docutils_include_clip({})
+    clip = _composition._docutils_include_clip((None, None, None, None))
     assert clip == (None, None, text_default, text_default)
     assert _composition._active_include_cycle(
         str(source),

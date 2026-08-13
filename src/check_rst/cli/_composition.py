@@ -115,24 +115,31 @@ def _document_include_log(document: docutils.nodes.document) -> _IncludeLog:
     return cast("_IncludeLog", include_log)
 
 
-def _docutils_include_clip(options: dict[str, object]) -> _IncludeClip:
-    """Build the source-and-clip identity in the active Docutils format."""
-    # Docutils 0.22.4 uses unchanged_required and '' for absent text clips;
-    # 0.23 uses unchanged and None so an explicit empty value can mean an
-    # empty-line boundary. Derive the default from that runtime API boundary
-    # rather than flattening two semantically distinct 0.23 values.
+def _docutils_include_clip(clip: _IncludeClip) -> _IncludeClip:
+    """Reshape the public clip identity into the active Docutils format.
+
+    Only start-after/end-before need reshaping: docutils' own '' vs None
+    distinction there is a real runtime-API-version boundary (0.22.4 uses
+    unchanged_required and '' for an absent text clip; 0.23 uses unchanged
+    and None, so an explicit empty value can mean an empty-line boundary —
+    flattening those would collapse two semantically distinct 0.23
+    values). start-line/end-line carry no such version-dependent default
+    and come straight from *clip* — recomputing them from options a
+    second time here previously duplicated the exact extraction `clip`
+    itself already did (found independently by three review angles in
+    one pass: Simplification, Efficiency, and Reuse all flagged the same
+    duplicate `options.get()` pair).
+    """
     option_spec = DocutilsInclude.option_spec
     if option_spec is None:
         raise RuntimeError("Docutils Include directive has no option specification")
     text_default: str | None = "" if option_spec["start-after"] is directives.unchanged_required else None
-    return cast(
-        "_IncludeClip",
-        (
-            options.get("start-line"),
-            options.get("end-line"),
-            options.get("start-after", text_default),
-            options.get("end-before", text_default),
-        ),
+    start_after, end_before = clip[2], clip[3]
+    return (
+        clip[0],
+        clip[1],
+        start_after if start_after is not None else text_default,
+        end_before if end_before is not None else text_default,
     )
 
 
@@ -178,7 +185,7 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
                 options.get("end-before"),
             ),
         )
-        docutils_clip = _docutils_include_clip(options)
+        docutils_clip = _docutils_include_clip(clip)
         resolved_identity = str(pathlib.Path(initial_resolved).resolve())
         cycle = _active_include_cycle(resolved_identity, docutils_clip, _document_include_log(self.state.document))
         marker = docutils.nodes.comment()
