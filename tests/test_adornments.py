@@ -22,7 +22,7 @@ from check_rst import cli
 from check_rst.cli import _document, _formatting, _helpers, _sphinx, _types
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
 
 _APPENDED_THIRD_LEVEL = textwrap.dedent("""
     ----------------------
@@ -2070,6 +2070,41 @@ def test_changed_line_ranges_combine_staged_and_unstaged_edits(rst_repo: Path) -
 
 
 @pytest.mark.integration
+def test_changed_line_ranges_untracked_file_inside_worktree_is_whole_file(rst_repo: Path) -> None:
+    """A file that resolves inside the worktree but was never staged is a
+    distinct code path from "outside the repository entirely" below: both
+    return None, but only this scenario exercises the repo.index membership
+    check that classifies a file as untracked rather than merely unreachable.
+    """
+    untracked = rst_repo / "untracked.rst"
+    untracked.write_text(_GOOD_BLOCK, encoding="utf-8")
+    assert _helpers._changed_line_ranges(untracked, rst_repo) is None
+
+
+@pytest.mark.integration
+def test_changed_line_ranges_skips_other_files_patches_in_the_diff(rst_repo: Path) -> None:
+    """The diff is not pre-filtered to the requested path — this function
+    must skip every non-matching patch until it reaches the one for
+    ``path``, or another changed file's hunks could leak into the result.
+    """
+    first = rst_repo / "a_first.rst"
+    first.write_text(_GOOD_BLOCK, encoding="utf-8")
+    second = rst_repo / "b_second.rst"
+    baseline = [f"line {number}" for number in range(1, 6)]
+    second.write_text("\n".join(baseline) + "\n", encoding="utf-8")
+    _git(rst_repo, "add", "a_first.rst", "b_second.rst")
+    _git(rst_repo, "commit", "-m", "base")
+
+    changed = list(baseline)
+    changed[2] = "changed line 3"
+    second.write_text("\n".join(changed) + "\n", encoding="utf-8")
+    first.write_text(_GOOD_BLOCK + "\nUnrelated edit to a different file.\n", encoding="utf-8")
+    _git(rst_repo, "add", "a_first.rst", "b_second.rst")
+
+    assert _helpers._changed_line_ranges(second, rst_repo) == [(3, 3)]
+
+
+@pytest.mark.integration
 def test_changed_line_ranges_use_whole_file_for_undiffable_states(tmp_path: Path) -> None:
     outside_git = tmp_path / "outside-git"
     outside_git.mkdir()
@@ -2337,6 +2372,56 @@ def test_cli_git_scope_fix_fails_closed_when_diff_is_unavailable(
     output = capsys.readouterr().out
     assert "git diff failed" in output
     assert "object database corrupt" in output
+    assert "0 file(s) fixed" in output
+
+
+@pytest.mark.integration
+def test_cli_git_scope_fix_fails_closed_when_diff_iteration_races(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A Git failure raised while *iterating* an already-created Diff must
+    fail closed exactly like a failure at the repo.diff() call itself.
+
+    libgit2 computes each patch's hunks lazily during iteration, not when
+    repo.diff() returns its handle — a file changing underneath the diff
+    between the call and the loop reaching it (a TOCTOU race) raises
+    pygit2.GitError there, with libgit2's own diagnostic: "file changed
+    before we could read it".  The sibling test above only covers a
+    failure at the repo.diff() call; this covers the separate `for patch
+    in diff:` loop that consumes it.
+    """
+    document = rst_repo / "document.rst"
+    document.write_text(_BAD_BLOCK, encoding="utf-8")
+    _git(rst_repo, "add", "document.rst")
+    _git(rst_repo, "commit", "-m", "committed historical defect")
+    original = _BAD_BLOCK + "\nChanged prose.\n"
+    document.write_text(original, encoding="utf-8")
+
+    class _RacingDiff:
+        """Stands in for a real Diff whose lazy iteration hits the race."""
+
+        def __iter__(self) -> Iterator[object]:
+            raise pygit2.GitError("file changed before we could read it")
+
+    def diff_that_races_on_iteration(self: pygit2.Repository, *_args: object, **_kwargs: object) -> object:
+        return _RacingDiff()
+
+    monkeypatch.setattr(pygit2.Repository, "diff", diff_that_races_on_iteration)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "fix", "--git-scope", str(document)],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert document.read_text(encoding="utf-8") == original
+    output = capsys.readouterr().out
+    assert "git diff failed" in output
+    assert "file changed before we could read it" in output
     assert "0 file(s) fixed" in output
 
 

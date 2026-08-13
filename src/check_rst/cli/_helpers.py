@@ -416,21 +416,25 @@ def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None =
     relative_raw = os.fsencode(relative)
     if relative_raw not in repo.index:
         return None  # untracked → not diffable, check whole file
+    ranges: list[tuple[int, int]] = []
     try:
         diff = repo.diff("HEAD", None, context_lines=0, flags=_DIFF_SINCE_HEAD_FLAGS)
+        # Diff is lazy: repo.diff() itself is cheap, and libgit2 only walks
+        # the worktree once patches are actually consumed below.  A file
+        # changing mid-iteration (TOCTOU) therefore raises GitError from
+        # this loop, not from the call above — both must fail the same way.
+        for patch in diff:
+            if patch is None or patch.delta.new_file.raw_path != relative_raw:
+                continue
+            for hunk in patch.hunks:
+                start, count = hunk.new_start, hunk.new_lines
+                ranges.append((start, start + count - 1) if count > 0 else (start, start + 1))
+            break
     except pygit2.GitError as exc:
         # All legitimate no-diff states were classified above.  A repository
         # failure here cannot safely mean "whole file": in fix mode that would
         # silently widen selective Git scope and authorize unrelated edits.
         raise RuntimeError(f"git diff failed: {exc}") from exc
-    ranges: list[tuple[int, int]] = []
-    for patch in diff:
-        if patch is None or patch.delta.new_file.raw_path != relative_raw:
-            continue
-        for hunk in patch.hunks:
-            start, count = hunk.new_start, hunk.new_lines
-            ranges.append((start, start + count - 1) if count > 0 else (start, start + 1))
-        break
     return ranges
 
 
