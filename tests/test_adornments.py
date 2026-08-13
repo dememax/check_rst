@@ -2082,6 +2082,25 @@ def test_changed_line_ranges_untracked_file_inside_worktree_is_whole_file(rst_re
 
 
 @pytest.mark.integration
+def test_changed_line_ranges_fails_closed_when_index_is_unreadable(rst_repo: Path) -> None:
+    """An unreadable index is a Git failure, not an untracked-file signal.
+
+    The index membership check is part of establishing whether selective
+    scope is authoritative.  A corrupt index must therefore fail before the
+    caller can treat ``None`` as permission to inspect the whole file.
+    """
+    document = rst_repo / "document.rst"
+    document.write_text(_GOOD_BLOCK, encoding="utf-8")
+    _git(rst_repo, "add", "document.rst")
+    _git(rst_repo, "commit", "-m", "base")
+    document.write_text(_GOOD_BLOCK + "\nChanged.\n", encoding="utf-8")
+    (rst_repo / ".git" / "index").write_bytes(b"not a Git index")
+
+    with pytest.raises(RuntimeError, match="git diff failed"):
+        _helpers._changed_line_ranges(document, rst_repo)
+
+
+@pytest.mark.integration
 def test_changed_line_ranges_skips_other_files_patches_in_the_diff(rst_repo: Path) -> None:
     """The diff is not pre-filtered to the requested path — this function
     must skip every non-matching patch until it reaches the one for
@@ -2153,6 +2172,26 @@ def test_changed_rst_files_preserves_non_repository_git_failure(
     assert "git status failed" in out
     assert "index file corrupt" in out
     assert "not a git repository" not in out
+
+
+@pytest.mark.integration
+def test_unmerged_files_reports_unreadable_index_as_git_failure(
+    rst_repo: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The merge-conflict preflight must preserve pygit2's index failure."""
+    document = rst_repo / "document.rst"
+    document.write_text(_GOOD_BLOCK, encoding="utf-8")
+    _git(rst_repo, "add", "document.rst")
+    (rst_repo / ".git" / "index").write_bytes(b"not a Git index")
+
+    with pytest.raises(SystemExit) as exc:
+        _helpers._unmerged_files([document])
+
+    assert exc.value.code == 1
+    output = capsys.readouterr().out
+    assert "git ls-files --unmerged failed" in output
+    assert "index" in output
 
 
 @pytest.mark.integration
@@ -2423,6 +2462,45 @@ def test_cli_git_scope_fix_fails_closed_when_diff_iteration_races(
     assert "git diff failed" in output
     assert "file changed before we could read it" in output
     assert "0 file(s) fixed" in output
+
+
+@pytest.mark.integration
+def test_changed_line_ranges_fails_closed_when_lazy_hunk_loading_races(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GitError can surface after a patch is yielded, while loading hunks."""
+    document = rst_repo / "document.rst"
+    document.write_text(_GOOD_BLOCK, encoding="utf-8")
+    _git(rst_repo, "add", "document.rst")
+    _git(rst_repo, "commit", "-m", "base")
+    document.write_text(_GOOD_BLOCK + "\nChanged.\n", encoding="utf-8")
+    relative_raw = os.fsencode(document.relative_to(rst_repo))
+
+    class _DeltaFile:
+        raw_path = relative_raw
+
+    class _Delta:
+        new_file = _DeltaFile()
+
+    class _Patch:
+        delta = _Delta()
+
+        @property
+        def hunks(self) -> object:
+            raise pygit2.GitError("file changed while loading hunks")
+
+    def diff_with_lazy_hunk_failure(
+        self: pygit2.Repository,
+        *_args: object,
+        **_kwargs: object,
+    ) -> list[object]:
+        return [_Patch()]
+
+    monkeypatch.setattr(pygit2.Repository, "diff", diff_with_lazy_hunk_failure)
+
+    with pytest.raises(RuntimeError, match="file changed while loading hunks"):
+        _helpers._changed_line_ranges(document, rst_repo)
 
 
 @pytest.mark.integration

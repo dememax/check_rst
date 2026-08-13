@@ -414,10 +414,10 @@ def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None =
     # representation on Unix, while pygit2's text path APIs reject those
     # surrogates and DiffFile.path tries strict UTF-8 decoding.
     relative_raw = os.fsencode(relative)
-    if relative_raw not in repo.index:
-        return None  # untracked → not diffable, check whole file
     ranges: list[tuple[int, int]] = []
     try:
+        if relative_raw not in repo.index:
+            return None  # untracked → not diffable, check whole file
         diff = repo.diff("HEAD", None, context_lines=0, flags=_DIFF_SINCE_HEAD_FLAGS)
         # Diff is lazy: repo.diff() itself is cheap, and libgit2 only walks
         # the worktree once patches are actually consumed below.  A file

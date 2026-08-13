@@ -226,12 +226,12 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
         except Exception:
             # Read Docutils' own live decision data instead of matching its
             # diagnostic's English wording (which it never promises to keep
-            # stable): self.clip_options is set at the very top of Include's
-            # run(), long before its own include_log cycle check, and stays
-            # a plain instance attribute on this same `self` whether run()
-            # returned or raised (confirmed by reading both supported
-            # Docutils versions directly, and by a live trace of a real
-            # cycle). A hit here can only mean a genuinely still-active
+            # stable): Include.run() stores both self.clip_options and the
+            # resolved self.options["source"] before its include_log cycle
+            # check, and both remain available on this same `self` after it
+            # raises. The resolved source matters for standard includes and
+            # any registered include class whose resolution differs from our
+            # pre-run estimate. A hit here can only mean a genuinely active
             # ancestor (include_log entries are pushed on include-start,
             # popped on include-end), so there is no false-positive risk.
             # getattr(..., None) guards the one path where clip_options was
@@ -239,8 +239,14 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
             # skipping the cycle check there is correct, since that error
             # can't be a circular inclusion.
             clip_options = getattr(self, "clip_options", None)
+            docutils_resolved = self.options.get("source")
+            if docutils_resolved is not None:
+                record["resolved"] = str(docutils_resolved)
+                reactive_identity = str(pathlib.Path(str(docutils_resolved)).resolve())
+            else:
+                reactive_identity = resolved_identity
             if clip_options is not None and _active_include_cycle(
-                resolved_identity, clip_options, _document_include_log(self.state.document)
+                reactive_identity, clip_options, _document_include_log(self.state.document)
             ):
                 record["cycle"] = raw_target
             record["exact"] = False

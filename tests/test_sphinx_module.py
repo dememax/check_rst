@@ -1604,6 +1604,36 @@ def test_verified_include_cycle_is_visible_in_composition_entries(tmp_path: Path
 
 
 @pytest.mark.integration
+def test_standard_include_cycle_uses_docutils_resolved_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reactive cycle detection must use Docutils' resolved source identity.
+
+    ``<name>`` standard includes resolve below Docutils' standard include
+    directory, not relative to the owning document.  The proactive estimate
+    therefore cannot identify this cycle; only the post-failure state can.
+    """
+    standard_includes = tmp_path / "standard-includes"
+    standard_includes.mkdir()
+    monkeypatch.setattr(DocutilsInclude, "standard_include_path", str(standard_includes))
+    index = tmp_path / "index.rst"
+    index.write_text("Index\n=====\n\n.. include:: <cycle.rst>\n", encoding="utf-8")
+    (standard_includes / "cycle.rst").write_text(
+        ".. include:: <cycle.rst>\n",
+        encoding="utf-8",
+    )
+
+    tree = _helpers._parse_rst(index, track_composition=True)
+    includes = _document.find_includes(index, doctree=tree, source_root=tmp_path)
+
+    assert len(includes) == 2
+    assert includes[1].target == "<cycle.rst>"
+    assert includes[1].resolved == "standard-includes/cycle.rst"
+    assert includes[1].cycle == "standard-includes/cycle.rst"
+
+
+@pytest.mark.integration
 def test_missing_include_target_is_not_misreported_as_a_cycle(tmp_path: Path) -> None:
     """The reactive branch reads Docutils' own live clip_options/include_log
     instead of matching its diagnostic's wording — confirm it doesn't
