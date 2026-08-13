@@ -51,11 +51,25 @@ The following capabilities are implemented and protected by tests:
 Agreed next work
 ==================
 
-Three concrete capabilities remain agreed but unimplemented:
+Two concrete capabilities remain agreed but unimplemented:
 
 * ``list-targets [PATTERN]``.
-* Table-column queries.
-* A consolidated edit-validation cycle.
+* ``fix --precheck``: a consolidated, fail-closed edit-validation cycle.
+
+===================================
+Workable through existing bridges
+===================================
+
+These use cases have a documented, reliable path today, but not the most
+direct native interface.  They are not implementation commitments merely
+because the bridge is less convenient; promote one only when real evidence
+shows that its bridge prevents a reliable or sufficiently compact answer:
+
+* Table-column observation — use ``outline``/``context`` plus a targeted,
+  read-only ``list-table --only N`` dry run or the reported source range;
+  native compact column projection is not queued.
+* Markdown analysis — convert with Pandoc and inspect the resulting RST;
+  native source coordinates and conversion-free observation are not queued.
 
 ============================================
 Deferred, awaiting evidence, or not queued
@@ -68,8 +82,6 @@ These entries are intentionally not presented as one uniform priority:
 * Semantic-diff coverage below sections — accepted extension, deferred.
 * Configurable outline-preview length — logged, not implemented.
 * Structure-aware list-to-section transformation — accepted, deferred.
-* Native Markdown parsing — deferred; the documented Pandoc bridge may remain
-  sufficient.
 * Foreign-adornment configuration — deferred with its original urgency gone.
 * Diff-hunk classification — logged from one workaround, not queued.
 
@@ -238,22 +250,35 @@ instruction layers shrank exactly as predicted.
 Table queries
 ===============
 
-*Current status: agreed next work. Table identification is shipped; column
-extraction is not.*
+*Current status: use case served through existing read-only bridges since
+2026-08-13; native compact column projection is not queued. Table
+identification is shipped; column extraction is not.*
 
-"give me column 2 of table 'VCS comparison'". A ``list-table`` linearizes a 2-D
-structure row-major (A1, A2, A3, B1, B2, B3, …); recovering a column is stride
-arithmetic over a long item stream — exactly the reshaping LLMs lose sync on,
-and docutils has already undone it (every table syntax normalizes to the same
-2-D ``table`` node; verified by probe, 2026-07-18).  Identification by the
-caption text after ``.. list-table::``, with line-number/ordinal fallback for
-uncaptioned tables and a loud error on duplicate captions.  Read-only: writing
-a new column stays with the AI, but the query gives it self-verification —
-edit, then read the column back.  Needs only a bare docutils parse, so it can
-ship independently of stages 1–3.  **Table identification itself landed
-2026-07-20** in "Table entries in ``--outline``" below
-(``kind``/dims/caption/preview in ``--outline``) — the column-extraction query
-proper is still open.
+The original request was "give me column 2 of table 'VCS comparison'".  A
+``list-table`` linearizes a 2-D structure row-major (A1, A2, A3, B1, B2, B3,
+…), and recovering one column from a long item stream is exactly the reshaping
+an LLM can lose sync on.  Docutils has already reconstructed the matrix: every
+table syntax normalizes to the same 2-D ``table`` node (verified by probe,
+2026-07-18).  A read-only projection could therefore serve an observer when
+the original document must remain byte-for-byte untouched, no disposable copy
+is available, or only one compact column fits the caller's output budget.
+
+The practical evidence changed after the proposal.  Table identification
+landed 2026-07-20 (``kind``/dimensions/caption/preview and an exact range in
+``outline``/``context``), and the 2026-08-08 ``list-table`` verb now converts
+eligible grid/simple tables safely.  Its default targeted dry run is itself
+read-only: ``list-table --only N FILE`` exposes the generated row-oriented
+source without modifying even an immutable document.  Existing list-tables
+can be read directly by their reported lines.  These paths remove the original
+aligned-geometry blocker and most of the observer-only justification without a
+new query interface.
+
+The remaining value is convenience and compact projection, especially for a
+large table, CSV input, or a conversion refusal.  That has not yet recurred as
+a real blocker, while merged cells, multi-line cells, headers, and machine- vs
+human-readable output need explicit semantics.  Keep the idea, but do not
+schedule it until fresh usage demonstrates that targeted source or a targeted
+dry-run diff is still inadequate.
 
 =======================
 A structure-only view
@@ -353,21 +378,58 @@ blockquotes/ admonitions/tables.
 A consolidated edit-validation cycle
 ======================================
 
-*Current status: agreed next work since 2026-07-29; not implemented.*
+*Current status: agreed next work since 2026-07-29; revised 2026-08-13 as*
+``fix --precheck``; *not implemented.*
 
-Expose one command (working name ``--edit-cycle``) that performs the existing
-``check --skip-fixable`` → ``fix --fast`` → final-validation contract while reusing work
-that applies to the same immutable input state.  Before ``--fix-only`` existed,
-the list-to-section edit on this page measured 15.9 s, 15.6 s, and 15.1 s for
-``check --skip-fixable``, ordinary ``fix``, and final validation — about 47 seconds
-in three near-identical Sphinx builds before the separate 17.3-second outline
-verification.  The current ``fix --fast`` has since removed the middle build.  A combined
-command could still reuse the first verified state when the mutation plan is
-empty; a real mutation necessarily invalidates it and requires one post-fix
-build.  The command must retain explicit stage-labelled results, the final
-honest exit status, Git-scope enforcement, and the rule that fixes are always
-followed by validation; this is execution reuse, not a weaker workflow.  No
-cache may silently cross an input-state boundary.
+The CLI belongs on the existing modifier verb, not in the historical working
+name ``--edit-cycle`` and not in a new ``cycle`` verb::
+
+    check_rst fix --precheck
+    check_rst fix --precheck --git-scope path/to/owned.rst
+
+A cold reader already understands that ``fix`` may write, and ordinary
+``fix`` already owns selection, mutation options, plan-all-before-write, and
+post-fix validation.  ``--precheck`` names precisely the added guarantee: a
+full report against the original bytes before the existing fix-and-validate
+path.  A suitable help summary is: "report non-fixable findings on the original
+input; abort before writing on any ERROR; otherwise apply deterministic fixes
+and validate the resulting input."
+
+The non-interactive command must not claim that a human reviews findings before
+mutation.  It preserves and labels the pre-mutation snapshot.  Its stages are:
+
+* Run the equivalent of ``check --skip-fixable`` against one immutable input
+  snapshot, with an explicit ``precheck`` label.
+* On any non-fixable ERROR, input failure, or Sphinx failure, stop with status 1
+  and write nothing.  WARNINGs remain visible but do not block the already
+  proven deterministic mutation boundary.
+* Apply the precomputed complete fix plan only if every selected file still
+  matches the bytes that were checked.  A concurrent change is a refusal, not
+  permission to plan against different input.
+* When the plan is empty, reuse that full validation result and stop.  When any
+  file changes, discard every ``Document``, doctree, Sphinx environment, and
+  derived cache, then run one fresh full validation.
+* Emit explicit stage summaries and make the final applicable stage's result
+  the process exit status.  Preserve ordinary fix's Git-scope and unresolved-
+  merge fail-closed rules throughout.
+
+``--precheck`` is incompatible with ``--fast`` (the new contract promises full
+pre- and post-validation), ``--skip-fixable`` (already intrinsic to the first
+stage), and ``--no-warnings`` (contradicts preserving the semantic findings the
+stage exists to report).  Ordinary fix options and file-selection controls
+otherwise retain their existing meaning.
+
+The original performance evidence remains useful history but not the present
+rationale.  Before the fast path, a real edit measured roughly 47 seconds
+across three near-identical Sphinx builds.  ``fix --fast`` removed the middle
+build, and ordinary ``fix`` already combines mutation with post-fix validation.
+A changed input still needs two full validations — original and post-mutation —
+because no parsed or Sphinx state may cross a write boundary.  Only an empty
+plan can finish after the first.  The feature's primary value is therefore one
+auditable, stage-labelled, fail-closed orchestration contract, not a promise of
+fewer builds when files change.  A workflow that requires actual human review
+before mutation must retain the explicit command boundary documented in
+:doc:`guide`, "The three-step loop".
 
 ***********************************
 Original accepted/deferred record
@@ -774,8 +836,9 @@ never from the statistics.  The hidden-entries note names every reason at once
 Markdown analysis via the pandoc bridge
 =========================================
 
-*Current status: documented bridge shipped; native Markdown parsing remains
-deferred and may be unnecessary.*
+*Current status: use case served through the documented Pandoc bridge; native
+Markdown parsing is not queued pending evidence that the bridge is
+insufficient.*
 
 (Max, 2026-07-18; verified by probe the same day) — instead of a native ``.md``
 frontend, convert and analyze::
@@ -799,6 +862,16 @@ every upstream update, so modifications stay visible and diffs
 comparable; Phase 0 automatically cleans what such documents drag
 along (form feeds — previously suppressed by hand).  The native
 frontend stays deferred; the bridge may make it unnecessary.
+
+Reevaluated 2026-08-13 under the same evidence rule as table-column queries:
+both proposals offer native read-only observation while an existing bridge can
+already normalize the input into RST for check_rst.  Native Markdown retains
+real advantages — diagnostics could point at original ``.md`` lines and the
+observer would avoid a conversion artifact — but those are convenience until a
+real review shows Pandoc changed, hid, or made impractically large the structure
+that needed inspection.  Do not schedule a second parser merely to remove the
+bridge step; promote the idea when evidence shows the bridge prevents a
+reliable answer.
 
 ==========================================
 Trailing whitespace on every source line
@@ -1541,10 +1614,13 @@ scoped per verb): an editorial flag like ``--single-space-prose`` simply
 isn't *defined* on ``check``'s parser, so passing it there is an ordinary
 "unrecognized argument," not a bespoke rejection message.
 
-"A consolidated edit-validation cycle" above (working name ``--edit-cycle``)
-still slots into this exact tier once built — one more *full*-parent verb
-(``check_rst cycle``, or whatever name it keeps) alongside ``fix``/``diff``,
-not a flag bolted onto one of them.
+"A consolidated edit-validation cycle" above was originally expected to
+become another full-parent verb.  Reevaluation on 2026-08-13 rejected that
+shape: the action is still ``fix``, ordinary fix already owns post-mutation
+validation, and the missing contract is specifically an original-state
+precheck.  It therefore belongs as ``fix --precheck``, parallel to ``--fast``
+as a goal-shaping option on that verb, with the two options mutually
+exclusive.
 
 ---------------------------------------------------------------
 Tier 2: the three self-contained flags became their own verbs
