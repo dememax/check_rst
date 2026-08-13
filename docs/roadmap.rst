@@ -51,10 +51,12 @@ The following capabilities are implemented and protected by tests:
 Agreed next work
 ==================
 
-Two concrete capabilities remain agreed but unimplemented:
+Three concrete capabilities remain agreed but unimplemented:
 
 * ``list-targets [PATTERN]``.
 * ``fix --precheck``: a consolidated, fail-closed edit-validation cycle.
+* Semantic comparison below sections, implemented in the staged order recorded
+  under "Semantic-diff coverage below the section level".
 
 ===================================
 Workable through existing bridges
@@ -79,7 +81,6 @@ These entries are intentionally not presented as one uniform priority:
 
 * Indentation normalization — awaiting frequency evidence.
 * Documentation smells — candidate family awaiting separate triage.
-* Semantic-diff coverage below sections — accepted extension, deferred.
 * Configurable outline-preview length — logged, not implemented.
 * Structure-aware list-to-section transformation — accepted, deferred.
 * Foreign-adornment configuration — deferred with its original urgency gone.
@@ -645,15 +646,262 @@ gates, integration mechanisms, and deliberate silence conditions.
 Semantic-diff coverage below the section level
 ================================================
 
-*Current status: accepted extension, deferred.*
+*Current status: accepted and promoted to planned work 2026-08-13; staged
+implementation has not started.*
 
 (Max, 2026-07-24, from the same illustrative example that reconfirmed
 ``diff-json``'s own value: "moved code block", "added one cross-reference") —
 ``diff-json`` today matches outline entries, hierarchy, and findings; it has
 no equivalent match for individual code-blocks or references
-moving/appearing/disappearing within an otherwise- unchanged section.  Logged,
-not yet implemented — a real refinement to an already-shipped feature, not a
-new one.
+moving/appearing/disappearing within an otherwise-unchanged section.  The
+2026-08-13 review broadened that evidence into a role-independent comparison
+model: a normalizer needs proof that source representation changed while the
+effective document did not; a proofreader needs proof that changes stayed in
+prose; and an editor needs a compact map of structural, textual, and reference
+changes.  These are different predicates over the same facts, not separate
+comparison engines.  Git is the primary live source of the two states for all
+three roles; saved JSON snapshots remain the portable/offline case, not the
+center of the interface.
+
+----------------------------------------------
+Why this is a vector, not one semantic scale
+----------------------------------------------
+
+"Only adornment symbols changed" and "everything changed" are not endpoints
+of one useful severity scale.  A one-character reference-target change can be
+more consequential than rewrapping every paragraph.  The comparison result
+must therefore report independent dimensions and derive a short classification
+from them:
+
+.. list-table:: Comparison dimensions
+   :header-rows: 1
+
+   * - Dimension
+     - Exact question answered
+   * - Source representation
+     - Did byte hygiene, whitespace, wrapping, indentation, adornment syntax,
+       or another source form change?
+   * - Section topology
+     - Are the same sections present with the same depths, parents, and sibling
+       order?
+   * - Text and inline structure
+     - Which titles or prose leaves changed, and did roles, emphasis, links, or
+       inline literals change independently of their visible text?
+   * - Structural and literal objects
+     - Were code/literal blocks, lists, tables, directives, admonitions,
+       comments, or blockquotes added, removed, moved, or modified?
+   * - Reference and dependency graph
+     - Were labels, targets, resolved references, downloads, images, includes,
+       conditionals, or toctree edges changed?
+   * - Diagnostics and comparability
+     - Which findings appeared or disappeared, and were schema, mode, runtime,
+       and project provenance compatible enough to prove the other results?
+
+The layers are also explicit: raw source, parsed Docutils tree, and effective
+Sphinx document/dependency graph are different evidence.  Rendered-output
+equivalence is outside this feature until a real builder-output comparison
+exists.  "Semantic" here never means that check_rst judges wording equivalent,
+spelling correct, or an edit's meaning preserved.
+
+The complete result therefore has four orthogonal axes:
+
+#. the selected states — Git HEAD, index, worktree, revisions, or saved
+   snapshots;
+#. the representation layer — source patch, parsed Docutils tree, or effective
+   Sphinx graph;
+#. the change dimensions in the table above;
+#. an optional expectation describing which facts are permitted.
+
+A Git hunk is evidence about physical source geometry, not itself a semantic
+unit.  Keep its file status, old/new ranges, addition/deletion counts, and
+staged/unstaged origin, then map it to the owning section and structural entry.
+A hunk may be ``adornment``, ``hygiene``, ``prose``, ``literal``,
+``directive``, ``reference``, ``structural``, or explicitly ``mixed``;
+anything the parser cannot map remains visibly ``unmapped``.  The semantic
+summary complements the Git patch rather than pretending the patch is absent.
+
+----------------------------------
+Command and expectation contract
+----------------------------------
+
+The canonical verb is ``compare``: ``diff`` remains the read-only preview of
+what check_rst's own ``fix`` would change, while ``compare`` explains changes
+that already exist between two selected states.
+
+The primary forms are planned as:
+
+.. code-block:: console
+
+   $ check_rst compare                         # HEAD -> worktree (staged + unstaged)
+   $ check_rst compare --staged                # HEAD -> index
+   $ check_rst compare --unstaged              # index -> worktree
+   $ check_rst compare --from main --to HEAD   # revision -> revision
+   $ check_rst compare --from HEAD             # revision -> worktree
+   $ check_rst compare --snapshots old.json new.json
+
+The default follows this project's existing ``git diff HEAD`` convention: the
+cumulative committed-to-worktree result includes both staged and unstaged
+content, while the report preserves which component supplied each source
+change.  Untracked RST files compare against an absent/empty old state; an
+unborn repository uses the same absent baseline.  Explicit file operands are
+an allowlist over the selected Git change set, not a request to report
+unchanged files.  Added, deleted, renamed, copied, non-UTF-8, and concurrently
+changing files all need explicit outcomes rather than silent omission.
+
+``--snapshots`` feeds the same comparison engine from two self-contained
+``check --format=json`` artifacts and never rereads a possibly changed RST
+project.  When the direct Git form lands, replace ``diff-json`` with this
+explicit portable form as an intentional documented CLI change with the
+appropriate package-version bump; do not maintain two permanent aliases for
+one operation.
+
+A compact default report preserves Git facts before semantic interpretation,
+for example:
+
+.. code-block:: text
+
+   Comparison: HEAD -> worktree (2 staged hunks, 1 unstaged hunk)
+   docs/guide.rst: modified, 3 hunks (+7 -5) — prose-only
+     420-426 -> 420-426: section "Editing safely": prose
+     511-512 -> 511-512: section "Editing safely": reference
+     topology/literals: unchanged; references: 1 added and resolved
+
+The full unified patch is already available from Git and need not flood the
+default semantic report.  ``--patch`` includes it when one self-contained
+artifact is preferable; ``-U N``/``--unified N`` controls its context (three
+lines by default).  The option affects presentation only: changed ranges and
+semantic classification are always computed from zero-context deltas, so
+increasing context cannot reclassify a prose-only hunk as mixed merely because
+neighboring lines became visible.  ``-U`` implies ``--patch`` and both options
+are rejected with ``--snapshots``, whose artifacts contain no source blobs.
+
+An unqualified comparison reports every known dimension and exits zero even
+when differences exist, preserving ``diff-json``'s observational role.  Once
+all prerequisite facts exist, add factual expectations rather than
+persona-specific commands:
+
+* ``--expect normalization-only`` permits source representation changes but
+  requires equivalent effective document content, topology, literals,
+  references, and no new findings;
+* ``--expect prose-only`` permits prose-text changes but rejects topology,
+  inline-role/target, directive-option, literal, and reference changes; it does
+  not claim that the edits are spelling corrections or preserve meaning;
+* ``--expect topology-stable`` requires the ordered section parent/child graph
+  to survive while permitting content evolution.
+
+A failed expectation exits one.  An unreadable state or malformed snapshot
+remains a diagnosed operational failure at exit one, while argparse usage
+errors remain exit two.  Expectations never filter the report: the unexpected
+facts are the most important output.  A presentation switch such as
+``--report-by section`` is not part of the first implementation and needs
+evidence from real reports.
+
+------------------------------------------
+State evidence and conservative matching
+------------------------------------------
+
+Git supplies blobs, paths, file status, and hunk geometry; it does not supply
+parsed meaning.  Build the old and new document models from those selected
+states and pass them to the same comparison core used by saved snapshots.  Do
+not make JSON serialization an internal prerequisite for a live Git
+comparison.  Parser-effective evidence can operate per file; verified Sphinx
+evidence over an index or historical revision requires a complete temporary
+source tree so includes, configuration, extensions, and cross-document
+resolution observe that exact state.  Loading any state's ``conf.py`` retains
+the existing trusted-project boundary.
+
+The current JSON exposes structural-entry previews, not canonical content, and
+contains no first-class paragraph or reference-graph records.  New in-memory
+models and corresponding snapshot fields must carry explicit source-form,
+visible-text, structural, and semantic fingerprints where those notions
+differ.  In particular, a grid-table to ``list-table`` conversion or a
+section-adornment substitution may change source form while preserving the
+parsed object.  Truncated previews remain navigation aids and must never become
+identity evidence.
+
+Raise the JSON schema version when those records land.  Comparing an older
+snapshot may still produce the facts its schema supports, but missing
+dimensions are ``unavailable``, never "unchanged".  Any expectation requiring
+unavailable evidence fails closed and names the missing capability.  Runtime,
+mode, or project-provenance differences remain visible even when the comparison
+can continue.
+
+Matching is deterministic and conservative, in this order:
+
+#. Use an explicit unique semantic identity such as an id, name, or label.
+#. Match an exact canonical fingerprint inside the same owning section.
+#. Treat a unique exact fingerprint elsewhere as a move.
+#. Align otherwise-unmatched siblings only where surrounding exact matches
+   make the identity unambiguous.
+#. Report remaining entries as added/removed and report ambiguity explicitly.
+
+Line numbers are locations, never identities.  A section-title change defeats
+today's ``docname:title`` id; an exact unchanged subtree can prove a rename,
+but simultaneous title and body edits remain added/removed unless another
+exact identity resolves them.  No fuzzy similarity threshold may silently turn
+an uncertain pair into a rename, move, or meaning-preserving edit.
+
+---------------------------
+Staged TDD implementation
+---------------------------
+
+Each stage starts with the smallest failing result-level test, then adds a live
+Git or paired-snapshot integration test through the real CLI.  Run the focused
+tests before the full suite and strict Ruff/mypy checks; exercise both supported
+Docutils endpoints and parser/Sphinx modes wherever the new fingerprint depends
+on them.
+
+#. Separate section representation from topology.  Replace the present
+   combined ``hierarchy_changed`` fact with adornment, depth, parent, and order
+   changes.  Derive the ordered parent graph from the outline stream.  Protect
+   adornment-only, depth/reparent, sibling reorder, addition/removal, duplicate
+   title, and unchanged cases.  This stage must be able to say "adornment
+   changed; topology unchanged" without claiming that a changed depth is merely
+   presentation.
+#. Add Git state selection and hunk ownership.  Introduce ``compare`` with the
+   HEAD/index/worktree and revision pairs above; retain snapshot input as one
+   adapter to the same core.  Use pygit2 facts rather than parsing Git's text
+   output.  Protect staged-only, unstaged-only, staged-then-edited, untracked,
+   added/deleted/renamed, explicit allowlist, unborn HEAD, non-UTF-8, and
+   mutation-during-diff cases.  Derive semantic ranges from zero-context
+   deltas, map them to sections/entries, and keep mixed/unmapped changes
+   visible; test independently that ``--unified`` changes only patch
+   presentation.  At this boundary replace the old ``diff-json`` spelling and
+   reconcile help, guide, roadmap, and the breaking CLI signature.
+#. Fingerprint existing structural and literal entries.  Add canonical
+   records for code/literal blocks, tables, lists, directives, admonitions,
+   comments, blockquotes, includes, conditionals, and toctrees.  First support
+   exact added/removed/moved facts; report modification only when identity is
+   independently established.  Protect the original "moved code block" case
+   and a source-syntax conversion whose parsed table remains equivalent.
+#. Represent prose and inline structure separately.  Add paragraph/text-leaf
+   records owned by stable sections and distinguish visible-text changes from
+   role, emphasis, target, and inline-literal changes.  Protect a spelling-like
+   replacement classified as prose-only, added bold markup over unchanged text
+   classified as inline structure, and literal/code text excluded from prose.
+#. Compare references and dependencies.  Record raw target, resolved target,
+   visible label where applicable, and owning document/section.  Compare local
+   roles, explicit labels, images, downloads, includes, conditionals, and
+   toctree edges without conflating label edits, retargeting, and
+   broken/resolved transitions.  Protect the original "added one
+   cross-reference" case in both parser and verified Sphinx evidence.
+#. Derive classifications and enforce expectations.  Build
+   ``normalization-only``, ``prose-only``, and ``topology-stable`` solely from
+   the dimension facts above; add fail-closed missing-evidence tests and exit
+   status tests.  Reconcile the structured output schema and normative guide
+   once these predicates become a supported contract.
+#. Consider exact rename and cross-file move refinement last.  Implement
+   only cases proved by unique exact identities or subtree fingerprints.
+   Leave fuzzy rename/move inference deferred unless concrete evidence later
+   justifies a separately visible confidence model.
+
+Completion evidence is a fixture matrix covering byte-identical input,
+adornment-only normalization, whitespace/source-form-only change, section
+reorder and reparent, moved and modified code, prose replacement, inline-markup
+change, table syntax conversion, reference addition/retarget/resolution, new
+diagnostics, incompatible provenance, and missing old-schema capabilities.
+Unit matcher tests alone are insufficient: at least one end-to-end CLI case per
+stage must prove that Git/snapshot state acquisition and comparison agree.
 
 ================================
 Nested inline markup detection
