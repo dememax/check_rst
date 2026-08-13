@@ -8,6 +8,7 @@ import itertools
 import json
 import os
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1479,8 +1480,15 @@ def test_cli_fix_short_titles_converge_with_no_inconsistent_style(
     assert exc.value.code == 0
     capsys.readouterr()
 
+    # sys.executable -m sphinx, not a bare "sphinx-build" trusting PATH —
+    # same robustness reason as _sphinx.py's own run_sphinx (confirmed
+    # equivalent: `python -m sphinx --help` identifies itself as
+    # sphinx-build). A bare "sphinx-build" only resolves when whatever
+    # invoked pytest happens to also have that venv's bin/ on PATH —
+    # found failing this exact way in no_inconsistent_style-failed.txt,
+    # 2026-08-13, from a run that invoked pytest by absolute path.
     result = subprocess.run(
-        ["sphinx-build", "--builder", "html", str(rst_repo), str(rst_repo / "_verify")],
+        [sys.executable, "-m", "sphinx", "--builder", "html", str(rst_repo), str(rst_repo / "_verify")],
         capture_output=True,
         text=True,
     )
