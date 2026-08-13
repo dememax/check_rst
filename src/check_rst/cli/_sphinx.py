@@ -46,6 +46,7 @@ from ._helpers import (
     _has_non_prose_ancestor,
     _indented_extent,
     _node_line,
+    _relative_to_root,
 )
 from ._types import (
     CodeBlockEntry,
@@ -1007,10 +1008,12 @@ def _finding_source(path: pathlib.Path, doc: Document) -> str | None:
     resolved = path.resolve()
     if resolved == doc.path.resolve():
         return None
-    try:
-        return str(resolved.relative_to(doc.project_root.resolve()))
-    except ValueError:
-        return str(resolved)
+    relative = _relative_to_root(resolved, doc.project_root)
+    # --sphinx-src may legitimately sit outside the selected project root
+    # (confirmed live, not a hypothetical: a disjoint --sphinx-src is a
+    # supported configuration) — report the absolute path rather than
+    # raising or silently dropping this finding's source attribution.
+    return str(relative) if relative is not None else str(resolved)
 
 
 def check_bare_filenames(
@@ -1097,10 +1100,11 @@ def check_bare_filenames(
             if asset is None or asset in integrated_assets:
                 continue
             lineno = base_line + s[: match.start()].count("\n")
-            try:
-                resolved_target = str(asset.relative_to(doc.project_root.resolve()))
-            except ValueError:
-                resolved_target = str(asset)
+            # asset is already resolved (by _resolve_local_asset) — same
+            # disjoint-project-root fallback as _finding_source, just for
+            # the asset's own path rather than its owning source's.
+            relative_target = _relative_to_root(asset, doc.project_root)
+            resolved_target = str(relative_target) if relative_target is not None else str(asset)
             findings.append(
                 Finding(
                     lineno,

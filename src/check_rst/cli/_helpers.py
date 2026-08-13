@@ -457,6 +457,26 @@ def _read_source(path: pathlib.Path, encoding: str = "utf-8") -> str:
     return path.read_bytes().decode(encoding)
 
 
+def _relative_to_root(resolved_path: pathlib.Path, root: pathlib.Path) -> pathlib.Path | None:
+    """Return an already-resolved *resolved_path* relative to *root*, or
+    None if it isn't under *root* (only *root* is resolved here; callers
+    that need the resolved *path* for another purpose too — e.g. an
+    identity check — resolve it once themselves and pass that in, rather
+    than this function resolving it again).
+
+    Found by review, independently in two rounds: this exact
+    resolve/relative_to/except-ValueError shape was copy-pasted across
+    several call sites (see each one's own comment), each supplying its
+    own fallback for the None case — an absolute path, a bare stem, or
+    the unrelativized value itself. Those fallbacks differ meaningfully
+    by site and are NOT flattened into one generic default here.
+    """
+    try:
+        return resolved_path.relative_to(root.resolve())
+    except ValueError:
+        return None
+
+
 def _char_label(ch: str) -> str:
     """Return 'U+XXXX (NAME)' for a character, for hygiene finding messages."""
     name = unicodedata.name(ch, "control character")

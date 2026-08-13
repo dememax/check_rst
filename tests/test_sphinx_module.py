@@ -995,6 +995,58 @@ def test_bare_filenames_attributes_included_asset_mention_to_fragment(tmp_path: 
 
 
 @pytest.mark.integration
+def test_bare_filenames_asset_outside_disjoint_project_root_uses_absolute_path(tmp_path: Path) -> None:
+    """resolved_target's ValueError fallback: --sphinx-src can legitimately
+    sit outside the selected project root (a supported, documented
+    configuration, confirmed live before writing this test) — the asset's
+    resolved target must still be reported, as an absolute path, not
+    silently dropped."""
+    sphinx_src = tmp_path / "sphinxsrc"
+    sphinx_src.mkdir()
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+    env = _build_multi_file_env(
+        sphinx_src,
+        {"index": "Index\n=====\n\nSee data.csv for details.\n"},
+    )
+    (sphinx_src / "data.csv").write_text("a,b\n", encoding="utf-8")
+    doc = _document.Document(sphinx_src / "index.rst", project_root)
+
+    violations = _sphinx.check_bare_filenames(env, "index", doc)
+
+    assert len(violations) == 1
+    assert str(sphinx_src / "data.csv") in violations[0].text
+
+
+@pytest.mark.integration
+def test_bare_filenames_included_asset_source_outside_disjoint_project_root_uses_absolute_path(
+    tmp_path: Path,
+) -> None:
+    """_finding_source's own ValueError fallback: an included fragment's
+    physical source must still be reported as an absolute path when the
+    selected project root doesn't contain the Sphinx source tree, rather
+    than raising or silently dropping the finding's source attribution."""
+    sphinx_src = tmp_path / "sphinxsrc"
+    sphinx_src.mkdir()
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+    env = _build_multi_file_env(
+        sphinx_src,
+        {
+            "index": "Index\n=====\n\n.. include:: fragment.rst\n",
+            "fragment": "Included\n--------\n\nSee data.csv for details.\n",
+        },
+    )
+    (sphinx_src / "data.csv").write_text("a,b\n", encoding="utf-8")
+    doc = _document.Document(sphinx_src / "index.rst", project_root)
+
+    violations = _sphinx.check_bare_filenames(env, "index", doc)
+
+    assert len(violations) == 1
+    assert violations[0].source == str(sphinx_src / "fragment.rst")
+
+
+@pytest.mark.integration
 def test_bare_filenames_ignores_self_mention(tmp_path: Path) -> None:
     env = _build_multi_file_env(
         tmp_path,
