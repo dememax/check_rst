@@ -12,8 +12,8 @@ fully unwired from ``_main()`` until the cutover stage. This file exercises
 builder — it does not call ``cli.main()`` and does not touch the
 existing flat-CLI test suite in test_check_rst.py.
 
-Stage 1 covers Tier 2 (the three self-contained verbs: diff-json, refs,
-context) — highest confidence, fully isolated from every open fork.
+Stage 1 covered Tier 2's original self-contained verbs. Snapshot comparison
+now lives under the Git-capable ``compare`` verb.
 """
 
 from __future__ import annotations
@@ -31,15 +31,15 @@ if TYPE_CHECKING:
 # The complete cross-pipeline attribute contract every subcommand's Namespace
 # must satisfy after _backfill_post_parse — see cli.py's _main() body, which
 # reads each of these at least once across check/fix/diff/outline/context/
-# refs/diff-json combined.
+# refs/compare combined.
 _FULL_ATTR_CONTRACT = frozenset(
     {
         "build_dir",
         "collapse_title_spaces",
+        "compare",
         "config",
         "context",
         "diff",
-        "diff_json",
         "diff_only",
         "exclude",
         "files",
@@ -78,11 +78,11 @@ def _parse(argv: list[str]) -> argparse.Namespace:
 
 
 @pytest.mark.unit
-def test_diff_json_verb_populates_full_attribute_contract() -> None:
-    args = _parse(["diff-json", "old.json", "new.json"])
-    assert args.command == "diff-json"
+def test_compare_snapshots_populates_full_attribute_contract() -> None:
+    args = _parse(["compare", "--snapshots", "old.json", "new.json"])
+    assert args.command == "compare"
     assert vars(args).keys() >= _FULL_ATTR_CONTRACT
-    assert args.diff_json == ["old.json", "new.json"]
+    assert args.snapshots == [pathlib.Path("old.json"), pathlib.Path("new.json")]
     assert args.files == []
 
 
@@ -96,20 +96,41 @@ def test_hierarchy_verb_is_self_contained() -> None:
 
 @pytest.mark.unit
 def test_hierarchy_allows_no_config() -> None:
-    """Same reasoning as test_diff_json_allows_no_config: --no-config asks
+    """Same reasoning as compare --snapshots: --no-config asks
     the tool NOT to do something hierarchy was never going to do anyway
     (read a project config) — a harmless no-op, not an incompatible
-    combination worth rejecting. Was inconsistent with diff-json's own,
+    combination worth rejecting. Was inconsistent with snapshot comparison's,
     already-tested conclusion until this fix."""
     args = _parse(["--no-config", "hierarchy"])
     cli._validate_hierarchy_args(args)  # must not raise
 
 
 @pytest.mark.unit
-def test_diff_json_verb_requires_exactly_two_positionals() -> None:
+def test_compare_snapshots_requires_exactly_two_paths() -> None:
     parser = cli._build_cli_parser()
     with pytest.raises(SystemExit) as exc:
-        parser.parse_args(["diff-json", "old.json"])
+        parser.parse_args(["compare", "--snapshots", "old.json"])
+    assert exc.value.code == 2
+
+
+@pytest.mark.unit
+def test_compare_verb_selects_git_states_and_snapshot_adapter() -> None:
+    staged = _parse(["compare", "--staged", "doc.rst"])
+    snapshots = _parse(["compare", "--snapshots", "old.json", "new.json"])
+
+    assert staged.command == "compare"
+    assert staged.staged is True
+    assert staged.files == [pathlib.Path("doc.rst")]
+    assert snapshots.snapshots == [pathlib.Path("old.json"), pathlib.Path("new.json")]
+
+
+@pytest.mark.unit
+def test_compare_verb_rejects_conflicting_state_selectors() -> None:
+    parser = cli._build_cli_parser()
+
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["compare", "--staged", "--unstaged"])
+
     assert exc.value.code == 2
 
 
@@ -499,20 +520,20 @@ def test_config_alone_passes_config_flags_validation() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize("flag", ["--config", "--sphinx-src", "--build-dir"])
-def test_diff_json_rejects_each_global_project_flag(flag: str) -> None:
-    args = _parse([flag, "x", "diff-json", "old.json", "new.json"])
+def test_compare_snapshots_rejects_each_global_project_flag(flag: str) -> None:
+    args = _parse([flag, "x", "compare", "--snapshots", "old.json", "new.json"])
     with pytest.raises(SystemExit) as exc:
-        cli._validate_diff_json_args(args)
+        cli._validate_compare_args(args)
     assert exc.value.code == 1
 
 
 @pytest.mark.unit
-def test_diff_json_allows_no_config() -> None:
-    """--no-config asks the tool NOT to do something diff-json was never
+def test_compare_snapshots_allows_no_config() -> None:
+    """--no-config asks the tool NOT to do something snapshot comparison never
     going to do anyway (read a project config) — a harmless no-op, not an
     incompatible combination worth rejecting."""
-    args = _parse(["--no-config", "diff-json", "old.json", "new.json"])
-    cli._validate_diff_json_args(args)  # must not raise
+    args = _parse(["--no-config", "compare", "--snapshots", "old.json", "new.json"])
+    cli._validate_compare_args(args)  # must not raise
 
 
 # ---------------------------------------------------------------------------
@@ -522,7 +543,7 @@ def test_diff_json_allows_no_config() -> None:
 # --apply/--only/--skip. No report-filter or --word-samples flags — this
 # verb runs no Phase 1 lint pass of its own. --sphinx-src/--build-dir are
 # rejected (verified Sphinx mode is irrelevant to a bare-docutils source
-# transformation, the same fail-loudly precedent as diff-json rejecting
+# transformation, the same fail-loudly precedent as snapshot comparison rejecting
 # them); --config stays available since it still roots project/Git-scope
 # discovery for this verb's own --recursive/--git-scope.
 # ---------------------------------------------------------------------------

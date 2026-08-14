@@ -10,7 +10,7 @@ check_rst-reports(1)
 NAME
 ******
 
-check_rst-reports - query entry context, references, and JSON changes
+check_rst-reports - query entry context, references, and semantic changes
 
 **********
 SYNOPSIS
@@ -20,7 +20,8 @@ SYNOPSIS
 
    check_rst [GLOBAL-OPTION]... context [--no-toctree] ENTRY FILE
    check_rst --sphinx-src DIR refs FILE
-   check_rst diff-json OLD.json NEW.json
+   check_rst compare [--staged | --unstaged | --from REV [--to REV]] [--patch] [-U N] [FILE]...
+   check_rst compare --snapshots OLD.json NEW.json
 
 *********
 CONTEXT
@@ -41,21 +42,27 @@ incoming references from other project files.  It reads the live Sphinx
 environment rather than ``objects.inv`` and therefore requires
 ``--sphinx-src`` through configuration or a global option.
 
-***********
-DIFF-JSON
-***********
+*********
+COMPARE
+*********
 
-``diff-json`` compares two objects produced by ``check --format json``.  It
-matches findings by severity and message rather than physical line number, so
-unrelated line movement is not reported as a resolved and reintroduced
-finding.  The command reads no RST, loads no project, and rejects global
-project options.
+``compare`` defaults to ``HEAD`` against the worktree and reports changed RST
+files, zero-context Git hunk geometry, and section ownership.  ``--staged``
+selects ``HEAD`` against the index; ``--unstaged`` selects the index against
+the worktree; ``--from`` and optional ``--to`` select revisions.  ``--patch``
+appends a unified patch and ``-U`` controls its presentation context without
+changing semantic ranges.
+
+``compare --snapshots`` instead compares two objects produced by ``check
+--format json``.  It matches findings by severity and message rather than
+physical line number.  This adapter reads no RST, loads no project, and
+rejects project, patch, and file-selection options.
 
 *************
 EXIT STATUS
 *************
 
-Each query returns ``0`` for a successful report, including a ``diff-json``
+Each query returns ``0`` for a successful report, including a ``compare``
 report that describes changes.  Invalid input, an unresolved query, or a build
 failure returns ``1``; invalid invocation or incompatible options returns
 ``2``.

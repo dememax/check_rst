@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Maxime P. DEMENTYEV
 # SPDX-License-Identifier: GPL-3.0-only
-# Word-stats, --context, --refs formatting, and diff-json — check_rst project
+# Word-stats, --context, --refs formatting, and snapshot comparison — check_rst project
 
 from __future__ import annotations
 
@@ -978,7 +978,7 @@ def _run_context_query(
 
 
 def _load_json_dump(path: pathlib.Path) -> dict[str, Any]:
-    """Load and validate one check_rst ``--json`` dump for ``--diff-json``."""
+    """Load and validate one check_rst JSON dump for ``compare --snapshots``."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -1113,7 +1113,7 @@ def _section_states(
 
 
 def _diff_json_dumps(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
-    """Structured semantic diff between two --json dumps (--diff-json).
+    """Structured semantic comparison between two saved JSON dumps.
 
     Logged 2026-07-18, independently re-confirmed 2026-07-21 by a real
     downstream-project session: "several times this session I rewrote a whole file...
@@ -1249,7 +1249,7 @@ def _diff_json_dumps(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]
 
 
 def _format_json_diff(diff: dict[str, Any]) -> str:
-    """Render _diff_json_dumps' structured result as a --diff-json report."""
+    """Render _diff_json_dumps' structured result as a snapshot comparison report."""
     lines = ["Summary:"]
     provenance = diff.get("provenance", {})
     if provenance.get("changed"):
@@ -1316,3 +1316,32 @@ def _format_json_diff(diff: dict[str, Any]) -> str:
         if fd.get("error") is not None:
             lines.append(f"  error: {fd['error']['old']!r} -> {fd['error']['new']!r}")
     return "\n".join(lines)
+
+
+def _format_section_comparison(diff: dict[str, Any]) -> str:
+    """Render only section facts when live Git already supplied file facts."""
+    lines = ["Section comparison:"]
+    for path, file_diff in diff["files"].items():
+        if file_diff["status"] == "unchanged":
+            lines.append(f"  {path}: topology/adornments unchanged")
+            continue
+        if file_diff["status"] in {"added", "removed"}:
+            continue
+        outline = file_diff["outline"]
+        lines.append(f"  {path}: " + ("topology changed" if outline["topology_changed"] else "topology unchanged"))
+        for section_id in outline["added"]:
+            lines.append(f"    + {section_id}")
+        for section_id in outline["removed"]:
+            lines.append(f"    - {section_id}")
+        for change in outline["adornment_changed"]:
+            lines.append(f"    adornment changed: {change['id']} ({change['old']!r} -> {change['new']!r})")
+        for change in outline["depth_changed"]:
+            lines.append(f"    depth changed: {change['id']} ({change['old']} -> {change['new']})")
+        for change in outline["parent_changed"]:
+            old_parent = change["old"] if change["old"] is not None else "<document>"
+            new_parent = change["new"] if change["new"] is not None else "<document>"
+            lines.append(f"    parent changed: {change['id']} ({old_parent} -> {new_parent})")
+        for change in outline["order_changed"]:
+            parent = change["parent"] if change["parent"] is not None else "<document>"
+            lines.append(f"    order changed: {change['id']} under {parent} ({change['old']} -> {change['new']})")
+    return "\n".join(lines) if len(lines) > 1 else ""

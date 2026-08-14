@@ -312,7 +312,7 @@ def test_cli_max_output_lines_rejects_format_json(
     """Of the old incompatible_budget_mode rule's six modes, --format=json
     is the only one that survives as a value-level check under the
     subcommand redesign — see _validate_check_args. The other five
-    (diff/diff --fast/refs/context/diff-json, tested below) never define
+    (diff/diff --fast/refs/context/compare, tested below) never define
     --max-output-lines on their own parser at all now."""
     document = tmp_path / "test.rst"
     document.write_text(_GOOD_BLOCK, encoding="utf-8")
@@ -345,7 +345,7 @@ def test_cli_max_output_lines_rejects_format_json(
         ["diff", "--fast", "--max-output-lines", "10", "FILE"],
         ["refs", "--max-output-lines", "10", "FILE"],
         ["context", "Title", "--max-output-lines", "10", "FILE"],
-        ["diff-json", "--max-output-lines", "10", "old.json", "new.json"],
+        ["compare", "--max-output-lines", "10", "--snapshots", "old.json", "new.json"],
     ],
 )
 def test_cli_max_output_lines_absent_from_structured_or_copyable_verbs(
@@ -357,7 +357,7 @@ def test_cli_max_output_lines_absent_from_structured_or_copyable_verbs(
     """--max-output-lines is now an ordinary argparse "unrecognized
     arguments" error on every verb that used to need a custom
     incompatible_budget_mode rejection for it — none of diff/refs/context/
-    diff-json define the flag on their own parser. Still exit 2, but on
+    compare define the flag on their own parser. Still exit 2, but on
     stdout, not stderr: --max-output-lines being present anywhere in raw
     argv activates main()'s OutputBudgetSink (_requested_output_limit's own
     pre-argparse raw scan) before argparse ever runs, which merges

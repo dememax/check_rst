@@ -195,7 +195,7 @@ def test_cli_rejects_semantically_incompatible_arguments_before_actions(
     check under the subcommand redesign (docs/roadmap.rst, "Subcommands:
     flag-soup incompatibilities become verbs") — every combination this
     parametrize used to cover that the redesign made structurally
-    impossible (e.g. --outline-only + --fix, --refs + --json, --diff-json +
+    impossible (e.g. --outline-only + --fix, --refs + --json, snapshot comparison +
     --config) was removed rather than converted: those now fail as an
     ordinary argparse "unrecognized argument" (exit 2, message on stderr),
     which is argparse's own behavior, not this project's logic to pin down
@@ -245,7 +245,7 @@ def test_cli_help_covers_examples_and_self_contained_modes(
     out = capsys.readouterr().out
     assert "Examples:" in out
     assert "check_rst refs doc.rst" in out
-    assert "check_rst diff-json before.json after.json" in out
+    assert "check_rst compare --snapshots before.json after.json" in out
     assert "check_rst fix --fast" in out
     assert "check_rst list-table doc.rst" in out
     compact = " ".join(out.split())
@@ -270,7 +270,7 @@ def test_cli_help_covers_examples_and_self_contained_modes(
         ["fix", "--help"],
         ["diff", "--help"],
         ["outline", "--help"],
-        ["diff-json", "--help"],
+        ["compare", "--help"],
         ["refs", "--help"],
         ["context", "--help"],
         ["list-table", "--help"],

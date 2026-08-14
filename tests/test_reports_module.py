@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Maxime P. DEMENTYEV
 # SPDX-License-Identifier: GPL-3.0-only
-# Tests for check_rst.cli's _reports domain (word-stats, --context, --refs, diff-json) — check_rst project
+# Tests for check_rst.cli's reports domain, including snapshot comparison — check_rst project
 
 from __future__ import annotations
 
@@ -1455,13 +1455,13 @@ def test_diff_json_dumps_added_and_removed_files() -> None:
 
 
 @pytest.mark.integration
-def test_cli_diff_json_end_to_end(
+def test_cli_compare_snapshots_end_to_end(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """End to end: two real --json dumps, one edit apart, compared via
-    --diff-json — the report names the added finding and the summary
+    compare --snapshots — the report names the added finding and the summary
     delta, no manual eyeballing of two large JSON blobs required."""
     p = rst_repo / "test.rst"
     p.write_text("#######\nTitle\n#######\n\n**A point.**  Detail.\n", encoding="utf-8")
@@ -1485,7 +1485,8 @@ def test_cli_diff_json_end_to_end(
         "sys.argv",
         [
             "check_rst.py",
-            "diff-json",
+            "compare",
+            "--snapshots",
             str(rst_repo / "old.json"),
             str(rst_repo / "new.json"),
         ],
@@ -1501,7 +1502,7 @@ def test_cli_diff_json_end_to_end(
 
 
 @pytest.mark.integration
-def test_cli_diff_json_reports_adornment_only_change_as_topology_unchanged(
+def test_cli_compare_snapshots_reports_adornment_only_change_as_topology_unchanged(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1530,7 +1531,10 @@ def test_cli_diff_json_reports_adornment_only_change_as_topology_unchanged(
     assert new_exit.value.code == 0
     new_path.write_text(capsys.readouterr().out, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "diff-json", str(old_path), str(new_path)])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "compare", "--snapshots", str(old_path), str(new_path)],
+    )
     with pytest.raises(SystemExit) as diff_exit:
         cli.main()
 
@@ -1543,7 +1547,7 @@ def test_cli_diff_json_reports_adornment_only_change_as_topology_unchanged(
 
 
 @pytest.mark.integration
-def test_cli_diff_json_missing_file_errors_cleanly(
+def test_cli_compare_snapshots_missing_file_errors_cleanly(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1552,7 +1556,8 @@ def test_cli_diff_json_missing_file_errors_cleanly(
         "sys.argv",
         [
             "check_rst.py",
-            "diff-json",
+            "compare",
+            "--snapshots",
             str(tmp_path / "missing1.json"),
             str(tmp_path / "missing2.json"),
         ],
@@ -1671,7 +1676,7 @@ def test_cli_diff_json_missing_file_errors_cleanly(
         ),
     ],
 )
-def test_cli_diff_json_rejects_malformed_or_wrong_schema_cleanly(
+def test_cli_compare_snapshots_rejects_malformed_or_wrong_schema_cleanly(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1684,7 +1689,7 @@ def test_cli_diff_json_rejects_malformed_or_wrong_schema_cleanly(
     new.write_text(json.dumps(_json_dump()), encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "diff-json", str(old), str(new)],
+        ["check_rst.py", "compare", "--snapshots", str(old), str(new)],
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -1697,7 +1702,7 @@ def test_cli_diff_json_rejects_malformed_or_wrong_schema_cleanly(
 
 
 @pytest.mark.integration
-def test_cli_diff_json_accepts_its_own_invalid_utf8_error_dump(
+def test_cli_compare_snapshots_accepts_its_own_invalid_utf8_error_dump(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1717,7 +1722,10 @@ def test_cli_diff_json_accepts_its_own_invalid_utf8_error_dump(
     new = tmp_path / "new.json"
     old.write_text(dump_text, encoding="utf-8")
     new.write_text(dump_text, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "diff-json", str(old), str(new)])
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "compare", "--snapshots", str(old), str(new)],
+    )
 
     with pytest.raises(SystemExit) as diff_exit:
         cli.main()

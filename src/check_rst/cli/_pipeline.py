@@ -907,7 +907,7 @@ def _run_check_pipeline(
 
     Split out of _main() (found by code review: _main was a single
     ~1000-line function with no seams) as the one piece left after the
-    already-self-contained early verb branches (diff-json, --refs,
+    already-self-contained early verb branches (compare --snapshots, --refs,
     list-table, --context, --fix-only, diff --fast/non-fast) are each
     their own function — this is _main()'s true remaining body, not a
     per-verb split, because check/fix/diff genuinely share this walk.

@@ -65,7 +65,7 @@ it.
 COMPARISON
 ************
 
-``check_rst diff-json OLD.json NEW.json`` validates both basic report shapes
+``check_rst compare --snapshots OLD.json NEW.json`` validates both basic report shapes
 and compares files, stable outline IDs, findings, Sphinx findings, summaries,
 and runtime provenance.  Findings match by severity and text, never by line
 number.

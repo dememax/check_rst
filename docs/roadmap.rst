@@ -36,8 +36,10 @@ The following capabilities are implemented and protected by tests:
 * Short underline-only title recognition, parsed composition provenance,
   effective single-title enforcement, homoglyph detection, missing document or
   local-asset integration, and nested-inline detection.
-* ``diff-json`` section/finding comparison, including separate section
-  adornment, depth, parent, sibling-order, and topology facts.
+* ``compare`` over Git states or saved snapshots: Git lifecycle facts,
+  zero-context hunk ownership, optional patch context, and section/finding
+  comparison with separate adornment, depth, parent, sibling-order, and
+  topology facts.
 * Trailing-whitespace normalization, opt-in blank-line normalization, and
   opt-in title/prose spacing policies.
 * Footer statistics, top/rare prose words, entry ranges, outline enrichment,
@@ -56,8 +58,9 @@ Three concrete capabilities remain agreed but unimplemented:
 
 * ``list-targets [PATTERN]``.
 * ``fix --precheck``: a consolidated, fail-closed edit-validation cycle.
-* Semantic comparison below sections, implemented in the staged order recorded
-  under "Semantic-diff coverage below the section level".
+* The remaining semantic-comparison dimensions below sections, implemented in
+  the staged order recorded under "Semantic-diff coverage below the section
+  level".
 
 ===================================
 Workable through existing bridges
@@ -188,7 +191,7 @@ resolves to *FILE*'s own docname.  Role target resolution reuses Sphinx's own
 logic exactly — ``sphinx.util.docname_join`` for ``:doc:``,
 ``env.domaindata['std']['anonlabels']`` for ``:ref:``/``:term:`` — so a
 reference this reports as resolved is exactly one Phase 3 would accept.  A
-self-contained mode, same family as ``diff-json``.
+self-contained mode, same family as ``compare --snapshots``.
 
 ========================
 ``context ENTRY FILE``
@@ -475,10 +478,10 @@ genuinely persisting finding.
 Semantic diffs / document fingerprints
 ========================================
 
-*Current status: shipped 2026-07-22; exposed as the* ``diff-json`` *verb since
-2026-08-07.*
+*Current status: shipped 2026-07-22; exposed as the* ``diff-json`` *verb from
+2026-08-07 until 2026-08-14, then migrated to* ``compare --snapshots``.
 
-``diff-json OLD.json NEW.json`` compares two previously produced
+``compare --snapshots OLD.json NEW.json`` compares two previously produced
 ``check --format=json``
 dumps: files matched by path, outline entries by their stable ``docname:title``
 id, findings by ``(severity, text)`` — deliberately never by line number, which
@@ -653,8 +656,8 @@ Semantic-diff coverage below the section level
 shipped the same day, stages 2–7 remain planned.*
 
 (Max, 2026-07-24, from the same illustrative example that reconfirmed
-``diff-json``'s own value: "moved code block", "added one cross-reference") —
-``diff-json`` today matches outline entries, hierarchy, and findings; it has
+snapshot comparison's own value: "moved code block", "added one cross-reference") —
+``compare --snapshots`` today matches outline entries, hierarchy, and findings; it has
 no equivalent match for individual code-blocks or references
 moving/appearing/disappearing within an otherwise-unchanged section.  The
 2026-08-13 review broadened that evidence into a role-independent comparison
@@ -753,10 +756,9 @@ changing files all need explicit outcomes rather than silent omission.
 
 ``--snapshots`` feeds the same comparison engine from two self-contained
 ``check --format=json`` artifacts and never rereads a possibly changed RST
-project.  When the direct Git form lands, replace ``diff-json`` with this
-explicit portable form as an intentional documented CLI change with the
-appropriate package-version bump; do not maintain two permanent aliases for
-one operation.
+project.  Since 2026-08-14 the direct Git form and this explicit portable form
+share the ``compare`` verb; the former ``diff-json`` spelling was removed with
+the package-version bump to 0.5.0 rather than retained as a permanent alias.
 
 A compact default report preserves Git facts before semantic interpretation,
 for example:
@@ -779,7 +781,7 @@ neighboring lines became visible.  ``-U`` implies ``--patch`` and both options
 are rejected with ``--snapshots``, whose artifacts contain no source blobs.
 
 An unqualified comparison reports every known dimension and exits zero even
-when differences exist, preserving ``diff-json``'s observational role.  Once
+when differences exist, preserving snapshot comparison's observational role.  Once
 all prerequisite facts exist, add factual expectations rather than
 persona-specific commands:
 
@@ -855,14 +857,14 @@ Docutils endpoints and parser/Sphinx modes wherever the new fingerprint depends
 on them.
 
 #. Shipped 2026-08-13: separate section representation from topology.
-   ``diff-json`` now reports adornment, depth, derived parent, and relative
+   ``compare --snapshots`` reports adornment, depth, derived parent, and relative
    sibling-order changes independently.  Additions/removals change topology;
    an inserted sibling does not falsely reorder survivors; and an
    adornment-only change says "topology unchanged".  Unit coverage protects
    depth/reparenting, sibling reorder, addition, duplicate-title ids, and the
    unchanged case; a real paired-snapshot CLI regression protects the
    adornment-only predicate.
-#. Add Git state selection and hunk ownership.  Introduce ``compare`` with the
+#. Shipped 2026-08-14: add Git state selection and hunk ownership.  ``compare`` has the
    HEAD/index/worktree and revision pairs above; retain snapshot input as one
    adapter to the same core.  Use pygit2 facts rather than parsing Git's text
    output.  Protect staged-only, unstaged-only, staged-then-edited, untracked,
@@ -870,8 +872,10 @@ on them.
    mutation-during-diff cases.  Derive semantic ranges from zero-context
    deltas, map them to sections/entries, and keep mixed/unmapped changes
    visible; test independently that ``--unified`` changes only patch
-   presentation.  At this boundary replace the old ``diff-json`` spelling and
-   reconcile help, guide, roadmap, and the breaking CLI signature.
+   presentation.  The old ``diff-json`` spelling was removed, the package
+   version became 0.5.0, and help, guide, manual pages, and this roadmap record
+   the breaking CLI signature.  Exact complete-blob identity classifies only
+   unambiguous copies and renames; ambiguous duplicate sources remain additions.
 #. Fingerprint existing structural and literal entries.  Add canonical
    records for code/literal blocks, tables, lists, directives, admonitions,
    comments, blockquotes, includes, conditionals, and toctrees.  First support
@@ -1414,7 +1418,7 @@ The current scope is ``check``, ``fix``, and ``outline`` text reports, including
 ``fix --fast``.  Structured or copyable outputs are rejected: truncated
 ``check --format=json`` must never become invalid or masquerade as a complete
 model, and truncated ``diff``/``diff --fast`` output must never resemble an
-applicable patch.  ``diff-json``, ``refs``, and ``context`` likewise need
+applicable patch.  ``compare``, ``refs``, and ``context`` likewise need
 complete semantic/reference reports and therefore reject the generic limit.
 
 Implementation uses a report/output sink, not a parser over the tool's own
@@ -1794,7 +1798,9 @@ Subcommands: flag-soup incompatibilities become verbs
 =======================================================
 
 Current status: shipped 2026-08-07; global project-identity options and
-``--no-config`` added 2026-08-08.
+``--no-config`` added 2026-08-08.  On 2026-08-14 ``diff-json`` was replaced
+by ``compare --snapshots`` when the Git-backed ``compare`` verb shipped; the
+record below retains the original names to explain that earlier redesign.
 
 ``_validate_cli_args`` used to be a hand-written incompatibility matrix over
 roughly 30 flags: a mutually-exclusive mode group (``--fix``/``--fix-only``/
@@ -1820,7 +1826,8 @@ parser shared by the subcommands that need it. ``--config``/``--no-config``/
 global options on the main parser (extension below, 2026-08-08 — git-style,
 before the verb: ``check_rst --sphinx-src docs check file.rst``, not
 ``check_rst check --sphinx-src docs file.rst``), not part of any one shape,
-because every verb except ``diff-json`` can read them identically.
+because, at that release boundary, every verb except ``diff-json`` could read
+them identically.
 
 .. list-table::
    :header-rows: 1
@@ -1959,6 +1966,13 @@ repeated per subcommand: ``check_rst --sphinx-src docs check file.rst``, not
 ``check_rst check --sphinx-src docs file.rst``. ``diff-json`` alone rejects
 them (Tier 2, above); every other verb reads them identically.
 
+The 0.5.0 ``compare`` migration preserves that distinction in a narrower
+form: Git-backed comparison accepts ``--config`` to select its repository,
+while ``compare --snapshots`` rejects project flags because it reads only its
+two artifacts.  Verified Sphinx comparison of historical states remains a
+later semantic-evidence stage, so explicit ``--sphinx-src``/``--build-dir``
+currently fail for Git-backed comparison rather than being ignored.
+
 A new ``--no-config`` joined them the same day. Previously there was no way
 to skip ``.check_rst.toml``/``pyproject.toml`` auto-discovery at all — a
 malformed or unknown-key committed config would fail loudly on discovery
@@ -2035,7 +2049,7 @@ implementation, both by explicit decision (Max) rather than by default:
   list-table`` implied other destination formats were possible; there is
   only one. Renamed to the bare verb ``list-table`` (dropping ``--to``
   entirely) — the verb name states the destination on its own, the same
-  way ``diff-json``/``refs``/``context`` already do, discoverable without
+  way ``compare --snapshots``/``refs``/``context`` already do, discoverable without
   reading a flag's own description.
 
 Resulting contract::

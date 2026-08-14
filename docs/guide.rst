@@ -248,8 +248,8 @@ audit that structure, not a reason to replace Markdown with RST.
 
 Section titles also help orient ordinary patches because distinctive nearby
 heading lines are recognizable context, while ``check_rst`` provides the
-stronger guarantees: verified ranges and selectors, plus section-identity
-matching in ``diff-json``.  Do not claim that Git currently puts RST
+stronger guarantees: verified ranges and selectors, plus zero-context hunk
+ownership in ``compare``.  Do not claim that Git currently puts RST
 titles into hunk headers automatically: this repository has no RST diff
 driver configured in ``.gitattributes``.  A future driver could make titles
 formal hunk anchors, but that would be a separate integration enhancement,
@@ -1005,7 +1005,7 @@ not a closed list that must be updated whenever another entry class appears.
 
 Sections additionally have a stable, title-based selector,
 ``docname:Title``.  That preferred form is also the section ``id`` stored by
-``check --format=json`` and matched by ``diff-json``; repeated titles gain ``#2``, ``#3``,
+``check --format=json`` and matched by ``compare --snapshots``; repeated titles gain ``#2``, ``#3``,
 and so on.  Universal ``kind@line`` aliases are accepted by ``context`` for
 sections too, but are not JSON ids.  When exact semantic text is ambiguous,
 copy the generated selector from ``context``'s candidate report — its spelling
@@ -1224,7 +1224,7 @@ program output, not terminal-wrapped display rows.
 
 The initial compatibility boundary protects formats whose completeness is
 part of their meaning.  ``check``, ``fix`` (bare or ``--fast``), and
-``outline`` accept the limit.  ``check --format=json``, ``diff-json``,
+``outline`` accept the limit.  ``check --format=json``, ``compare``,
 ``refs``, ``context``, and ``diff`` (bare or ``--fast`` — the flag is not
 even defined on ``diff``'s own parser) reject it: truncated JSON must
 not become invalid or look complete, and a truncated patch must not look
@@ -1321,7 +1321,7 @@ errors-only, non-fixable-only, or deliberately reduced-phase question was
 actually requested.
 
 Some outputs are atomic and consequently have no line-budget option.
-``check --format=json`` and ``diff-json`` must remain valid complete data;
+``check --format=json`` and ``compare --snapshots`` must remain valid complete data;
 ``diff`` and ``list-table`` previews must remain complete patches; ``refs``,
 ``context``, and ``hierarchy`` are purpose-specific answers for which no line
 budget is defined.  Use ``--quiet`` where the command supports it, but never
@@ -1473,7 +1473,7 @@ Journal, the incoming half answers the question aggregation-page
 maintenance keeps asking: "which aggregation pages already point at
 this calendar note" — before, that meant a corpus-wide grep and manual
 cross-checking; now it is one command.  A self-contained mode, same
-family as ``diff-json``: incompatible flags or extra file arguments
+family as ``compare --snapshots``: incompatible flags or extra file arguments
 are rejected, never silently ignored.
 
 Both lists come from the SAME live Sphinx environment Phase 2 already
@@ -1492,20 +1492,49 @@ doesn't resolve prints ``BROKEN`` in the outgoing list — Phase 3 already
 reports why (and, since the previous section, suggests the fix); this
 list exists to show what's THERE, not to duplicate that diagnosis.
 
-===================================================
-Semantic diffs: comparing two --format=json dumps
-===================================================
+=============================================
+compare: explain changes that already exist
+=============================================
 
-After a large edit — your own, or a subagent's — "did I break anything,
-or just add what I meant to add?" is usually answered by eyeballing a
-diff of the *file*, not of what changed *structurally*.
-``diff-json OLD.json NEW.json`` answers the structural question
-directly, from two ``check --format=json`` dumps taken before and after::
+``diff`` previews what check_rst's own fixer *would* change.  ``compare``
+instead explains changes already present between Git states.  With no state
+option it compares ``HEAD`` to the worktree, including staged and unstaged
+content while reporting their hunk counts separately and listing each
+component hunk under ``Change sources``::
+
+    $ check_rst compare
+    Comparison: HEAD -> worktree (1 staged hunk, 2 unstaged hunks)
+    docs/guide.rst: modified, 3 hunks (+7 -5)
+      420 -> 420: section "Editing safely" [owned]
+    Change sources:
+      staged: docs/guide.rst 420 -> 420
+      unstaged: docs/guide.rst 511 -> 511
+
+Use ``--staged`` for ``HEAD`` to index, ``--unstaged`` for index to
+worktree, ``--from REV`` for a revision to the worktree, or ``--from OLD
+--to NEW`` for two revisions.  Positional paths form an allowlist over
+the selected Git changes; unchanged files are not invented.  Added,
+untracked, deleted, exact renamed/copied, and unborn-HEAD files have explicit
+outcomes.  A rename remains relevant when either its old or new path has the
+``.rst`` suffix, so moving a document to a non-RST format is not silently
+lost.  Non-UTF-8 input and a worktree that changes while it is being read fail
+visibly instead of producing a mixed-state report.
+
+The compact report uses zero-context Git deltas to map each hunk to the
+deepest owning section.  A hunk crossing owners remains ``mixed`` and content
+outside a parsed section remains ``unmapped``.  ``--patch`` appends Git's
+unified patch; ``-U N``/``--unified N`` sets its context and implies
+``--patch``.  Context is presentation only: it never expands the ranges used
+for ownership or semantic classification.
+
+For a portable before/after artifact, ``compare --snapshots OLD.json
+NEW.json`` answers the structural question from two ``check --format=json``
+dumps without reading the current RST project::
 
     $ check_rst check --format=json guide.rst > before.json
     ... edit guide.rst: add a "Rollback" section with a bold opener ...
     $ check_rst check --format=json guide.rst > after.json
-    $ check_rst diff-json before.json after.json
+    $ check_rst compare --snapshots before.json after.json
     Summary:
       files_checked: 1 -> 1 (0)
       errors: 0 -> 0 (0)
@@ -1537,8 +1566,8 @@ another cannot disappear behind an unchanged warning count.  The comparison
 also warns when schema, heuristic/verified mode, or runtime provenance
 differs; a Sphinx-version change is evidence about the comparison, not a
 structural document change.  Self-contained: no RST
-is read or checked, and no other flag applies alongside it — the two
-arguments are always JSON files, never the documents themselves.
+is read or checked, and project, patch, and file-selection flags do not apply
+alongside it — the two arguments are always JSON files, never the documents themselves.
 Malformed JSON, a non-object top level, or data missing the required
 ``files``/``summary`` report shape fails with a clean diagnostic rather
 than a traceback or an invented empty comparison.
@@ -1636,8 +1665,9 @@ at all (the same fail-loudly precedent as ``--sphinx-src`` without a
 ``conf.py``).  An explicitly requested config that is missing, not a
 regular file, malformed TOML, or empty also fails before Git discovery,
 any checking phase, or ``fix``.  ``refs`` accepts ``--config`` because
-it needs project settings; ``diff-json`` rejects it because that mode is
-self-contained and reads no RST project.
+it needs project settings; ``compare --snapshots`` rejects it because that
+mode is self-contained and reads no RST project.  Git-backed ``compare``
+accepts ``--config`` to select the repository root.
 
 The same actionable verified-mode error applies to every option whose
 meaning depends on Phase 3 data: ``refs``, explicit ``--build-dir``, and
@@ -1671,7 +1701,7 @@ openers, rubrics); (2) the AI turns the ones that are genuine sections
 into real placeholder headings; (3) ``fix`` normalizes the result;
 (4) a bare confirm run verifies convergence; only once every document
 in scope has been through 1–4 does (5) cross-document reasoning
-(``refs``, ``diff-json``, an aggregation-page pass) run against
+(``refs``, ``compare``, an aggregation-page pass) run against
 verified structure instead of raw markup.  Skipping straight to step 5
 on a scope that never passed 1–4 means every cross-document answer
 inherits whatever the unverified documents got wrong.

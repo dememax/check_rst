@@ -61,7 +61,8 @@ def black_box_project(tmp_path: Path) -> Path:
         (["--sphinx-src"], "argument --sphinx-src: expected one argument"),
         (["context", "entry"], "the following arguments are required: FILE"),
         (["check", "--config", "project.toml"], "unrecognized arguments: --config"),
-        (["diff-json", "old.json"], "the following arguments are required: NEW.json"),
+        (["compare", "--snapshots", "old.json"], "expected 2 arguments"),
+        (["diff-json", "old.json", "new.json"], "argument COMMAND: invalid choice"),
         (["list-table", "--only", "not-an-integer"], "argument --only: invalid int value"),
     ],
 )
@@ -86,7 +87,10 @@ def test_black_box_argparse_errors_use_stderr_and_status_2(
         (["--config", "a.toml", "--no-config", "check"], "--no-config is incompatible with --config"),
         (["--build-dir", "build", "check"], "--build-dir requires verified Sphinx mode"),
         (["--sphinx-src", "docs", "hierarchy"], "hierarchy is self-contained"),
-        (["--config", "a.toml", "diff-json", "old.json", "new.json"], "diff-json is self-contained"),
+        (
+            ["--config", "a.toml", "compare", "--snapshots", "old.json", "new.json"],
+            "compare --snapshots is self-contained",
+        ),
         (["outline", "--max-output-lines", "1"], "--max-output-lines must be >= 2"),
     ],
 )

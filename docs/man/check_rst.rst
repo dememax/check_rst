@@ -29,9 +29,9 @@ DESCRIPTION
 ``check_rst`` is a deterministic front end for reStructuredText.  A command
 is required: ``check`` and ``diff`` serve reviewers, ``fix`` and
 ``list-table`` perform bounded source transformations, and ``outline``,
-``context``, and ``refs`` expose verified structure.  ``diff-json`` compares
-two prior machine-readable reports and ``hierarchy`` prints the live
-adornment order.
+``context``, and ``refs`` expose verified structure.  ``compare`` explains
+changes between Git states or two prior machine-readable reports, and
+``hierarchy`` prints the live adornment order.
 
 The executable natively processes ``.rst`` files.  Sphinx verification is
 available for trusted projects.  Markdown is not a native input format; see
@@ -105,6 +105,7 @@ EXAMPLES
    $ check_rst check
    $ check_rst --sphinx-src docs check docs/guide.rst
    $ check_rst diff document.rst
+   $ check_rst compare --staged
    $ check_rst outline document.rst
 
 **************

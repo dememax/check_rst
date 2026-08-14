@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from check_rst import DOCUMENTATION_URL, __copyright__, __license__, __version__
 
-from . import _formatting, _helpers, _output
+from . import _comparison, _formatting, _helpers, _output
 from ._config import LoadedConfig, _load_config
 from ._formatting import _plan_fix, diff_fixes
 from ._helpers import (
@@ -40,6 +40,7 @@ from ._reports import (
     _format_json_diff,
     _format_references,
     _format_runtime,
+    _format_section_comparison,
     _load_json_dump,
     _run_context_query,
     _runtime_metadata,
@@ -85,7 +86,8 @@ Examples:
     check_rst context 'doc:Section' doc.rst
     check_rst refs doc.rst
     check_rst list-table doc.rst
-    check_rst diff-json before.json after.json
+    check_rst compare --from main --to HEAD
+    check_rst compare --snapshots before.json after.json
 """
 
 
@@ -297,9 +299,9 @@ def _run_hierarchy() -> NoReturn:
 
 _CLI_ATTR_DEFAULTS: dict[str, object] = {
     "collapse_title_spaces": False,
+    "compare": False,
     "context": None,
     "diff": False,
-    "diff_json": None,
     "diff_only": False,
     "exclude": [],
     "files": [],
@@ -332,8 +334,8 @@ def _add_project_flags(parser: argparse.ArgumentParser) -> None:
     identifying which project/repo to operate on, added once to the main
     parser (before the verb, git-style: ``check_rst --sphinx-src DIR check
     file.rst``, not ``check_rst check --sphinx-src DIR file.rst``). Every
-    verb except diff-json can read them; diff-json is fully self-contained
-    and rejects them explicitly (see _validate_diff_json_args)."""
+    verb can read them; compare --snapshots is fully self-contained and
+    rejects them explicitly (see _validate_compare_args)."""
     parser.add_argument(
         "--config",
         type=pathlib.Path,
@@ -739,18 +741,39 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     outline_p.set_defaults(**_CLI_ATTR_DEFAULTS)
     outline_p.set_defaults(outline=True)
 
-    diff_json_p = sub.add_parser(
-        "diff-json",
-        help="semantic diff between two --format=json dumps",
+    compare_p = sub.add_parser(
+        "compare",
+        help="compare semantic changes between Git states or saved snapshots",
         description=(
-            "Semantic diff between two check --format=json dumps, matched by (severity, text), "
-            "never by line number. Self-contained: no RST read, no other flags apply."
+            "Reader/reviewer role: report Git facts and semantic ownership for changes that already exist. "
+            "Defaults to HEAD -> worktree; differences are observational and exit zero."
         ),
         epilog=_DOCUMENTATION_EPILOG,
     )
-    diff_json_p.add_argument("old", metavar="OLD.json")
-    diff_json_p.add_argument("new", metavar="NEW.json")
-    diff_json_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+    states = compare_p.add_mutually_exclusive_group()
+    states.add_argument("--staged", action="store_true", help="compare HEAD to the index")
+    states.add_argument("--unstaged", action="store_true", help="compare the index to the worktree")
+    states.add_argument("--from", dest="from_revision", metavar="REV", help="old Git revision")
+    states.add_argument(
+        "--snapshots",
+        nargs=2,
+        type=pathlib.Path,
+        metavar=("OLD.json", "NEW.json"),
+        help="compare two self-contained check --format=json artifacts",
+    )
+    compare_p.add_argument("--to", dest="to_revision", metavar="REV", help="new Git revision; requires --from")
+    compare_p.add_argument("--patch", action="store_true", help="append the full Git patch")
+    compare_p.add_argument(
+        "-U",
+        "--unified",
+        type=int,
+        default=None,
+        metavar="N",
+        help="show a patch with N context lines; implies --patch (default: 3)",
+    )
+    compare_p.add_argument("files", nargs="*", type=pathlib.Path, metavar="FILE")
+    compare_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+    compare_p.set_defaults(compare=True)
 
     refs_p = sub.add_parser(
         "refs",
@@ -816,8 +839,6 @@ def _backfill_post_parse(args: argparse.Namespace) -> None:
         args.diff_only = args.fast
     elif args.command == "outline":
         args.outline_only = not args.with_findings
-    elif args.command == "diff-json":
-        args.diff_json = [args.old, args.new]
     elif args.command == "refs":
         args.refs = args.file
     elif args.command == "context":
@@ -852,7 +873,7 @@ def _validate_check_args(args: argparse.Namespace) -> None:
     --outline/--outline-only/--json/--context" half narrows to "requires
     --format=json" now that check has neither --outline nor --context; and
     --max-output-lines' incompatibility with --json is the only surviving
-    case of that rule now that diff/diff-only/diff-json/refs/context never
+    case of that rule now that diff/diff-only/compare/refs/context never
     carry --max-output-lines at all."""
     if args.no_toctree and not args.json:
         _cli_fail("--no-toctree requires --format=json")
@@ -862,29 +883,34 @@ def _validate_check_args(args: argparse.Namespace) -> None:
         )
 
 
-def _validate_diff_json_args(args: argparse.Namespace) -> None:
-    """diff-json is fully self-contained — no RST project is ever read, so
-    the global project-identity options (--config/--sphinx-src/--build-dir,
-    _add_project_flags) never apply to it. Reject rather than silently
-    ignore, the same fail-loudly precedent as every other verb-incompatible
-    combination (_validate_fast_allowlist, _validate_check_args)."""
-    active = [
-        flag
-        for flag, value in (
-            ("--config", args.config),
-            ("--sphinx-src", args.sphinx_src),
-            ("--build-dir", args.build_dir),
-        )
-        if value is not None
-    ]
-    if active:
-        _cli_fail(f"diff-json is self-contained — incompatible argument(s): {', '.join(active)}")
+def _validate_compare_args(args: argparse.Namespace) -> None:
+    if args.to_revision is not None and args.from_revision is None:
+        _cli_fail("compare --to requires --from")
+    if args.unified is not None and args.unified < 0:
+        _cli_fail("compare --unified must be >= 0")
+    if args.snapshots is not None:
+        active = [
+            flag
+            for flag, value in (
+                ("--config", args.config),
+                ("--sphinx-src", args.sphinx_src),
+                ("--build-dir", args.build_dir),
+                ("--patch", args.patch),
+                ("--unified", args.unified),
+                ("FILE", args.files),
+            )
+            if _argument_is_set(value)
+        ]
+        if active:
+            _cli_fail(f"compare --snapshots is self-contained — incompatible argument(s): {', '.join(active)}")
+    elif args.sphinx_src is not None or args.build_dir is not None:
+        _cli_fail("compare Git states does not yet use Sphinx — incompatible argument(s): --sphinx-src/--build-dir")
 
 
 def _validate_hierarchy_args(args: argparse.Namespace) -> None:
     """hierarchy reports runtime constants and never selects a project.
     --no-config is deliberately not in this rejection list, same reasoning
-    as _validate_diff_json_args: it asks the tool NOT to do something
+    as compare --snapshots: it asks the tool NOT to do something
     hierarchy was never going to do anyway (read a project config) — a
     harmless no-op, not an incompatible combination worth rejecting."""
     active = [
@@ -904,7 +930,7 @@ def _validate_list_table_args(args: argparse.Namespace) -> None:
     """list-table never consults Sphinx — its own conversion and
     validation are bare-docutils only (same as find_tables itself, "no
     verified/heuristic split") — so --sphinx-src/--build-dir are
-    incompatible, the same fail-loudly precedent as diff-json rejecting
+    incompatible, the same fail-loudly precedent as compare --snapshots rejecting
     the whole project-flag family. --config stays valid: it still roots
     project/Git-scope discovery for this verb's own --recursive/
     --git-scope, unrelated to Sphinx verification."""
@@ -971,26 +997,135 @@ def _run_diff_only(
     sys.exit(1 if errors or preview_changes else 0)
 
 
-def _run_diff_json(args: argparse.Namespace) -> NoReturn:
-    """diff-json's own fully self-contained verb body — no RST project is
-    ever read (_validate_diff_json_args already rejects every project-
-    identity flag), so this needs nothing from _main() beyond args itself.
-    Split out of _main() (found by code review: _main was a single
-    ~1000-line function with no seams) as the first, easiest-to-isolate
-    piece — every other branch below this one in _main needs project_root/
-    config/runtime_metadata that diff-json never touches."""
-    old_path, new_path = (pathlib.Path(p) for p in args.diff_json)
+def _run_snapshot_comparison(args: argparse.Namespace) -> NoReturn:
+    old_path, new_path = args.snapshots
     old_data = _load_json_dump(old_path)
     new_data = _load_json_dump(new_path)
     print(_format_json_diff(_diff_json_dumps(old_data, new_data)))
-    sys.exit(0)
+    raise SystemExit(0)
+
+
+def _selected_git_states(args: argparse.Namespace) -> tuple[_comparison.GitState, _comparison.GitState]:
+    if args.staged:
+        return _comparison.GitState.revision_state("HEAD"), _comparison.GitState.index()
+    if args.unstaged:
+        return _comparison.GitState.index(), _comparison.GitState.worktree()
+    if args.from_revision is not None:
+        old = _comparison.GitState.revision_state(args.from_revision)
+        new = (
+            _comparison.GitState.revision_state(args.to_revision)
+            if args.to_revision is not None
+            else _comparison.GitState.worktree()
+        )
+        return old, new
+    return _comparison.GitState.revision_state("HEAD"), _comparison.GitState.worktree()
+
+
+def _hunk_count(comparison: _comparison.GitComparison) -> int:
+    return sum(len(change.hunks) for change in comparison.files)
+
+
+def _git_section_dump(
+    comparison: _comparison.GitComparison,
+    project_root: pathlib.Path,
+    *,
+    old_side: bool,
+) -> dict[str, Any]:
+    files: list[dict[str, Any]] = []
+    for change in comparison.files:
+        path = change.old_path if old_side else change.new_path
+        text = change.old_text if old_side else change.new_text
+        if path is None or text is None:
+            continue
+        owners = _comparison._section_owners(project_root, path, text)
+        files.append(
+            {
+                "path": path,
+                "outline": [{"id": owner.id, "depth": owner.depth, "char": owner.char} for owner in owners],
+                "findings": [],
+            }
+        )
+    return {
+        "schema_version": 1,
+        "mode": "parser-effective",
+        "runtime": {},
+        "files": files,
+        "summary": {"files_checked": len(files), "errors": 0, "warnings": 0},
+    }
+
+
+def _run_git_comparison(args: argparse.Namespace, project_root: pathlib.Path) -> NoReturn:
+    old, new = _selected_git_states(args)
+    paths = tuple(args.files)
+    try:
+        comparison = _comparison.assign_hunk_owners(
+            _comparison.compare_git_states(project_root, old, new, paths=paths),
+            project_root,
+        )
+        staged_hunks: int | None = None
+        unstaged_hunks: int | None = None
+        staged_comparison: _comparison.GitComparison | None = None
+        unstaged_comparison: _comparison.GitComparison | None = None
+        if not args.staged and not args.unstaged and args.from_revision is None:
+            staged_comparison = _comparison.compare_git_states(
+                project_root,
+                _comparison.GitState.revision_state("HEAD"),
+                _comparison.GitState.index(),
+                paths=paths,
+            )
+            unstaged_comparison = _comparison.compare_git_states(
+                project_root,
+                _comparison.GitState.index(),
+                _comparison.GitState.worktree(),
+                paths=paths,
+            )
+            staged_hunks = _hunk_count(staged_comparison)
+            unstaged_hunks = _hunk_count(unstaged_comparison)
+        print(
+            _comparison.format_git_comparison(
+                comparison,
+                staged_hunks=staged_hunks,
+                unstaged_hunks=unstaged_hunks,
+            )
+        )
+        section_report = _format_section_comparison(
+            _diff_json_dumps(
+                _git_section_dump(comparison, project_root, old_side=True),
+                _git_section_dump(comparison, project_root, old_side=False),
+            )
+        )
+        if section_report:
+            print(section_report)
+        if staged_comparison is not None and unstaged_comparison is not None:
+            source_report = _comparison.format_git_change_sources(
+                staged_comparison,
+                unstaged_comparison,
+            )
+            if source_report:
+                print(source_report)
+        if args.patch or args.unified is not None:
+            print()
+            print(
+                _comparison.git_patch_text(
+                    project_root,
+                    old,
+                    new,
+                    paths=paths,
+                    context_lines=args.unified if args.unified is not None else 3,
+                ),
+                end="",
+            )
+    except (KeyError, OSError, RuntimeError, UnicodeError, ValueError) as exc:
+        print(f"check_rst: compare: {exc}")
+        raise SystemExit(1) from None
+    raise SystemExit(0)
 
 
 def _run_refs(args: argparse.Namespace, runtime_metadata: dict[str, Any]) -> NoReturn:
     """--refs' own self-contained verb body: one file's outgoing/incoming
     cross-references, always exactly one document, always its own
     throwaway Sphinx build unless --build-dir asks to keep it. Split out
-    of _main() alongside _run_diff_json — same rationale, a clean,
+    of _main() alongside the snapshot comparison — same rationale, a clean,
     already fully self-contained branch."""
     if args.sphinx_src is None:
         _require_verified_sphinx("--refs")
@@ -1184,15 +1319,15 @@ def _main() -> None:
         _validate_outline_args(args)
     elif args.command == "context":
         _validate_context_args(args)
-    elif args.command == "diff-json":
-        _validate_diff_json_args(args)
+    elif args.command == "compare":
+        _validate_compare_args(args)
     elif args.command == "hierarchy":
         _validate_hierarchy_args(args)
     elif args.command == "list-table":
         _validate_list_table_args(args)
 
-    if args.diff_json is not None:
-        _run_diff_json(args)
+    if args.command == "compare" and args.snapshots is not None:
+        _run_snapshot_comparison(args)
     if args.command == "hierarchy":
         _run_hierarchy()
 
@@ -1239,10 +1374,10 @@ def _main() -> None:
     # the later foreign-files/conf.py checks (Sphinx-mode-only) reject an
     # otherwise-valid list-table run. --config itself stays active either
     # way — it still roots project/Git-scope discovery for this verb.
-    sphinx_inactive = args.fix_only or args.diff_only or args.command == "list-table"
+    sphinx_inactive = args.fix_only or args.diff_only or args.command in {"compare", "list-table"}
     if args.sphinx_src is None and "sphinx-src" in config:
         if sphinx_inactive:
-            reason = "--fast" if (args.fix_only or args.diff_only) else "list-table"
+            reason = "--fast" if (args.fix_only or args.diff_only) else args.command
             config_inactive.append(f"sphinx-src={config['sphinx-src']} inactive ({reason})")
         else:
             configured = pathlib.Path(config["sphinx-src"]).expanduser()
@@ -1250,7 +1385,7 @@ def _main() -> None:
             config_applied.append(f"sphinx-src={config['sphinx-src']}")
     if args.build_dir is None and "build-dir" in config:
         if sphinx_inactive:
-            reason = "--fast" if (args.fix_only or args.diff_only) else "list-table"
+            reason = "--fast" if (args.fix_only or args.diff_only) else args.command
             config_inactive.append(f"build-dir={config['build-dir']} inactive ({reason})")
         elif args.sphinx_src is None:
             config_inactive.append(f"build-dir={config['build-dir']} inactive (no sphinx-src)")
@@ -1264,6 +1399,9 @@ def _main() -> None:
             f"config: {config_source} — "
             + (", ".join(config_details) if config_details else "no Sphinx settings applied")
         )
+
+    if args.command == "compare":
+        _run_git_comparison(args, project_root)
 
     runtime_metadata = _runtime_metadata(
         verified=args.sphinx_src is not None,
