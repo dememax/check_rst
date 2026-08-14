@@ -124,6 +124,189 @@ def test_black_box_bare_check_staged_file_before_first_commit(tmp_path: Path) ->
 
 
 @pytest.mark.integration
+def test_black_box_compare_distinguishes_staged_unstaged_and_patch_context(
+    black_box_project: Path,
+) -> None:
+    document = black_box_project / "guide.rst"
+    original = document.read_text(encoding="utf-8")
+    staged_text = original.replace("real section.", "proper section.")
+    worktree_text = original.replace("real section.", "dedicated section.")
+    document.write_text(staged_text, encoding="utf-8")
+    subprocess.run(["git", "add", "guide.rst"], cwd=black_box_project, check=True, capture_output=True)
+    document.write_text(worktree_text, encoding="utf-8")
+
+    cumulative = _run_cli(black_box_project, "compare", "guide.rst")
+    staged = _run_cli(black_box_project, "compare", "--staged", "guide.rst")
+    unstaged = _run_cli(black_box_project, "compare", "--unstaged", "guide.rst")
+    zero_context = _run_cli(black_box_project, "compare", "-U0", "guide.rst")
+    two_lines = _run_cli(black_box_project, "compare", "-U2", "guide.rst")
+
+    for result in (cumulative, staged, unstaged, zero_context, two_lines):
+        assert result.returncode == 0
+        assert result.stderr == ""
+        assert "Traceback" not in result.stdout
+    assert "Comparison: HEAD -> worktree (1 staged hunk, 1 unstaged hunk)" in cumulative.stdout
+    assert 'section "Nested operations" [owned]' in cumulative.stdout
+    assert "staged: guide.rst" in cumulative.stdout
+    assert "unstaged: guide.rst" in cumulative.stdout
+    assert "Comparison: HEAD -> index" in staged.stdout
+    assert "Comparison: index -> worktree" in unstaged.stdout
+    assert "\n See " not in zero_context.stdout
+    assert "\n See " in two_lines.stdout
+
+
+@pytest.mark.integration
+def test_black_box_compare_reads_two_revisions_without_worktree_inference(
+    black_box_project: Path,
+) -> None:
+    document = black_box_project / "guide.rst"
+    document.write_text(
+        document.read_text(encoding="utf-8").replace("real section.", "proper section."),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "guide.rst"], cwd=black_box_project, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "--quiet", "-m", "Revise guide"],
+        cwd=black_box_project,
+        check=True,
+        capture_output=True,
+    )
+
+    result = _run_cli(
+        black_box_project,
+        "compare",
+        "--from",
+        "HEAD^",
+        "--to",
+        "HEAD",
+        "guide.rst",
+    )
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert "Comparison: HEAD^ -> HEAD" in result.stdout
+    assert "guide.rst: modified, 1 hunk (+1 -1)" in result.stdout
+    assert 'section "Nested operations" [owned]' in result.stdout
+    assert "Change sources:" not in result.stdout
+    assert "Traceback" not in result.stdout
+
+
+@pytest.mark.integration
+def test_black_box_compare_snapshots_reuses_the_section_semantics(tmp_path: Path) -> None:
+    document = tmp_path / "document.rst"
+    document.write_text("#######\nTitle\n#######\n", encoding="utf-8")
+    old_report = _run_cli(tmp_path, "--no-config", "check", "--format=json", "--no-adornments", "document.rst")
+    assert old_report.returncode == 0
+    old_path = tmp_path / "old.json"
+    old_path.write_text(old_report.stdout, encoding="utf-8")
+
+    document.write_text("*******\nTitle\n*******\n", encoding="utf-8")
+    new_report = _run_cli(tmp_path, "--no-config", "check", "--format=json", "--no-adornments", "document.rst")
+    assert new_report.returncode == 0
+    new_path = tmp_path / "new.json"
+    new_path.write_text(new_report.stdout, encoding="utf-8")
+
+    result = _run_cli(tmp_path, "compare", "--snapshots", "old.json", "new.json")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert "outline: topology unchanged" in result.stdout
+    assert "adornment changed: document:Title ('#' -> '*')" in result.stdout
+    assert "Traceback" not in result.stdout
+
+
+@pytest.mark.integration
+def test_black_box_fix_result_is_explained_by_compare_and_reader_queries(
+    black_box_project: Path,
+) -> None:
+    fixed = _run_cli(black_box_project, "fix", "--fast", "draft.rst")
+    comparison = _run_cli(black_box_project, "compare", "draft.rst")
+    outline = _run_cli(black_box_project, "outline", "--sections-only", "draft.rst")
+    context = _run_cli(black_box_project, "context", "draft:Draft", "draft.rst")
+
+    assert fixed.returncode == 0
+    assert "1 file(s) fixed" in fixed.stdout
+    assert comparison.returncode == 0
+    assert comparison.stderr == ""
+    assert "draft.rst: modified" in comparison.stdout
+    assert 'section "Draft" [owned]' in comparison.stdout
+    assert "topology unchanged" in comparison.stdout
+    assert "adornment changed: draft:Draft ('=' -> '#')" in comparison.stdout
+    assert outline.returncode == 0
+    assert "# Draft" in outline.stdout
+    assert context.returncode == 0
+    assert "selector: draft:Draft" in context.stdout
+    assert 'summary: section "Draft"' in context.stdout
+
+
+@pytest.mark.integration
+def test_black_box_list_table_result_survives_compare_outline_and_check(
+    black_box_project: Path,
+) -> None:
+    applied = _run_cli(black_box_project, "list-table", "--apply", "tables.rst")
+    comparison = _run_cli(black_box_project, "compare", "--patch", "tables.rst")
+    outline = _run_cli(black_box_project, "outline", "tables.rst")
+    checked = _run_cli(black_box_project, "--no-config", "check", "tables.rst")
+
+    assert applied.returncode == 0
+    assert "2 table(s) converted" in applied.stdout
+    assert comparison.returncode == 0
+    assert comparison.stderr == ""
+    assert "tables.rst: modified" in comparison.stdout
+    assert 'section "Nested tables" [owned]' in comparison.stdout
+    assert "topology/adornments unchanged" in comparison.stdout
+    assert comparison.stdout.count(".. list-table::") == 2
+    assert outline.returncode == 0
+    assert outline.stdout.count("Table (list,") == 2
+    assert checked.returncode == 0
+    assert "1 file(s) checked, 0 error(s)" in checked.stdout
+
+
+@pytest.mark.integration
+def test_black_box_new_finding_agrees_across_snapshots_live_git_and_context(
+    black_box_project: Path,
+) -> None:
+    document = black_box_project / "guide.rst"
+    old_report = _run_cli(
+        black_box_project,
+        "--no-config",
+        "check",
+        "--format=json",
+        "--no-adornments",
+        "guide.rst",
+    )
+    assert old_report.returncode == 0
+    (black_box_project / "old.json").write_text(old_report.stdout, encoding="utf-8")
+
+    with document.open("a", encoding="utf-8") as stream:
+        stream.write("\n**Emergency stop.** Review the change.\n")
+    new_report = _run_cli(
+        black_box_project,
+        "--no-config",
+        "check",
+        "--format=json",
+        "--no-adornments",
+        "guide.rst",
+    )
+    assert new_report.returncode == 0
+    (black_box_project / "new.json").write_text(new_report.stdout, encoding="utf-8")
+
+    snapshots = _run_cli(black_box_project, "compare", "--snapshots", "old.json", "new.json")
+    live = _run_cli(black_box_project, "compare", "guide.rst")
+    context = _run_cli(black_box_project, "context", "guide:Nested operations", "guide.rst")
+
+    assert snapshots.returncode == 0
+    assert "findings: +1 added, -0 resolved" in snapshots.stdout
+    assert "bold paragraph opener 'Emergency stop.'" in snapshots.stdout
+    assert live.returncode == 0
+    assert 'section "Nested operations" [owned]' in live.stdout
+    assert "topology/adornments unchanged" in live.stdout
+    assert context.returncode == 0
+    assert "bold paragraph opener 'Emergency stop.'" in context.stdout
+    assert "Traceback" not in snapshots.stdout + live.stdout + context.stdout
+
+
+@pytest.mark.integration
 def test_black_box_reviewer_combines_verified_json_git_scope_and_sphinx_failure(
     black_box_project: Path,
 ) -> None:
