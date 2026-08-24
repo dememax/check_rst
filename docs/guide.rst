@@ -1838,8 +1838,9 @@ Fixing foreign content needs one extra caution
 ranking — a document written entirely with ``~`` headings gets
 rewritten to ``#``.  On content from another project, always run
 ``diff`` first and confirm the rewrite is wanted; and check the
-target repo for uncommitted changes before writing (the semantic-rules
-guide's audit workflow).
+target repo for uncommitted changes before writing, the same
+Git-hygiene precaution "Auditing a scope" above already recommends
+before any multi-document normalization pass.
 
 --------------------------------------------
 Adopting a foreign document: a worked case

@@ -49,16 +49,19 @@ neither shape is exempt: every list-item bold opener gets the same
 WARNING a non-list one would, judged the same way.
 
 The remaining WARNINGs this reversal surfaced — the numbered items in
-:doc:`roadmap`'s "Agreed direction", and every entry in its
-"Accepted, deferred" and "Declined, with reasons" sections — are a
-deliberate exception to that
-judgment, not an oversight: they are a chronological register, read
-together as a log, not individually navigated the way the five
-converted lists' points are.  Restructuring each into its own
-subsection would be heading-inflation for entries meant to be skimmed
-as a timeline, and would cost the register its own shape.  Reviewed,
-and declined to restructure — step 1 of the loop reaching a considered
-"leave it" is as valid an outcome as "promote it".
+what were then :doc:`roadmap`'s "Agreed direction" list and every
+entry in its "Accepted, deferred" and "Declined, with reasons"
+sections — were a deliberate exception to that judgment at the time,
+not an oversight: they were a chronological register, read together
+as a log, not individually navigated the way the five converted
+lists' points were.  Restructuring each into its own subsection would
+have been heading-inflation for entries meant to be skimmed as a
+timeline, costing the register its own shape — step 1 of the loop
+reaching a considered "leave it" is as valid an outcome as "promote
+it".  That balance later tipped the other way once the roadmap grew
+large enough that finding one item in it became its own friction; see
+"Finding one item among many" below for the reversal and the
+roadmap's current section-per-entry shape.
 
 Stated as a general rule, not just this one reversal: **a stricter
 WARNING rule never retroactively reaches into files you have not
@@ -514,12 +517,15 @@ The precise rule, arrived at by scanning this Journal's own corpus for
 every mixed-script word that exists (14 total, across years of daily
 notes) rather than guessing: split a word's letters into majority
 script and minority script; flag it only if *every* minority-script
-letter is a known visual twin of a majority-script one (``а``/``a``,
-``е``/``e``, ``о``/``o``, ``р``/``p``, ``с``/``c``, ``у``/``y``,
-``х``/``x``, and their capitals — the confusables table is hand-
-curated, since no library on this system provides one; see
-``_CYRILLIC_LATIN_CONFUSABLES`` for why).  A tied split is skipped as
-genuinely ambiguous, never guessed at.
+letter is a known visual twin of a majority-script one (lowercase
+``а``/``a``, ``е``/``e``, ``о``/``o``, ``р``/``p``, ``с``/``c``,
+``у``/``y``, ``х``/``x``, plus a separately curated set of capitals —
+not simply those seven letters' own uppercase forms, since visual
+confusability is judged per case rather than inherited from the
+lowercase pairing.  The table is hand-curated, since no library on
+this system provides one; see ``_CYRILLIC_LATIN_CONFUSABLES`` for the
+exact, authoritative set).  A tied split is skipped as genuinely
+ambiguous, never guessed at.
 
 That one condition is what separates real typos from legitimate
 constructions, confirmed against the real 14 — no hand-tuned exception
