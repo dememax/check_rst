@@ -67,7 +67,9 @@ EXIT STATUS
 
 Dry-run returns ``1`` if a diff would be produced or an error occurs, otherwise
 ``0``.  ``--apply`` returns ``1`` only for errors; an ordinary refusal alone is
-not an error.  Invalid invocation returns ``2``.
+not an error.  ``1`` is also returned for an incompatible option combination;
+``2`` is reserved for an argparse-level syntax error (see
+:manpage:`check_rst(1)`, EXIT STATUS).
 
 **********
 SEE ALSO

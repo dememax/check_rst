@@ -29,6 +29,14 @@ The structure view is always whole-document and never changes the exit status.
 In verified Sphinx mode, ``toctree`` children are traversed unless
 ``--no-toctree`` is given.
 
+Every run prints a ``levels:`` legend: each depth with its adornment
+character and section count, the document's total section count, and the
+first unused character in check_rst's canonical adornment order — or
+``no free section char`` when every valid character is already assigned.
+That last field answers which character can introduce a new outer level
+without manually enumerating the ones already in use; it is also the
+remediation lookup for a ``second effective top-level title`` ERROR.
+
 *************
 COMPOSITION
 *************
@@ -69,7 +77,9 @@ EXIT STATUS
 *************
 
 Structure itself never produces status ``1``.  ERROR findings from the
-underlying check pipeline still do; invalid invocation returns ``2``.
+underlying check pipeline still do, as does an incompatible option
+combination; ``2`` is reserved for an argparse-level syntax error (see
+:manpage:`check_rst(1)`, EXIT STATUS).
 
 **********
 SEE ALSO

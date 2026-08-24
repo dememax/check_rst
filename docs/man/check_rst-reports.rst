@@ -63,9 +63,10 @@ EXIT STATUS
 *************
 
 Each query returns ``0`` for a successful report, including a ``compare``
-report that describes changes.  Invalid input, an unresolved query, or a build
-failure returns ``1``; invalid invocation or incompatible options returns
-``2``.
+report that describes changes.  Invalid input, an unresolved query, a build
+failure, or a rejected incompatible option combination returns ``1``; ``2``
+is reserved for an argparse-level syntax error (see :manpage:`check_rst(1)`,
+EXIT STATUS).
 
 **********
 SEE ALSO

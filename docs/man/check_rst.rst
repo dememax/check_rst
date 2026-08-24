@@ -70,6 +70,10 @@ untracked ``.rst`` files and diagnostics are limited to changed lines where
 the command supports findings.  ``--recursive`` treats positional paths as
 directories and processes every matching file in full.  ``--git-scope``
 instead treats positional files as an allowlist over Git selection.
+``--exclude PATTERN`` (repeatable, valid only with ``--recursive``) skips a
+discovered file whose path matches ``PATTERN`` via ``pathlib.PurePath.match``
+— a bare filename with no slash matches that name at any depth under the
+recursive root.
 
 ********
 PHASES
@@ -86,8 +90,13 @@ EXIT STATUS
 
 ``0`` means no ERROR was found.  ``1`` means one or more ERRORs; preview
 commands also use ``1`` when their output shows that files would change.
-``2`` is a command-line usage error.  WARNINGs do not by themselves select
-status ``1``.
+``1`` is also the status for a runtime failure the tool detects itself —
+including an incompatible combination of otherwise individually valid
+options, or an operational failure such as an unreadable file or a Git or
+Sphinx build error.  ``2`` is reserved for an argparse-level syntax error
+recognized before any command runs at all: an unrecognized option, a
+missing required argument, or a value of the wrong type.  WARNINGs do not by
+themselves select status ``1``.
 
 ****************
 TRUST BOUNDARY
@@ -140,5 +149,7 @@ SEE ALSO
 
 :manpage:`check_rst-check(1)`, :manpage:`check_rst-fix(1)`,
 :manpage:`check_rst-diff(1)`, :manpage:`check_rst-outline(1)`,
-:manpage:`check_rst-list-table(1)`, :manpage:`check_rst-reports(1)`,
-:manpage:`check_rst-config(5)`, :manpage:`check_rst-workflow(7)`
+:manpage:`check_rst-list-table(1)`, :manpage:`check_rst-hierarchy(1)`,
+:manpage:`check_rst-reports(1)`, :manpage:`check_rst-config(5)`,
+:manpage:`check_rst-json(5)`, :manpage:`check_rst-formats(7)`,
+:manpage:`check_rst-rules(7)`, :manpage:`check_rst-workflow(7)`

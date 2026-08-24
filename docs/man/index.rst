@@ -21,7 +21,7 @@ Command manuals
 * :doc:`check_rst-outline` — document structure;
 * :doc:`check_rst-list-table` — table-source conversion;
 * :doc:`check_rst-hierarchy` — the live adornment order;
-* :doc:`check_rst-reports` — context, refs, and JSON-diff queries.
+* :doc:`check_rst-reports` — context, refs, and compare queries.
 
 *****************
 Concept manuals

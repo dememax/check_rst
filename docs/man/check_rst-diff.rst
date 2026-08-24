@@ -32,9 +32,11 @@ parser-verified text policies have the same meaning as for ``fix``.
 EXIT STATUS
 *************
 
-Return ``0`` when no change is needed, ``1`` when a diff is printed or an
-ERROR prevents the preview, and ``2`` for invalid invocation.  Status ``1``
-therefore means “attention required,” not necessarily “execution failed.”
+Return ``0`` when no change is needed, ``1`` when a diff is printed, an
+ERROR prevents the preview, or an incompatible option combination is
+rejected, and ``2`` only for an argparse-level syntax error (see
+:manpage:`check_rst(1)`, EXIT STATUS).  Status ``1`` therefore means
+“attention required,” not necessarily “execution failed.”
 
 **********
 EXAMPLES

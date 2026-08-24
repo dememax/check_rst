@@ -49,11 +49,14 @@ IMPORTANT OPTIONS
    remains enabled.
 
 ``--no-toctree``
-   Do not recurse through ``toctree`` directives in verified mode.
+   Do not recurse through ``toctree`` directives in verified mode.  Requires
+   ``--format json``, since a text report has no equivalent flag to signal
+   that navigation expansion was suppressed.
 
 ``--max-output-lines N``
    Bound the human report without changing the exit status.  The final status
-   line is always retained.
+   line is always retained.  Incompatible with ``--format json``, which must
+   remain complete and valid.
 
 ``--quiet``, ``--verbose``, ``--word-samples N``
    Control progress, supporting detail, and prose-word samples.
@@ -63,7 +66,9 @@ EXIT STATUS
 *************
 
 Return ``0`` when there are no ERROR findings, ``1`` when at least one ERROR
-exists, and ``2`` for invalid invocation.  WARNINGs alone return ``0``.
+exists or an incompatible option combination is rejected, and ``2`` only for
+an argparse-level syntax error (see :manpage:`check_rst(1)`, EXIT STATUS).
+WARNINGs alone return ``0``.
 
 **********
 EXAMPLES

@@ -62,7 +62,9 @@ EXIT STATUS
 *************
 
 Return ``0`` after a successful pass, including one that changed files;
-return ``1`` for findings or a rejected mutation and ``2`` for invalid usage.
+return ``1`` for a non-fixable ERROR, a rejected mutation, or an
+incompatible option combination, and ``2`` only for an argparse-level
+syntax error (see :manpage:`check_rst(1)`, EXIT STATUS).
 
 **********
 SEE ALSO

@@ -36,7 +36,10 @@ or documentation, because Docutils owns part of the valid character order.
 EXIT STATUS
 *************
 
-Return ``0`` after printing the hierarchy and ``2`` for invalid invocation.
+Return ``0`` after printing the hierarchy and ``1`` if an incompatible
+argument (a global project-identity option, since the command is
+self-contained) is rejected.  ``2`` is reserved for an argparse-level syntax
+error (see :manpage:`check_rst(1)`, EXIT STATUS).
 
 **********
 SEE ALSO
