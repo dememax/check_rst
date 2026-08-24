@@ -866,6 +866,47 @@ Selecting an inner table alone therefore remains a contextual
 ``list-table.nested-aligned-table`` refusal: include its ancestor in the scope,
 or convert the ancestor first and rerun the inner selection.
 
+======================================================
+entitle: wrap a document under a new top-level title
+======================================================
+
+The documented remediation for a ``second effective top-level title`` ERROR
+(see "``outline``: the structural oracle" below) was, until now, a manual
+placeholder-workflow exercise: type the new title above everything else,
+using the outline legend's own "next free section char" so it doesn't
+collide with anything already there, then run ``fix``.  ``entitle``
+performs exactly that operation::
+
+    check_rst entitle "Reference Guide" document.rst            # preview
+    check_rst entitle "Reference Guide" document.rst --apply    # write
+
+``NAME`` becomes the document's new depth-1 title; whatever top-level
+content already existed — a single title and its whole subtree, or the two
+same-styled titles the ERROR itself names — becomes ``NAME``'s children,
+one level deeper than before.  The whole document is then renormalized
+with the same hierarchy and adornment engine ``fix`` already uses: every
+character and width is recomputed, never hand-picked, the same "declare
+intent, let the tool materialize it" split this whole section argues for.
+Front matter before the document's first title (this very page's own
+two-line copyright comment, for example) stays exactly where it is, above
+the new title.
+
+Choosing ``NAME`` itself remains the human half of the contract, the same
+principle "Titles should carry information, not structure" above states
+for any title: a title that only says a section exists tells a reader
+nothing a bare heading marker didn't already say.  ``entitle`` computes
+the mechanics; it has no opinion about whether "Reference Guide" is the
+right name for this particular document.
+
+Preview-by-default, ``--apply`` to write — the same convention
+``list-table`` established for a verb that changes document structure, not
+just geometry.  ``NAME`` must be non-empty, a single line, and not itself
+indistinguishable from a bare adornment line (a run of one repeated
+character); the exhausted-hierarchy case (all 32 valid adornment
+characters already in use) is refused rather than silently reusing one.
+The command is fully self-contained, like ``hierarchy``: one explicit
+file, no project or Sphinx settings apply.
+
 ******************************************************
 Reading RST: verified structure instead of inference
 ******************************************************

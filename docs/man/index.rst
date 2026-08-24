@@ -20,6 +20,7 @@ Command manuals
 * :doc:`check_rst-diff` — read-only correction preview;
 * :doc:`check_rst-outline` — document structure;
 * :doc:`check_rst-list-table` — table-source conversion;
+* :doc:`check_rst-entitle` — wrap a document under a new top-level title;
 * :doc:`check_rst-hierarchy` — the live adornment order;
 * :doc:`check_rst-reports` — context, refs, and compare queries.
 
@@ -42,6 +43,7 @@ Concept manuals
    check_rst-diff
    check_rst-outline
    check_rst-list-table
+   check_rst-entitle
    check_rst-hierarchy
    check_rst-reports
    check_rst-config

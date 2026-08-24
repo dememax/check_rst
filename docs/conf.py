@@ -45,6 +45,13 @@ man_pages = [
         1,
     ),
     (
+        "man/check_rst-entitle",
+        "check_rst-entitle",
+        "wrap a document under a new top-level title",
+        [author],
+        1,
+    ),
+    (
         "man/check_rst-hierarchy",
         "check_rst-hierarchy",
         "print the live adornment-character order",
@@ -54,7 +61,7 @@ man_pages = [
     (
         "man/check_rst-reports",
         "check_rst-reports",
-        "query entry context, references, and JSON changes",
+        "query entry context, references, and semantic changes",
         [author],
         1,
     ),

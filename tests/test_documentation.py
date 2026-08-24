@@ -23,6 +23,7 @@ EXPECTED_MAN_PAGES = {
     "check_rst": 1,
     "check_rst-check": 1,
     "check_rst-diff": 1,
+    "check_rst-entitle": 1,
     "check_rst-fix": 1,
     "check_rst-hierarchy": 1,
     "check_rst-list-table": 1,

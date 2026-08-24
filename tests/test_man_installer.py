@@ -75,7 +75,7 @@ def test_installer_builds_private_prefix_and_updates_its_index(tmp_path: Path) -
     assert all(stat.S_IMODE((man_root / path).stat().st_mode) == 0o644 for path in installed)
     assert all('.TH "' in (man_root / path).read_text(encoding="utf-8") for path in installed)
     assert index_log.read_text(encoding="utf-8").strip() == str(man_root)
-    assert "installed 13 manual page(s)" in result.stdout
+    assert f"installed {len(_registered_outputs())} manual page(s)" in result.stdout
     assert "updated manual index" in result.stdout
     assert result.stderr == ""
 

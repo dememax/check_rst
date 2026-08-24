@@ -14,7 +14,7 @@ are not the current interface or status ledger.
 
 The implementation, tests, current CLI help, and normative documentation are
 the authority for what exists.  The status index below summarizes that evidence
-as of 2026-08-14.  When later evidence changes an entry, update its status here
+as of 2026-08-24.  When later evidence changes an entry, update its status here
 and its own ``Current status`` line while retaining the dated design history.
 
 ****************
@@ -49,6 +49,10 @@ The following capabilities are implemented and protected by tests:
   CLI, and the ``list-table`` transformation.
 * The self-contained ``hierarchy`` verb, shipped independently on 2026-08-09
   and documented in :doc:`guide`; it has no separate historical proposal below.
+* ``entitle``: wrap a document under a new top-level title, demoting its
+  existing top-level content into that title's own children, then
+  renormalize with the same hierarchy/adornment engine ``fix`` already uses.
+  Shipped 2026-08-24.
 
 ==================
 Agreed next work
@@ -2192,6 +2196,78 @@ own scope implicitly.
 Parser/range invariants and canonical-tree divergence are reported separately
 as ``source-model`` and ``semantic-proof`` errors/refusals.  They never escape
 as a traceback and never authorize a guessed rewrite.
+
+=============================================
+Wrap a document under a new top-level title
+=============================================
+
+*Current status: shipped 2026-08-24 as the* ``entitle`` *verb.*
+
+``check_single_top_level``'s ``second effective top-level title`` ERROR
+already named the accepted repair (:doc:`rules`, "A second top-level title
+is legal RST and a real defect"): choose the page title, insert it before
+the existing sections with a placeholder underline made from an unused
+adornment character, then run ``fix``.  The outline legend's own "next
+free section char" (shipped 2026-08-13, above) made the character choice
+deterministic; the remaining manual step — the splice and the character
+choice itself — was still hand work every time the ERROR fired, and the
+same operation is also just the general "wrap a subtree under a new
+parent" case :doc:`guide`'s "Writing RST" section already described by
+hand for a plain restructuring, not only the error-remediation case.
+
+-----------------------------------------
+Why one placeholder insertion is enough
+-----------------------------------------
+
+Confirmed by reading ``_established_depths`` directly rather than assumed:
+docutils' own depth-inference rule (an already-seen adornment style always
+returns to its established depth; a genuinely new one becomes exactly one
+level deeper than whatever was most recently open) means a single
+placeholder title, using any character not yet used anywhere in the
+document, inserted strictly above the document's existing content, is
+sufficient.  Every character the document already used shifts to depth
+≥2 in the same pass, and the existing depth-indexed hierarchy remap (not
+position-indexed — already handles two different top-level characters
+collapsing to one target rank) reassigns each to its correct slot.  A
+document with the classic two-same-styled-top-level-titles shape — the
+only way docutils itself can produce two depth-1 entries at all, since a
+*different*-styled second title is already parsed as a child of the
+first today — ends up with both becoming depth-2 siblings under the new
+title.  No new depth-tracking logic was needed; ``entitle`` composes
+entirely out of ``fix``'s own already-tested hierarchy/adornment engine.
+
+One real bug was found and fixed before this ever ran, by tracing the
+splice by hand against ``iter_title_blocks`` rather than assuming it was
+safe: the placeholder must be followed by a blank line.  Without one, an
+existing underline-only title glued directly after the insertion point
+lets the placeholder's own underline be misread as that title's overline,
+silently merging two distinct titles into one.  The same bug briefly
+recurred in the test suite's OWN data construction (a flat sequence of
+32 underline-only titles, one per ``HIERARCHY`` character, built with no
+separating blanks to exercise the "every character already in use"
+refusal) before a failing assertion caught it there too.
+
+-----------------------------
+Command and safety boundary
+-----------------------------
+
+::
+
+   $ check_rst entitle "Reference Guide" document.rst            # preview
+   $ check_rst entitle "Reference Guide" document.rst --apply    # write
+
+Preview-by-default, ``--apply`` to write — the same convention
+``list-table`` established above for a verb that changes document
+structure, not just geometry.  Fully self-contained like ``hierarchy``:
+one explicit file, no project or Sphinx settings apply, since there is no
+Git-scope/recursive selection and no Sphinx environment involved at all.
+Front matter before the document's first title (comments, hyperlink
+targets, substitution definitions — including this project's own
+copyright-header convention) is left exactly where it is, never absorbed
+into the new title's body.  ``NAME`` must be non-empty, a single line,
+and not itself indistinguishable from a bare adornment line; the
+exhausted-hierarchy case (all 32 valid adornment characters already in
+use) is refused with a clear diagnostic rather than silently reusing one.
 
 ***********************************************************
 Declined decisions and reasons — counter-evidence welcome

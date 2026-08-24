@@ -27,8 +27,8 @@ DESCRIPTION
 *************
 
 ``check_rst`` is a deterministic front end for reStructuredText.  A command
-is required: ``check`` and ``diff`` serve reviewers, ``fix`` and
-``list-table`` perform bounded source transformations, and ``outline``,
+is required: ``check`` and ``diff`` serve reviewers, ``fix``, ``list-table``,
+and ``entitle`` perform bounded source transformations, and ``outline``,
 ``context``, and ``refs`` expose verified structure.  ``compare`` explains
 changes between Git states or two prior machine-readable reports, and
 ``hierarchy`` prints the live adornment order.
@@ -116,6 +116,7 @@ EXAMPLES
    $ check_rst diff document.rst
    $ check_rst compare --staged
    $ check_rst outline document.rst
+   $ check_rst entitle "Reference Guide" document.rst --apply
 
 **************
 MANUAL PAGES
@@ -149,7 +150,8 @@ SEE ALSO
 
 :manpage:`check_rst-check(1)`, :manpage:`check_rst-fix(1)`,
 :manpage:`check_rst-diff(1)`, :manpage:`check_rst-outline(1)`,
-:manpage:`check_rst-list-table(1)`, :manpage:`check_rst-hierarchy(1)`,
-:manpage:`check_rst-reports(1)`, :manpage:`check_rst-config(5)`,
-:manpage:`check_rst-json(5)`, :manpage:`check_rst-formats(7)`,
-:manpage:`check_rst-rules(7)`, :manpage:`check_rst-workflow(7)`
+:manpage:`check_rst-list-table(1)`, :manpage:`check_rst-entitle(1)`,
+:manpage:`check_rst-hierarchy(1)`, :manpage:`check_rst-reports(1)`,
+:manpage:`check_rst-config(5)`, :manpage:`check_rst-json(5)`,
+:manpage:`check_rst-formats(7)`, :manpage:`check_rst-rules(7)`,
+:manpage:`check_rst-workflow(7)`
