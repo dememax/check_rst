@@ -555,6 +555,120 @@ def diff_structure(path: pathlib.Path, whole_file: bool) -> str:
     )
 
 
+def _next_free_adornment_char(lines: list[str]) -> str | None:
+    """Return the first HIERARCHY character not yet used as a title
+    adornment anywhere in *lines*, or None if all 32 are already in use.
+
+    Reusing an already-established character for entitle's own new
+    placeholder would make it a SIBLING of whatever established that
+    character's depth (docutils' own rule: an already-seen style always
+    returns to its established depth), not a new, shallower parent — the
+    one thing entitle must never do.  A genuinely unused character is
+    always assigned exactly one level deeper than nothing (depth 1),
+    regardless of what the rest of the document already contains.
+    """
+    used = {char for _, char in _title_char_events(lines)}
+    return next((char for char in HIERARCHY if char not in used), None)
+
+
+def _first_title_start(lines: list[str]) -> int:
+    """Return the 0-based index where the document's first title block
+    begins — its overline included, if it already has one — or 0 when
+    the document has no title at all.
+
+    Front matter (comments, hyperlink targets, substitution
+    definitions — this project's own copyright-header convention among
+    them) before that point is never touched: entitle's new title is
+    inserted exactly at this boundary, not at line 0, so front matter
+    stays outside every section exactly as it already is today.
+    """
+    events = _title_char_events(lines)
+    if not events:
+        return 0
+    idx, _char = events[0]
+    block_starts = {block.index for block in iter_title_blocks(lines)}
+    return idx - 1 if idx in block_starts else idx
+
+
+def _compute_entitle_lines(lines: list[str], name: str) -> list[str]:
+    """Insert *name* as a new depth-1 title above *lines*' existing
+    top-level content, then renormalize the whole document with the same
+    hierarchy remap + adornment fixer ``fix`` already uses.
+
+    Raises ValueError when *name* cannot become a title (empty, spans
+    more than one line, or is itself indistinguishable from a bare
+    adornment line — any of these would make the inserted placeholder
+    invisible to iter_title_blocks/iter_underline_only, silently
+    producing a no-op instead of a new title), or when every adornment
+    character is already in use (never silently reuse one — that risks
+    an incorrect nesting rather than a clean failure).
+
+    A blank line always follows the new placeholder, even though a
+    bare underline-only candidate does not strictly need one: without
+    it, an EXISTING underline-only title glued directly after the
+    insertion point would let the placeholder's own underline be
+    misread as that title's overline, merging two distinct titles into
+    one (found by direct trace before this was ever run — not assumed).
+    Docutils requires a blank line before an overline in the first
+    place, so no equivalent gap is needed on the leading side; a
+    missing one there is already one of _compute_adornment_fixes' own
+    fixable cases.
+    """
+    stripped = name.strip()
+    if not stripped:
+        raise ValueError("entitle name must not be empty")
+    if "\n" in name or "\r" in name:
+        raise ValueError("entitle name must be a single line")
+    if _is_adornment(stripped):
+        raise ValueError(f"entitle name {name!r} is indistinguishable from an adornment line")
+    char = _next_free_adornment_char(lines)
+    if char is None:
+        raise ValueError("every adornment character is already in use — cannot add a new top-level title")
+    insertion = _first_title_start(lines)
+    new_lines = [*lines[:insertion], name, char * 9, "", *lines[insertion:]]
+    return _compute_structure_fixes(new_lines, None)
+
+
+def diff_entitle(path: pathlib.Path, name: str) -> str:
+    """Return a unified diff of inserting *name* as this document's new
+    depth-1 title.  Never empty: entitle always changes something."""
+    text = _read_normalized(path)
+    lines = text.splitlines()
+    new_lines = _compute_entitle_lines(lines, name)
+
+    pstr = str(path)
+    return "".join(
+        difflib.unified_diff(
+            [line + "\n" for line in lines],
+            [line + "\n" for line in new_lines],
+            fromfile=pstr,
+            tofile=pstr,
+        )
+    )
+
+
+def fix_entitle(path: pathlib.Path, name: str) -> bool:
+    """Insert *name* as this document's new depth-1 title, in place.
+
+    Returns True (entitle always changes something) after a successful
+    write, matching fix_structure's boolean shape for a consistent
+    caller contract even though the False branch cannot occur here.
+    """
+    text = _read_normalized(path)
+    lines = text.splitlines()
+    trailing_newline = text.endswith("\n")
+
+    new_lines = _compute_entitle_lines(lines, name)
+    if new_lines == lines:
+        return False
+
+    _atomic_write_bytes(
+        path,
+        ("\n".join(new_lines) + ("\n" if trailing_newline else "")).encode("utf-8"),
+    )
+    return True
+
+
 def diff_fixes(
     path: pathlib.Path,
     whole_file: bool,

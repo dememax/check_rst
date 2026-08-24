@@ -64,6 +64,7 @@ def black_box_project(tmp_path: Path) -> Path:
         (["compare", "--snapshots", "old.json"], "expected 2 arguments"),
         (["diff-json", "old.json", "new.json"], "argument COMMAND: invalid choice"),
         (["list-table", "--only", "not-an-integer"], "argument --only: invalid int value"),
+        (["entitle", "Title"], "the following arguments are required: FILE"),
     ],
 )
 def test_black_box_argparse_errors_use_stderr_and_status_2(
@@ -92,6 +93,7 @@ def test_black_box_argparse_errors_use_stderr_and_status_2(
             "compare --snapshots is self-contained",
         ),
         (["outline", "--max-output-lines", "1"], "--max-output-lines must be >= 2"),
+        (["--sphinx-src", "docs", "entitle", "Title", "file.rst"], "entitle is self-contained"),
     ],
 )
 def test_black_box_runtime_argument_conflicts_use_stdout_and_status_1(
@@ -260,6 +262,47 @@ def test_black_box_list_table_result_survives_compare_outline_and_check(
     assert outline.stdout.count("Table (list,") == 2
     assert checked.returncode == 0
     assert "1 file(s) checked, 0 error(s)" in checked.stdout
+
+
+@pytest.mark.integration
+def test_black_box_entitle_result_survives_outline_and_check(
+    black_box_project: Path,
+) -> None:
+    """entitle a real fixture document, then prove the result is
+    self-consistent end to end: the new title is depth 1, the document's
+    former title is now its sole depth-2 child, front matter (this
+    project's own copyright-header convention) stays above both, and a
+    real check reports zero errors."""
+    document = black_box_project / "tables.rst"
+    original = document.read_text(encoding="utf-8")
+
+    preview = _run_cli(black_box_project, "entitle", "Reference Guide", "tables.rst")
+    assert preview.returncode == 0
+    assert "Reference Guide" in preview.stdout
+    assert document.read_text(encoding="utf-8") == original  # preview never writes
+
+    applied = _run_cli(black_box_project, "entitle", "Reference Guide", "tables.rst", "--apply")
+    outline = _run_cli(black_box_project, "outline", "tables.rst")
+    checked = _run_cli(black_box_project, "--no-config", "check", "tables.rst")
+
+    assert applied.returncode == 0
+    assert "entitled 'Reference Guide'" in applied.stdout
+    written = document.read_text(encoding="utf-8")
+    assert written.startswith(
+        ".. Copyright (C) 2026 Maxime P. DEMENTYEV\n"
+        ".. SPDX-License-Identifier: GPL-3.0-only\n"
+        ".. Nested aligned-table conversion fixture — check_rst project\n"
+    )
+
+    assert outline.returncode == 0
+    assert "levels: 1 " in outline.stdout
+    assert "2 sections total" in outline.stdout
+    assert "Reference Guide [1 subsection" in outline.stdout
+    assert "Nested tables" in outline.stdout
+
+    assert checked.returncode == 0
+    assert "1 file(s) checked, 0 error(s)" in checked.stdout
+    assert "Traceback" not in checked.stdout
 
 
 @pytest.mark.integration

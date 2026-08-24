@@ -18,7 +18,7 @@ from check_rst import DOCUMENTATION_URL, __copyright__, __license__, __version__
 
 from . import _comparison, _formatting, _helpers, _output
 from ._config import LoadedConfig, _load_config
-from ._formatting import _plan_fix, diff_fixes
+from ._formatting import _plan_fix, diff_entitle, diff_fixes, fix_entitle
 from ._helpers import (
     HIERARCHY,
     PREFERRED_HIERARCHY,
@@ -294,6 +294,42 @@ def _run_hierarchy() -> NoReturn:
     for index, character in enumerate(HIERARCHY, 1):
         preferred = " (preferred)" if character in PREFERRED_HIERARCHY else ""
         print(f"{index:2d}. {character!r}{preferred}")
+    raise SystemExit(0)
+
+
+def _run_entitle(args: argparse.Namespace) -> NoReturn:
+    """entitle's own fully self-contained verb body — one explicit file,
+    no project/Sphinx state, dispatched before project_root/config
+    resolution the same way _run_hierarchy is. Preview by default,
+    matching list-table's own precedent for a new structural-mutation
+    verb; --apply writes. Exit status answers whether the transformation
+    was computed/written, not whether a diff happened to be non-empty —
+    unlike list-table/diff, entitle always changes something, so that
+    signal carries no information here (same reasoning context's own
+    exit-status contract already states: it answers whether the query
+    resolved, not whether the document validates)."""
+    path: pathlib.Path = args.file
+    if not path.is_file():
+        problem = "file not found" if not path.exists() else "not a regular file"
+        print(f"check_rst: {path}: {problem}")
+        raise SystemExit(1)
+    if _unmerged_files([path]):
+        print(f"check_rst: {path}: unresolved Git merge conflict — resolve before entitling")
+        raise SystemExit(1)
+    try:
+        if args.apply:
+            fix_entitle(path, args.name)
+            if not args.quiet:
+                print(f"check_rst: {path}: entitled {args.name!r}")
+        else:
+            print(diff_entitle(path, args.name), end="")
+    except UnicodeDecodeError as exc:
+        err_line = exc.object.count(b"\n", 0, exc.start) + 1
+        print(f"check_rst: {path}:{err_line}: ERROR: not valid UTF-8 ({exc.reason} at byte offset {exc.start})")
+        raise SystemExit(1) from None
+    except (OSError, ValueError) as exc:
+        print(f"check_rst: {path}: ERROR: {exc}")
+        raise SystemExit(1) from None
     raise SystemExit(0)
 
 
@@ -816,6 +852,27 @@ def _build_cli_parser() -> argparse.ArgumentParser:
     )
     list_table_p.set_defaults(**_CLI_ATTR_DEFAULTS)
 
+    entitle_p = sub.add_parser(
+        "entitle",
+        help="wrap a document under a new top-level title",
+        description=(
+            "Modifier role: insert NAME as this document's new depth-1 title, demoting its "
+            "existing top-level content into NAME's own children, then renormalize the whole "
+            "document with the same hierarchy/adornment fixer --fix already uses. Fully "
+            "self-contained: one explicit file, no project or Sphinx settings apply."
+        ),
+        epilog=_DOCUMENTATION_EPILOG,
+    )
+    entitle_p.add_argument("name", metavar="NAME")
+    entitle_p.add_argument("file", type=pathlib.Path, metavar="FILE")
+    entitle_p.add_argument(
+        "--apply",
+        action="store_true",
+        help="write the entitled file; default previews a diff",
+    )
+    _add_quiet_flag(entitle_p)
+    entitle_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+
     hierarchy_p = sub.add_parser(
         "hierarchy",
         help="print the live adornment-character hierarchy",
@@ -924,6 +981,28 @@ def _validate_hierarchy_args(args: argparse.Namespace) -> None:
     ]
     if active:
         _cli_fail(f"hierarchy is self-contained — incompatible argument(s): {', '.join(active)}")
+
+
+def _validate_entitle_args(args: argparse.Namespace) -> None:
+    """entitle names one explicit file directly and never selects a
+    project — no Git-scope/recursive discovery, no Sphinx environment.
+    Same self-contained rejection shape as hierarchy; --no-config stays a
+    harmless no-op for the same reason. NAME's own well-formedness
+    (empty, multi-line, or indistinguishable from an adornment line) is
+    validated once, inside _compute_entitle_lines itself, not duplicated
+    here — that keeps the one definition of "a valid title text" in the
+    one place that both the CLI and any direct caller go through."""
+    active = [
+        flag
+        for flag, value in (
+            ("--config", args.config),
+            ("--sphinx-src", args.sphinx_src),
+            ("--build-dir", args.build_dir),
+        )
+        if value is not None
+    ]
+    if active:
+        _cli_fail(f"entitle is self-contained — incompatible argument(s): {', '.join(active)}")
 
 
 def _validate_list_table_args(args: argparse.Namespace) -> None:
@@ -1323,6 +1402,8 @@ def _main() -> None:
         _validate_compare_args(args)
     elif args.command == "hierarchy":
         _validate_hierarchy_args(args)
+    elif args.command == "entitle":
+        _validate_entitle_args(args)
     elif args.command == "list-table":
         _validate_list_table_args(args)
 
@@ -1330,6 +1411,8 @@ def _main() -> None:
         _run_snapshot_comparison(args)
     if args.command == "hierarchy":
         _run_hierarchy()
+    if args.command == "entitle":
+        _run_entitle(args)
 
     if args.word_samples is not None and args.word_samples < 0:
         print("check_rst: --word-samples must be >= 0")

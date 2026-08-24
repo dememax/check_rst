@@ -623,6 +623,50 @@ def test_list_table_quiet_help_matches_shared_wording() -> None:
     assert shared_help == list_table_help
 
 
+# ---------------------------------------------------------------------------
+# entitle: a new top-level title above a document's existing content.
+# Fully self-contained, same shape as hierarchy — --config/--sphinx-src/
+# --build-dir are all rejected (one explicit file, no project or Sphinx
+# state to root); --no-config stays a harmless no-op for the same reason
+# already established for hierarchy/compare --snapshots.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_entitle_verb_populates_full_attribute_contract() -> None:
+    args = _parse(["entitle", "New Title", "file.rst"])
+    assert args.command == "entitle"
+    assert vars(args).keys() >= _FULL_ATTR_CONTRACT
+    assert args.name == "New Title"
+    assert args.file == pathlib.Path("file.rst")
+    assert args.apply is False
+    assert args.quiet is False
+
+
+@pytest.mark.unit
+def test_entitle_apply_and_quiet_flags() -> None:
+    args = _parse(["entitle", "New Title", "file.rst", "--apply", "--quiet"])
+    assert args.apply is True
+    assert args.quiet is True
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("flag", "value"), [("--sphinx-src", "docs"), ("--build-dir", "/tmp/x"), ("--config", "x.toml")]
+)
+def test_entitle_rejects_project_identity_flags(flag: str, value: str) -> None:
+    args = _parse([flag, value, "entitle", "New Title", "file.rst"])
+    with pytest.raises(SystemExit) as exc:
+        cli._validate_entitle_args(args)
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_entitle_allows_no_config() -> None:
+    args = _parse(["--no-config", "entitle", "New Title", "file.rst"])
+    cli._validate_entitle_args(args)  # must not raise
+
+
 @pytest.mark.unit
 def test_top_level_help_mentions_report_length_limiting() -> None:
     """--max-output-lines lives only on check/fix/outline's own --help
