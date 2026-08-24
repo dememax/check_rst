@@ -6,13 +6,22 @@ from __future__ import annotations
 
 import datetime
 
+import check_rst
+
 project = "check_rst"
 author = "Maxime P. DEMENTYEV"
 current_year = datetime.date.today().year
 copyright_years = "2026" if current_year == 2026 else f"2026-{current_year}"
 copyright = f"{copyright_years}, {author}"
 language = "en"
-release = "0.5.0"
+# Sphinx's man builder reads config.version for the .TH header's version
+# field, never config.release (confirmed by reading
+# sphinx.writers.manpage.ManualPageTranslator.visit_document) — release
+# alone left every generated man page's version field blank.  This project
+# never distinguishes a short "version series" from a full "release", so
+# both share check_rst's own single version string rather than a second
+# hardcoded literal that could drift from it.
+version = release = check_rst.__version__
 
 extensions = ["sphinx.ext.autosectionlabel"]
 autosectionlabel_prefix_document = True
