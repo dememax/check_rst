@@ -6,6 +6,13 @@
 check_rst development and review
 ##################################
 
+This page records how evidence from real documentation work feeds back into
+``check_rst``: what users and reviewers should report, and which concrete
+catches justify the project's rules.  It is not the Python implementation or
+build-integration manual; repository development practice lives in
+``AGENTS.md``, while packaging, installation, and documentation-build
+boundaries live in :doc:`integration`.
+
 *****************************************************
 The feedback loop: you are also the tool's reviewer
 *****************************************************

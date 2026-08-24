@@ -150,18 +150,67 @@ def test_entitle_leaves_leading_front_matter_outside_the_new_title() -> None:
 
 @pytest.mark.unit
 def test_entitle_places_front_matter_above_a_titleless_document_too() -> None:
-    """No sections at all, but a leading comment: the new title still
-    has nothing to anchor on below the comment (there is no following
-    title to mark where the comment ends), so it lands at the very top
-    and the comment becomes part of its body — the documented,
-    deliberately chosen behavior for this one case."""
-    lines = [".. a leading comment", "", "Some prose."]
+    """The front-matter guarantee does not depend on an existing title."""
+    lines = [
+        ".. a leading comment",
+        "",
+        ".. _home: https://example.com",
+        "",
+        ".. |project| replace:: check_rst",
+        "",
+        "Some prose about |project|.",
+    ]
 
     result = _formatting._compute_entitle_lines(lines, "New Title")
 
-    assert result[0] == "###########"
-    assert result[1] == "New Title"
-    assert ".. a leading comment" in result
+    assert result[:6] == lines[:6]
+    assert result[6:10] == ["###########", "New Title", "###########", ""]
+    assert result[10:] == ["Some prose about |project|."]
+
+
+@pytest.mark.unit
+def test_entitle_wraps_leading_prose_before_the_first_existing_section() -> None:
+    """Ordinary prose before the first heading is body, not front matter."""
+    lines = [
+        "Intro before any section.",
+        "",
+        "Old Section",
+        "===========",
+        "",
+        "Body.",
+    ]
+
+    result = _formatting._compute_entitle_lines(lines, "New Title")
+
+    assert result[:4] == ["###########", "New Title", "###########", ""]
+    assert result[4:6] == ["Intro before any section.", ""]
+    assert _titles(result) == ["New Title", "Old Section"]
+    assert _depths(result) == {"#": 1, "*": 2}
+
+
+@pytest.mark.unit
+def test_entitle_wraps_titleless_bibliographic_fields_below_the_new_title() -> None:
+    """A field list must follow the title to become document metadata."""
+    lines = [":Author: Example Writer", "", "Document body."]
+
+    result = _formatting._compute_entitle_lines(lines, "New Title")
+
+    assert result[:4] == ["###########", "New Title", "###########", ""]
+    assert result[4:] == lines
+
+
+@pytest.mark.unit
+def test_entitle_does_not_follow_an_include_while_locating_body(tmp_path: Path) -> None:
+    """Placement parsing must preserve entitle's one-file read boundary."""
+    included = tmp_path / "included.rst"
+    included.write_text("Included body.\n", encoding="utf-8")
+    lines = [".. leading comment", "", f".. include:: {included}"]
+
+    result = _formatting._compute_entitle_lines(lines, "New Title")
+
+    assert result[:2] == lines[:2]
+    assert result[2:6] == ["###########", "New Title", "###########", ""]
+    assert result[6:] == [f".. include:: {included}"]
 
 
 @pytest.mark.unit
@@ -269,6 +318,24 @@ def test_fix_entitle_writes_the_computed_result(tmp_path: Path) -> None:
     written = path.read_text(encoding="utf-8")
     assert "New Title" in written
     assert _depths(written.splitlines())["*"] == 2
+
+
+@pytest.mark.unit
+def test_diff_entitle_previews_the_exact_raw_to_applied_transformation(tmp_path: Path) -> None:
+    """Preview includes Phase-0 normalization and final-newline behavior."""
+    path = tmp_path / "doc.rst"
+    original = b"Old Title   \r\n#########\r\n\r\nBody.   "
+    path.write_bytes(original)
+
+    diff = _formatting.diff_entitle(path, "New Title")
+    _formatting.fix_entitle(path, "New Title")
+    applied = path.read_bytes()
+
+    assert "-Old Title   \r\n" in diff
+    assert "-Body.   " in diff
+    assert "+Old Title\n" in diff
+    assert diff.endswith("+Body.\n\\ No newline at end of file\n")
+    assert applied == b"###########\nNew Title\n###########\n\n***********\nOld Title\n***********\n\nBody."
 
 
 # ------------------------------------------------------------------

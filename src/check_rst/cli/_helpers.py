@@ -693,6 +693,7 @@ def _parse_rst(
     text: str | None = None,
     *,
     track_composition: bool = False,
+    allow_external_content: bool = True,
 ) -> docutils.nodes.document:
     """Parse an RST source file into a docutils document tree.
 
@@ -703,6 +704,8 @@ def _parse_rst(
     settings = docutils.frontend.get_default_settings(docutils.parsers.rst.Parser())
     settings.halt_level = 5  # never halt on parse errors
     settings.report_level = 5  # suppress system messages to stderr
+    settings.file_insertion_enabled = allow_external_content
+    settings.raw_enabled = allow_external_content
     doc = docutils.utils.new_document(str(path), settings)
     source = text if text is not None else _read_normalized(path)
     if track_composition:

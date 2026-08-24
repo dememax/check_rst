@@ -5,14 +5,10 @@
 from __future__ import annotations
 
 import difflib
+import pathlib
 import re
-from typing import TYPE_CHECKING
 
 import docutils.nodes
-
-if TYPE_CHECKING:
-    import pathlib
-
 
 from . import _helpers
 from ._document import (
@@ -571,23 +567,56 @@ def _next_free_adornment_char(lines: list[str]) -> str | None:
     return next((char for char in HIERARCHY if char not in used), None)
 
 
-def _first_title_start(lines: list[str]) -> int:
-    """Return the 0-based index where the document's first title block
-    begins — its overline included, if it already has one — or 0 when
-    the document has no title at all.
-
-    Front matter (comments, hyperlink targets, substitution
-    definitions — this project's own copyright-header convention among
-    them) before that point is never touched: entitle's new title is
-    inserted exactly at this boundary, not at line 0, so front matter
-    stays outside every section exactly as it already is today.
-    """
+def _first_title_start(lines: list[str]) -> int | None:
+    """Return the first title block's start, including its overline."""
     events = _title_char_events(lines)
     if not events:
-        return 0
+        return None
     idx, _char = events[0]
     block_starts = {block.index for block in iter_title_blocks(lines)}
     return idx - 1 if idx in block_starts else idx
+
+
+_ENTITLE_FRONT_MATTER_TYPES = (
+    docutils.nodes.comment,
+    docutils.nodes.substitution_definition,
+    docutils.nodes.target,
+)
+
+
+def _entitle_insertion(lines: list[str]) -> int:
+    """Return the boundary between leading front matter and document body.
+
+    The first title is not a sufficient boundary: valid introductory prose
+    may precede it, while a titleless document may still begin with comments,
+    targets, or substitutions.  Bare Docutils already distinguishes those
+    nodes, so use its live parse rather than guessing from ``..`` prefixes.
+    External file insertion and raw content are disabled: placement must not
+    expand entitle's one-file trust boundary.  A body node without source
+    coordinates is refused; inserting on a guessed line could leave content
+    outside the new wrapper.
+    """
+    document = _helpers._parse_rst(
+        pathlib.Path("<entitle>"),
+        text="\n".join(lines),
+        allow_external_content=False,
+    )
+    first_title = _first_title_start(lines)
+    for node in document.children:
+        if isinstance(node, _ENTITLE_FRONT_MATTER_TYPES):
+            continue
+        if isinstance(node, docutils.nodes.section) and first_title is not None:
+            return first_title
+        lineno = node.line
+        if not isinstance(lineno, int) or lineno < 1:
+            raise ValueError(
+                f"cannot determine where {node.__class__.__name__} body content starts; the document was not changed"
+            )
+        return lineno - 1
+
+    # An empty document has no front matter to preserve.  If Docutils found
+    # only front-matter nodes, append the title after their complete source.
+    return len(lines) if document.children else 0
 
 
 def _compute_entitle_lines(lines: list[str], name: str) -> list[str]:
@@ -624,23 +653,39 @@ def _compute_entitle_lines(lines: list[str], name: str) -> list[str]:
     char = _next_free_adornment_char(lines)
     if char is None:
         raise ValueError("every adornment character is already in use — cannot add a new top-level title")
-    insertion = _first_title_start(lines)
-    new_lines = [*lines[:insertion], name, char * 9, "", *lines[insertion:]]
+    insertion = _entitle_insertion(lines)
+    separator = [""] if insertion > 0 and lines[insertion - 1] else []
+    new_lines = [*lines[:insertion], *separator, name, char * 9, "", *lines[insertion:]]
     return _compute_structure_fixes(new_lines, None)
+
+
+def _compute_entitle_text(source: str, name: str) -> str:
+    """Return entitle's complete raw-to-final transformation."""
+    normalized, _findings = _normalize_source(source)
+    trailing_newline = normalized.endswith("\n")
+    new_lines = _compute_entitle_lines(normalized.splitlines(), name)
+    return "\n".join(new_lines) + ("\n" if trailing_newline else "")
+
+
+def _diff_lines(text: str) -> list[str]:
+    """Split text for a unified diff and expose a missing final newline."""
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith(("\n", "\r")):
+        lines[-1] += "\n\\ No newline at end of file\n"
+    return lines
 
 
 def diff_entitle(path: pathlib.Path, name: str) -> str:
     """Return a unified diff of inserting *name* as this document's new
     depth-1 title.  Never empty: entitle always changes something."""
-    text = _read_normalized(path)
-    lines = text.splitlines()
-    new_lines = _compute_entitle_lines(lines, name)
+    source = _read_source(path)
+    fixed = _compute_entitle_text(source, name)
 
     pstr = str(path)
     return "".join(
         difflib.unified_diff(
-            [line + "\n" for line in lines],
-            [line + "\n" for line in new_lines],
+            _diff_lines(source),
+            _diff_lines(fixed),
             fromfile=pstr,
             tofile=pstr,
         )
@@ -654,18 +699,12 @@ def fix_entitle(path: pathlib.Path, name: str) -> bool:
     write, matching fix_structure's boolean shape for a consistent
     caller contract even though the False branch cannot occur here.
     """
-    text = _read_normalized(path)
-    lines = text.splitlines()
-    trailing_newline = text.endswith("\n")
-
-    new_lines = _compute_entitle_lines(lines, name)
-    if new_lines == lines:
+    source = _read_source(path)
+    fixed = _compute_entitle_text(source, name)
+    if fixed == source:
         return False
 
-    _atomic_write_bytes(
-        path,
-        ("\n".join(new_lines) + ("\n" if trailing_newline else "")).encode("utf-8"),
-    )
+    _atomic_write_bytes(path, fixed.encode("utf-8"))
     return True
 
 

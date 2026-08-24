@@ -74,6 +74,28 @@ def test_man_page_registry_names_every_canonical_source() -> None:
 
 
 @pytest.mark.integration
+def test_sphinx_config_reads_version_from_a_clean_source_checkout() -> None:
+    """The docs build must not depend on check_rst already being installed.
+
+    ``-I -S`` removes the working directory, PYTHONPATH, and site packages
+    from module discovery.  What remains is exactly the source checkout that
+    ``docs/conf.py`` can locate relative to itself.
+    """
+    script = "import runpy, sys; print(runpy.run_path(sys.argv[1])['release'])"
+    result = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", script, str(DOCS_DIR / "conf.py")],
+        cwd=PROJECT_ROOT,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+    metadata = runpy.run_path(str(PROJECT_ROOT / "src" / "check_rst" / "__init__.py"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == metadata["__version__"]
+
+
+@pytest.mark.integration
 def test_sphinx_man_builder_produces_terminal_manuals(built_man_pages: Path) -> None:
     generated = {path.name for path in built_man_pages.iterdir() if path.is_file()}
     assert generated == {f"{name}.{section}" for name, section in EXPECTED_MAN_PAGES.items()}

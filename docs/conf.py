@@ -5,7 +5,13 @@
 from __future__ import annotations
 
 import datetime
+import pathlib
+import sys
 
+# A source checkout is itself a supported documentation-build input.  Prefer
+# its package metadata even when another check_rst version is installed, and
+# do not require an editable install merely to build the manuals.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 import check_rst
 
 project = "check_rst"

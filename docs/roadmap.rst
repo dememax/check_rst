@@ -2258,16 +2258,25 @@ Command and safety boundary
 
 Preview-by-default, ``--apply`` to write — the same convention
 ``list-table`` established above for a verb that changes document
-structure, not just geometry.  Fully self-contained like ``hierarchy``:
-one explicit file, no project or Sphinx settings apply, since there is no
-Git-scope/recursive selection and no Sphinx environment involved at all.
-Front matter before the document's first title (comments, hyperlink
-targets, substitution definitions — including this project's own
-copyright-header convention) is left exactly where it is, never absorbed
-into the new title's body.  ``NAME`` must be non-empty, a single line,
-and not itself indistinguishable from a bare adornment line; the
-exhausted-hierarchy case (all 32 valid adornment characters already in
-use) is refused with a clear diagnostic rather than silently reusing one.
+structure, not just geometry.  Preview is raw-to-final, using the same pure
+composition as ``--apply``, so byte-hygiene and final-newline changes cannot be
+hidden by normalizing the preview's input first.  Fully self-contained like
+``hierarchy``: one explicit file, no project or Sphinx settings apply, since
+there is no Git-scope/recursive selection and no Sphinx environment involved
+at all.
+Leading front matter (comments, hyperlink targets, and substitution definitions
+— including this project's own copyright-header convention) is left exactly
+where it is, never absorbed into the new title's body, even when no old title
+exists.  Ordinary introductory prose and field lists are body and are wrapped
+even when they precede the first old section; placing a field list below the
+new title is what lets Docutils promote both the title and its document
+metadata.  Bare Docutils provides that node classification and source boundary;
+include and raw-file expansion are disabled so classification cannot widen the
+one-file read boundary, and an unlocated body node is refused rather than
+guessed.  ``NAME`` must be non-empty, a single line, and not itself
+indistinguishable from a bare adornment line; the
+exhausted-hierarchy case (all 32 valid adornment characters already in use) is
+refused with a clear diagnostic rather than silently reusing one.
 
 ***********************************************************
 Declined decisions and reasons — counter-evidence welcome

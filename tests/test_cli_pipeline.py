@@ -248,10 +248,11 @@ def test_cli_help_covers_examples_and_self_contained_modes(
     assert "check_rst compare --snapshots before.json after.json" in out
     assert "check_rst fix --fast" in out
     assert "check_rst list-table doc.rst" in out
+    assert 'check_rst entitle "Reference Guide" document.rst' in out
     compact = " ".join(out.split())
     assert "Preview commands diff and list-table also return 1" in compact
     assert "reviewer/auditor" in out
-    assert "modifier" in out
+    assert "fix, list-table, and entitle serve the modifier role" in compact
     assert "reader role" in out
     assert "check .rst files against project formatting rules (default verb)" not in out
     assert "2 command-line usage error" in out

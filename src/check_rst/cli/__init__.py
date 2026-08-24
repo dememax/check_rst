@@ -60,7 +60,7 @@ _TOP_LEVEL_HELP = """\
 Check .rst files against reStructuredText and Sphinx project rules.
 
 A required command selects one action: check and diff serve the
-reviewer/auditor role; fix and list-table serve the modifier role;
+reviewer/auditor role; fix, list-table, and entitle serve the modifier role;
 outline, context, and refs serve the reader role. Phase 0 checks byte
 hygiene, Phase 1 checks RST formatting and directives, Phase 2 resolves
 Sphinx-aware structure, and Phase 3 runs a real Sphinx build.
@@ -86,6 +86,7 @@ Examples:
     check_rst context 'doc:Section' doc.rst
     check_rst refs doc.rst
     check_rst list-table doc.rst
+    check_rst entitle "Reference Guide" document.rst
     check_rst compare --from main --to HEAD
     check_rst compare --snapshots before.json after.json
 """

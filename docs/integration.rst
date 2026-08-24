@@ -104,6 +104,24 @@ independently of its RST source.
 agent-agnostic.  ``CLAUDE.md`` is a deliberately thin adapter so Claude Code
 reads the same canonical instructions without maintaining a second copy.
 
+===============================================================
+Anti-pattern: ambient installation metadata in a source build
+===============================================================
+
+A source-checkout documentation build must not obtain its version by importing
+whatever ``check_rst`` happens to be installed in the invoking interpreter.
+That can appear to work in an editable development environment, then fail in a
+clean checkout with ``ModuleNotFoundError`` or, more subtly, put an older
+installed version into generated manuals.  The checkout is authoritative:
+``docs/conf.py`` explicitly prefers its sibling ``src`` tree before importing
+the package's single version source.  It must not duplicate that version in a
+second hardcoded literal.
+
+The regression runs the configuration under ``python -I -S``.  Removing the
+working directory, ``PYTHONPATH``, and site packages makes ambient installation
+state unable to satisfy the import and proves that the checkout is sufficient
+on its own.
+
 ============
 Test suite
 ============

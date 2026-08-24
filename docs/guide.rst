@@ -887,9 +887,14 @@ one level deeper than before.  The whole document is then renormalized
 with the same hierarchy and adornment engine ``fix`` already uses: every
 character and width is recomputed, never hand-picked, the same "declare
 intent, let the tool materialize it" split this whole section argues for.
-Front matter before the document's first title (this very page's own
-two-line copyright comment, for example) stays exactly where it is, above
-the new title.
+Leading front matter (comments, hyperlink targets, and substitution
+definitions; this very page's own two-line copyright comment, for example)
+stays exactly where it is, above the new title, including in a titleless
+document.  Ordinary introductory prose and field lists are body content: even
+when they appear before the first existing section, the new title is inserted
+before them and wraps them.  That placement lets Docutils promote the new
+section to the document title and a following bibliographic field list to
+document metadata.
 
 Choosing ``NAME`` itself remains the human half of the contract, the same
 principle "Titles should carry information, not structure" above states
@@ -900,12 +905,16 @@ right name for this particular document.
 
 Preview-by-default, ``--apply`` to write — the same convention
 ``list-table`` established for a verb that changes document structure, not
-just geometry.  ``NAME`` must be non-empty, a single line, and not itself
+just geometry.  The preview compares the raw source with the exact text
+``--apply`` will write, so any composed byte-hygiene normalization and a
+missing final newline are visible rather than hidden behind a normalized
+input.  ``NAME`` must be non-empty, a single line, and not itself
 indistinguishable from a bare adornment line (a run of one repeated
 character); the exhausted-hierarchy case (all 32 valid adornment
 characters already in use) is refused rather than silently reusing one.
-The command is fully self-contained, like ``hierarchy``: one explicit
-file, no project or Sphinx settings apply.
+The command is fully self-contained, like ``hierarchy``: one explicit file, no
+project or Sphinx settings apply.  Its placement parse does not expand include
+or raw-file directives while classifying that file's leading nodes.
 
 ******************************************************
 Reading RST: verified structure instead of inference

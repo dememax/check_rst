@@ -28,11 +28,15 @@ Insert ``NAME`` as ``FILE``'s new depth-1 title, demoting whatever
 top-level content already existed into ``NAME``'s own children, then
 renormalize the whole document with the same hierarchy and adornment
 fixer ``fix`` already uses.  The default is a read-only unified diff;
-``--apply`` writes.  Front matter before the document's first title
-(comments, hyperlink targets, substitution definitions) is left in
-place, above the new title.  The command is self-contained: it reads
-and writes exactly the one named file, with no project or Sphinx
-settings involved.
+``--apply`` writes.  Leading front matter (comments, hyperlink targets, and
+substitution definitions) is left in place above the new title, including in a
+titleless file.  Ordinary introductory prose and field lists remain body
+content and are wrapped even when they precede the first existing section.
+The preview compares the raw source with the exact text ``--apply`` writes,
+including composed byte-hygiene normalization and final-newline state.  The
+command is self-contained: it reads and writes exactly the one named file, with
+no project or Sphinx settings involved.  Its placement parse does not expand
+include or raw-file directives.
 
 ***********
 PLACEMENT
