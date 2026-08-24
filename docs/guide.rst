@@ -1503,12 +1503,20 @@ content while reporting their hunk counts separately and listing each
 component hunk under ``Change sources``::
 
     $ check_rst compare
-    Comparison: HEAD -> worktree (1 staged hunk, 2 unstaged hunks)
-    docs/guide.rst: modified, 3 hunks (+7 -5)
-      420 -> 420: section "Editing safely" [owned]
+    Comparison: HEAD -> worktree (1 staged hunk, 1 unstaged hunk)
+    docs/guide.rst: modified, 2 hunks (+3 -3)
+      82 -> 82: section "Documentation set" [owned]
+      92 -> 92: section "Documentation set" [owned]
+    Section comparison:
+      docs/guide.rst: topology/adornments unchanged
     Change sources:
-      staged: docs/guide.rst 420 -> 420
-      unstaged: docs/guide.rst 511 -> 511
+      staged: docs/guide.rst 79 -> 79
+      unstaged: docs/guide.rst 92 -> 92
+
+``Section comparison`` reuses the same topology/adornment facts described
+below for ``--snapshots``.  It prints for every changed file, even when
+nothing structural moved — stating that fact explicitly is the point,
+rather than a block that only appears when there is something to report.
 
 Use ``--staged`` for ``HEAD`` to index, ``--unstaged`` for index to
 worktree, ``--from REV`` for a revision to the worktree, or ``--from OLD
