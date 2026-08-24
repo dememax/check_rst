@@ -92,12 +92,13 @@ Documentation layers
 ======================
 
 ``check_rst --help`` is the concise terminal-native command summary.  The
-Sphinx-generated manual pages provide focused command and concept references;
-the main guide remains the canonical operational contract.  The example
-demonstrates a complete workflow, the semantic-rules guide covers decisions
-the checker deliberately refuses to make, development records field evidence,
-and the roadmap records accepted, deferred, and declined work.  Generated roff
-is a build artifact and is never edited independently of its RST source.
+Sphinx-generated :doc:`man/index` pages provide focused command and concept
+references; :doc:`guide` remains the canonical operational contract.
+:doc:`example` demonstrates a complete workflow, :doc:`rules` covers
+decisions the checker deliberately refuses to make, :doc:`development`
+records field evidence, and :doc:`roadmap` records accepted, deferred, and
+declined work.  Generated roff is a build artifact and is never edited
+independently of its RST source.
 
 ``AGENTS.md`` defines development practice for this repository, written
 agent-agnostic.  ``CLAUDE.md`` is a deliberately thin adapter so Claude Code

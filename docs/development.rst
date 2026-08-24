@@ -20,7 +20,7 @@ incomplete, or awkward — and expected to say so.
 Report to the user, at the moment you notice it — five distinct report
 categories, each its own subsection rather than a bullet list for the
 same reason as :doc:`example`'s commentary: each is
-independently meaningful, and section visibility in ``--outline`` is
+independently meaningful, and section visibility in ``outline`` is
 this page's own argument, not just its subject.
 
 ================================
@@ -35,12 +35,12 @@ disagreement *is* the bug report — state both sides with evidence.
 A question the oracle could not answer
 ========================================
 
-If you needed something from a document that ``--outline``/
-``--context``/``--verbose`` do not surface (a directive inventory or a
+If you needed something from a document that ``outline``/
+``context``/``--verbose`` do not surface (a directive inventory or a
 directive's resolved options), name the gap — that is a feature request
 with a concrete use-case attached.  Section and leaf-entry extents and
 cross-reference targets are no longer examples of this gap: ranges,
-``--refs``, and ``--context`` answer them directly.
+``refs``, and ``context`` answer them directly.
 
 ===================================
 A workaround you had to hand-roll
@@ -51,9 +51,9 @@ Shelling around the tool is a signal, not a solution —
 that kept being repeated.  If you write the same auxiliary command
 twice, propose absorbing it.
 
-===================================
-Anything surprising ``--fix`` did
-===================================
+=================================
+Anything surprising ``fix`` did
+=================================
 
 A fix that changed more than expected, or output the verifier then
 rejected, is top-priority feedback — never shrug and re-edit around
@@ -71,11 +71,11 @@ Two rules make the feedback useful.  *Never silently work around a
 deficiency* — the workaround hides exactly the signal the tool's
 evolution runs on.  And *verify before claiming*: probe the actual
 behavior with a minimal reproduction the way any bug report deserves.
-The tool's history (summarized in :doc:`integration`) is a
-sequence of precisely such
-verified observations; several of its core features — Phase 0 byte
-hygiene, display-width measurement, the check/fix rule unification —
-began as an AI's critical review of the previous version.
+Several of the tool's core features — Phase 0 byte hygiene,
+display-width measurement, the check/fix rule unification — began as
+an AI's critical review of the previous version; :doc:`roadmap`
+records this same kind of verified observation, with its evidence,
+for every feature born the same way.
 
 A worked case of the loop (2026-07-20, found in a downstream project's
 ``coding-standards.rst``): step 3 of the validation loop failed right
@@ -87,7 +87,7 @@ reproduction instead of silently re-running, and the fix landed the
 same day: the remap and the adornment pass now compose into a single
 converging computation (every line the remap rewrites joins the fix
 scope — git would report it as changed after the write anyway), and
-``--diff`` previews that composed result rather than the remap-only
+``diff`` previews that composed result rather than the remap-only
 intermediate.
 
 A second worked case, the same day: Max noticed the footer's "top prose
@@ -139,11 +139,11 @@ unrelated entries below.
 * **A hierarchy-scan blind spot, found writing the original guide**
   (2026-07-21) — a short (3-char), never-yet-promoted underline-only
   title was invisible to the first-appearance scan, silently colliding
-  two headings onto the same adornment character.  See "Accepted,
-  deferred" in :doc:`roadmap` for the full account; recorded
-  here because it is
-  exactly this section's kind of evidence, not because it needs
-  repeating twice.
+  two headings onto the same adornment character.  See
+  "``_first_appearance_adornments`` blind to short underline-only
+  titles" in :doc:`roadmap` for the full account; recorded here
+  because it is exactly this section's kind of evidence, not because
+  it needs repeating twice.
 * **An upstream content inconsistency, surfaced by a WARNING** (a downstream project's
   ``git-workflow.rst``, an independent Claude Code session,
   2026-07-21) — the same enumerated-step pattern was a real ``####``
@@ -174,9 +174,9 @@ unrelated entries below.
   now report correctly.
 * **A table nested inside a list item printed at the wrong depth**
   (real output evaluation, 2026-07-26, the original guide) — a list-table
-  added inside a bullet item ("Nested inline markup detection" in
-  :doc:`roadmap`) printed at the SAME indentation as its
-  enclosing
+  added inside a bullet item ("A black-box subprocess test against a
+  standing, combined Sphinx fixture" in :doc:`roadmap`) printed at the
+  SAME indentation as its enclosing
   bullet list, sandwiched between two sibling items, because
   ``find_tables`` (and, it turned out, every other block finder except
   ``ListEntry``) computed depth by counting only enclosing ``section``
