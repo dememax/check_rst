@@ -35,8 +35,10 @@ content and are wrapped even when they precede the first existing section.
 The preview compares the raw source with the exact text ``--apply`` writes,
 including composed byte-hygiene normalization and final-newline state.  The
 command is self-contained: it reads and writes exactly the one named file, with
-no project or Sphinx settings involved.  Its placement parse does not expand
-include or raw-file directives.
+no project or Sphinx settings involved.  A top-level ``include`` directive is
+outside that one-file safety boundary and is refused before preview or write;
+included or transformed top-level titles require composition-aware manual
+restructuring.
 
 ***********
 PLACEMENT
@@ -59,10 +61,11 @@ EXIT STATUS
 *************
 
 Return ``0`` after a successful preview or a successful ``--apply``;
-return ``1`` for a rejected ``NAME``, a file that cannot be read or
-written, an unresolved Git merge conflict, or an incompatible option
-combination.  ``2`` is reserved for an argparse-level syntax error (see
-:manpage:`check_rst(1)`, EXIT STATUS).  Unlike ``list-table``/``diff``,
+return ``1`` for a rejected ``NAME``, a top-level ``include`` directive, a file
+that cannot be read or written, an unresolved Git merge conflict, or an
+incompatible option combination.  ``2`` is reserved for an argparse-level
+syntax error (see :manpage:`check_rst(1)`, EXIT STATUS).  Unlike
+``list-table``/``diff``,
 a successful preview always exits ``0``: entitle always changes
 something, so "would something change" carries no signal here.
 

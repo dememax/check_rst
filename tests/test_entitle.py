@@ -200,17 +200,24 @@ def test_entitle_wraps_titleless_bibliographic_fields_below_the_new_title() -> N
 
 
 @pytest.mark.unit
-def test_entitle_does_not_follow_an_include_while_locating_body(tmp_path: Path) -> None:
-    """Placement parsing must preserve entitle's one-file read boundary."""
-    included = tmp_path / "included.rst"
-    included.write_text("Included body.\n", encoding="utf-8")
-    lines = [".. leading comment", "", f".. include:: {included}"]
+@pytest.mark.parametrize(
+    "options",
+    [(), ("   :literal:",)],
+    ids=["parsed", "literal"],
+)
+def test_entitle_refuses_an_include_without_following_it(
+    tmp_path: Path,
+    options: tuple[str, ...],
+) -> None:
+    """Refusal must preserve entitle's one-file read boundary."""
+    included = tmp_path / "missing.rst"
+    lines = [".. leading comment", "", f".. include:: {included}", *options]
 
-    result = _formatting._compute_entitle_lines(lines, "New Title")
-
-    assert result[:2] == lines[:2]
-    assert result[2:6] == ["###########", "New Title", "###########", ""]
-    assert result[6:] == [f".. include:: {included}"]
+    with pytest.raises(
+        ValueError,
+        match="top-level include composition is outside entitle's one-file safety boundary",
+    ):
+        _formatting._compute_entitle_lines(lines, "New Title")
 
 
 @pytest.mark.unit

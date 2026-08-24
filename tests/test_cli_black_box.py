@@ -306,6 +306,42 @@ def test_black_box_entitle_result_survives_outline_and_check(
 
 
 @pytest.mark.integration
+def test_black_box_entitle_refuses_top_level_include_composition(tmp_path: Path) -> None:
+    """A one-file wrapper must not guess across a composed hierarchy."""
+    first = tmp_path / "first.rst"
+    second = tmp_path / "second.rst"
+    document = tmp_path / "index.rst"
+    first.write_text("First\n#####\n", encoding="utf-8")
+    second.write_text("Second\n######\n", encoding="utf-8")
+    document.write_text(
+        ".. include:: first.rst\n\n.. include:: second.rst\n",
+        encoding="utf-8",
+    )
+    originals = {path: path.read_bytes() for path in (document, first, second)}
+
+    outline = _run_cli(tmp_path, "--no-config", "outline", "index.rst")
+    preview = _run_cli(tmp_path, "--no-config", "entitle", "Wrapper", "index.rst")
+    applied = _run_cli(
+        tmp_path,
+        "--no-config",
+        "entitle",
+        "Wrapper",
+        "index.rst",
+        "--apply",
+    )
+
+    assert outline.returncode == 1
+    assert "2 sections total" in outline.stdout
+    assert preview.returncode == 1
+    assert applied.returncode == 1
+    for result in (preview, applied):
+        assert result.stderr == ""
+        assert "top-level include composition is outside entitle's one-file safety boundary" in result.stdout
+        assert "--- index.rst" not in result.stdout
+    assert {path: path.read_bytes() for path in originals} == originals
+
+
+@pytest.mark.integration
 def test_black_box_new_finding_agrees_across_snapshots_live_git_and_context(
     black_box_project: Path,
 ) -> None:

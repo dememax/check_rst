@@ -486,6 +486,27 @@ Repeated blank separators are intentionally absent from that default list.
 They need the separate, parser-verified operation below because an empty source
 line can be literal content rather than disposable geometry.
 
+=================================================
+``hierarchy``: inspect the live character order
+=================================================
+
+``check_rst hierarchy`` prints every adornment character accepted by the
+installed Docutils runtime in check_rst's ordering, distinguishing the six
+preferred characters from the remaining valid fallbacks.  It is a runtime
+capability query, not a description of any particular document.  Use
+``outline --sections-only FILE`` for the document-specific mapping from
+characters to established depths and for the first unused character.
+
+Those two answers support different editing decisions.  To add a sibling at an
+existing depth, copy the character that ``outline`` already reports for that
+depth; a free character is wrong because it declares a new style.  Use a free
+character only when deliberately establishing a previously unseen depth.  A
+free character has no intrinsic level number: Docutils assigns its depth from
+where that style first appears, so the legend's ``next free section char``
+means "unassigned and preferred by check_rst", not "the character for depth
+N".  Re-run ``outline`` after the edit to verify the resulting attachment and
+depth instead of inferring either from the character alone.
+
 =================================
 Opt-in blank-line normalization
 =================================
@@ -870,12 +891,12 @@ or convert the ancestor first and rerun the inner selection.
 entitle: wrap a document under a new top-level title
 ======================================================
 
-The documented remediation for a ``second effective top-level title`` ERROR
-(see "``outline``: the structural oracle" below) was, until now, a manual
-placeholder-workflow exercise: type the new title above everything else,
-using the outline legend's own "next free section char" so it doesn't
-collide with anything already there, then run ``fix``.  ``entitle``
-performs exactly that operation::
+For a self-contained physical source, the documented remediation for a
+``second effective top-level title`` ERROR (see "``outline``: the structural
+oracle" below) used to be a manual placeholder-workflow exercise: type the new
+title above everything else, using the outline legend's own "next free section
+char" so it doesn't collide with anything already there, then run ``fix``.
+``entitle`` performs exactly that bounded operation::
 
     check_rst entitle "Reference Guide" document.rst            # preview
     check_rst entitle "Reference Guide" document.rst --apply    # write
@@ -913,8 +934,14 @@ indistinguishable from a bare adornment line (a run of one repeated
 character); the exhausted-hierarchy case (all 32 valid adornment
 characters already in use) is refused rather than silently reusing one.
 The command is fully self-contained, like ``hierarchy``: one explicit file, no
-project or Sphinx settings apply.  Its placement parse does not expand include
-or raw-file directives while classifying that file's leading nodes.
+project or Sphinx settings apply.  A top-level ``include`` directive is refused
+before a diff is emitted or bytes are written, even for an include mode that
+might ultimately be non-structural.  Following the directive to distinguish
+those modes would itself cross the one-file parsing boundary.  Effective
+top-level titles contributed by includes or Sphinx transformations therefore
+need a manual composition-aware restructure, followed by a fresh ``outline``;
+``entitle`` must not propose a locally valid wrapper that leaves the composed
+defect intact.
 
 ******************************************************
 Reading RST: verified structure instead of inference
@@ -948,9 +975,11 @@ and section count, plus the document's total section count and the first
 free character chosen in check_rst's canonical order (or an explicit
 ``no free section char`` when all valid characters are present), stated
 once since the mapping is constant within a document.  That final field
-answers which character can introduce a new outer level without manually
-subtracting the observed set; it is also the remediation lookup for a
-``second effective top-level title`` ERROR.  The outline then prints a
+answers which character is currently unassigned without manually subtracting
+the observed set.  It can establish a new outer level when inserted before a
+self-contained document's existing sections; it does not identify the
+character for an existing sibling depth, and it is not by itself a repair for
+included or transformed top-level titles.  The outline then prints a
 ``blocks:`` line totalling code-blocks, blockquotes, and tables
 document-wide (omitted when the document has none of them) — then
 every heading as a line **range** and title, indented 4 spaces per
@@ -1916,3 +1945,19 @@ for real, that deserves to travel with the contract: whenever adopting
 and periodically re-syncing foreign generated content, record the
 semantic decisions the tool cannot infer, in the file the decisions
 apply to.
+
+The same session later exposed a second workflow rule while re-syncing adopted
+documents.  Before any structural operation, run ``outline --sections-only``
+and read the source from its beginning through the first reported section; the
+legend establishes whether there is one depth-1 section or a competing-title
+defect, while the source start shows whether front matter or introductory body
+content changes how that section functions.  If the document already has one
+intended title, edit its text in place when renaming it.  Use ``entitle`` only
+when deliberately preserving existing top-level content as a visible child of
+a new title, or when repairing competing titles in a self-contained source.
+Always run preview and review the complete diff as a separate step before
+``--apply``: seeing the old title remain one level deeper is the evidence that
+the operation is wrapping rather than renaming.  The failed session had run
+``entitle --apply`` directly and then manually unwound the structurally valid
+but unintended wrapper; no new analyzer signal was missing—``outline`` and the
+preview already exposed both facts at their canonical boundaries.

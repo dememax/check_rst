@@ -424,13 +424,22 @@ affects exit status; deciding the page title remains an author judgment, so
 ``fix`` must not choose one.  ``--skip-fixable`` suppresses only findings
 explicitly owned by deterministic mutation and therefore retains this ERROR.
 
-The diagnostic gives a bounded repair *shape*, not a semantic answer.  Run
-``check_rst outline --sections-only FILE``: after its section total, the
-``levels:`` legend reports the next free section character from check_rst's
-canonical hierarchy.  Choose the page title, insert it before the existing
-sections with a nine-character underline using that character, then run
-``check_rst fix``.  The new symbol establishes a new outer level; ``fix``
-materializes the canonical overline, underline width, and hierarchy.
+The diagnostic gives a bounded repair *shape*, not a semantic answer.  First
+run ``check_rst outline --sections-only FILE`` and inspect the entry sources as
+well as the ``levels:`` legend.  When the competing titles belong to one
+self-contained physical source, choose the page title and preview
+``check_rst entitle NAME FILE``; apply it only after reviewing the complete
+diff.  ``entitle`` inserts a genuinely unused style before that file's body and
+uses ``fix``'s existing machinery to materialize the canonical geometry and
+hierarchy.
+
+That local repair is intentionally not universal.  A top-level ``include``
+directive makes ``entitle`` fail closed without following it, emitting a diff,
+or writing bytes.  If the effective titles come from included sources or from
+Sphinx transformations, restructure the host, fragments, or transformation at
+the composition level and re-run ``outline``.  In that case the legend's free
+character proves only that the style is unassigned; it cannot identify which
+physical source should own the new parent.
 
 The rule consumes the parsed section tree rather than guessing from the root
 file's first adornment character.  Standard ``include`` content therefore

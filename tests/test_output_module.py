@@ -48,7 +48,7 @@ def test_outline_levels_legend_reports_when_every_section_char_is_used(
 
 
 @pytest.mark.unit
-def test_second_top_level_title_hint_points_to_outline_legend(
+def test_second_top_level_title_hint_distinguishes_local_and_composed_repairs(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _output._hints_shown.clear()
@@ -62,6 +62,8 @@ def test_second_top_level_title_hint_points_to_outline_legend(
 
     output = capsys.readouterr().out
     assert "check_rst outline's levels legend reports the next free section char" in output
+    assert "for one physical source, preview check_rst entitle NAME FILE" in output
+    assert "included or transformed titles need manual composition-aware restructuring" in output
 
 
 @pytest.mark.unit

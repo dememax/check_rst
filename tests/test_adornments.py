@@ -2788,9 +2788,9 @@ def test_skip_fixable_preserves_single_top_level_errors(
     out = capsys.readouterr().out
     assert "top-level" in out
     assert "ERROR:" in out
-    assert "nine-character" in out
+    assert "preview check_rst entitle NAME FILE" in out
     assert "unused" in out
-    assert "check_rst fix" in out
+    assert "manual composition-aware restructuring" in out
 
 
 @pytest.mark.integration

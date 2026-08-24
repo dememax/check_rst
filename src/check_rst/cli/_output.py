@@ -417,8 +417,8 @@ _FINDING_HINTS: tuple[tuple[str, str], ...] = (
     (
         "second effective top-level title ",
         "check_rst outline's levels legend reports the next free section char (the first unused char in "
-        "canonical order); choose the page title, insert it before the existing sections with a "
-        "nine-character underline using that char, then run check_rst fix",
+        "canonical order); choose the page title; for one physical source, preview check_rst entitle "
+        "NAME FILE; included or transformed titles need manual composition-aware restructuring",
     ),
 )
 

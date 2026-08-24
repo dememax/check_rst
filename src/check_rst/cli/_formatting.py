@@ -582,6 +582,7 @@ _ENTITLE_FRONT_MATTER_TYPES = (
     docutils.nodes.substitution_definition,
     docutils.nodes.target,
 )
+_TOP_LEVEL_INCLUDE_RE = re.compile(r"^\.\.\s+include::(?:\s|$)")
 
 
 def _entitle_insertion(lines: list[str]) -> int:
@@ -650,6 +651,13 @@ def _compute_entitle_lines(lines: list[str], name: str) -> list[str]:
         raise ValueError("entitle name must be a single line")
     if _is_adornment(stripped):
         raise ValueError(f"entitle name {name!r} is indistinguishable from an adornment line")
+    # Entitle deliberately reads and writes one physical source.  A top-level
+    # include can contribute the live sections that need a common parent, but
+    # the disabled-external-content placement parse cannot see them.  Refuse
+    # even include modes that may ultimately be non-structural: deciding their
+    # effect would itself expand this command's one-file parsing boundary.
+    if any(_TOP_LEVEL_INCLUDE_RE.match(line) for line in lines):
+        raise ValueError("top-level include composition is outside entitle's one-file safety boundary")
     char = _next_free_adornment_char(lines)
     if char is None:
         raise ValueError("every adornment character is already in use — cannot add a new top-level title")

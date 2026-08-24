@@ -2273,8 +2273,15 @@ new title is what lets Docutils promote both the title and its document
 metadata.  Bare Docutils provides that node classification and source boundary;
 include and raw-file expansion are disabled so classification cannot widen the
 one-file read boundary, and an unlocated body node is refused rather than
-guessed.  ``NAME`` must be non-empty, a single line, and not itself
-indistinguishable from a bare adornment line; the
+guessed.  A reproduced composition regression subsequently tightened that
+boundary: two top-level includes can each contribute a depth-1 title while the
+external-content-disabled placement parse sees neither.  It inserted the new
+wrapper between the directives, and the same effective ERROR remained.
+``entitle`` now refuses any top-level ``include`` before preview or mutation;
+distinguishing a non-structural include mode would itself require following the
+directive.  Included and Sphinx-transformed title defects remain manual,
+composition-aware repairs.  ``NAME`` must be non-empty, a single line, and not
+itself indistinguishable from a bare adornment line; the
 exhausted-hierarchy case (all 32 valid adornment characters already in use) is
 refused with a clear diagnostic rather than silently reusing one.
 
