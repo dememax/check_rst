@@ -38,6 +38,8 @@ def test_outline_overline_underline_title(tmp_path: Path) -> None:
     assert len(entries) == 1
     entry = entries[0]
     assert entry.lineno == 2
+    assert entry.source_start == 1
+    assert str(entry) == "1-5:# Root"
     assert entry.depth == 1
     assert entry.char == "#"
     assert entry.title == "Root"
@@ -66,6 +68,25 @@ def test_outline_nested_nesting_depth(tmp_path: Path) -> None:
         (1, 1, "*", "Abc"),
         (6, 2, "=", "Xyz"),
     ]
+    assert [entry.source_start for entry in entries] == [1, 6]
+
+
+@pytest.mark.integration
+def test_outline_does_not_claim_previous_adjacent_underline_as_overline(tmp_path: Path) -> None:
+    """Parsed ownership disambiguates identical neighboring adornments."""
+    p = _rst(
+        tmp_path,
+        """\
+        First
+        =====
+        Third
+        =====
+        """,
+    )
+
+    entries = _document.build_outline(p)
+
+    assert [entry.source_start for entry in entries] == [1, 3]
 
 
 @pytest.mark.integration
@@ -1202,7 +1223,7 @@ def test_cli_outline_includes_blockquotes_in_order(
         cli.main()
     out = capsys.readouterr().out
     assert 'blockquote "Quoted answer text."' in out
-    assert out.index("2-9:# Title") < out.index('blockquote "Quoted answer text."')
+    assert out.index("1-9:# Title") < out.index('blockquote "Quoted answer text."')
 
 
 @pytest.mark.integration
@@ -1283,7 +1304,7 @@ def test_cli_outline_only_implies_outline_and_quiet(
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "Outline:" in out
-    assert "4-7:# Title" in out  # heading entry with extent (_GOOD_BLOCK)
+    assert "3-7:# Title" in out  # complete heading block and extent (_GOOD_BLOCK)
     assert "Phase 2" not in out
 
 

@@ -16,9 +16,13 @@ check_rst-workflow - safe reading and edit-validation sequence
 READ BEFORE EDITING
 *********************
 
-Run ``check_rst outline FILE`` before modifying a document not already read in
-the current session.  Use ``context`` for one exact entry and verified
-``refs`` when a cross-reference change depends on incoming or outgoing uses.
+Choose the structural query before reading source.  Use ``outline FILE`` when
+the target or surrounding hierarchy is unknown, and ``context ENTRY FILE``
+when one exact heading, selector, term, caption, or preview is known.  Knowing
+the heading is the reason to use ``context``, not permission to recover it with
+``grep``.  Read the reported physical range only after the model resolves it;
+rerun the query after edits that may move source.  Use verified ``refs`` when a
+cross-reference change depends on incoming or outgoing uses.
 
 *******************
 DECLARE STRUCTURE
@@ -61,7 +65,9 @@ VERIFIED MODE
 Verified mode executes project Python configuration and extensions.  It is
 the authoritative Sphinx result, but only for trusted projects.  Heuristic
 mode is useful for standalone and foreign documents and is explicitly not a
-substitute for a Sphinx build.
+substitute for a Sphinx build.  Processes sharing one persistent
+``--build-dir`` serialize the complete verified cache operation; choose
+separate directories when parallel Sphinx builds are required.
 
 **********
 SEE ALSO

@@ -5,9 +5,11 @@
 from __future__ import annotations
 
 import collections
+import contextlib
 import copy
 import dataclasses
 import difflib
+import fcntl
 import pathlib
 import re
 import subprocess
@@ -17,7 +19,7 @@ from typing import TYPE_CHECKING, cast
 import docutils.nodes
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator
 
     import sphinx.environment
 
@@ -93,6 +95,41 @@ _FIXABLE_SPHINX_MESSAGES = (
 )
 
 _INTEGRITY_BUILDER = "html"
+
+
+@contextlib.contextmanager
+def _sphinx_build_lock(build_dir: pathlib.Path | None) -> Iterator[None]:
+    """Serialize complete check_rst consumers of one persistent Sphinx cache.
+
+    Sphinx writes its environment and doctree pickles in place.  A second
+    process can otherwise read a partially-written pickle after its own build
+    returns; the resulting ``EOFError`` occurs outside the guarded build call.
+    Callers therefore hold this process lock through every use of the returned
+    environment and through Phase 3, not merely around ``Sphinx.build()``.
+    Temporary per-command build directories pass ``None`` and need no lock.
+    """
+    if build_dir is None:
+        yield
+        return
+
+    try:
+        build_dir.mkdir(parents=True, exist_ok=True)
+        lock_stream = (build_dir / ".check_rst.lock").open("a+b")
+    except OSError as exc:
+        detail = " ".join(str(exc).splitlines())
+        print(f"check_rst: Sphinx build lock failed for {build_dir}: {detail}")
+        raise SystemExit(1) from exc
+    with lock_stream:
+        try:
+            fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX)
+        except OSError as exc:
+            detail = " ".join(str(exc).splitlines())
+            print(f"check_rst: Sphinx build lock failed for {build_dir}: {detail}")
+            raise SystemExit(1) from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_stream.fileno(), fcntl.LOCK_UN)
 
 
 def _build_sphinx_env(

@@ -40,6 +40,13 @@ and lists.  Outline IDs are stable document-and-title identities with an
 occurrence suffix only when required.  Statistics distinguish unrequested
 word analysis from requested-but-unavailable analysis.
 
+For an outline section, ``source_start`` is the first line of its complete
+physical block, including an overline; ``lineno`` remains the title-line
+anchor, and ``end`` is the final content line.  ``source_start`` is 0 when no
+honest editable coordinate survives source transformation.  Consumers should
+use ``source_start`` through ``end`` for a source read and retain ``lineno``
+for title-anchored identity or diagnostics.
+
 Every finding declares ``severity`` and ``fixable`` independently.  ``source``
 is null for the selected root or identifies a physical or synthetic composed
 source; line 0 means no honest editable coordinate survived transformation.

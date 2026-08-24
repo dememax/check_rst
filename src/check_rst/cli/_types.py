@@ -334,6 +334,7 @@ class OutlineEntry:
     end: int = 0  # last line of the section's content (its extent)
     docname: str | None = None
     provenance: SourceProvenance | None = None
+    source_start: int | None = None  # first physical line, including an overline
 
     def __str__(self) -> str:
         return self.formatted()
@@ -364,7 +365,8 @@ class OutlineEntry:
         # so _print_outline_entries computes and passes them in; plain str()
         # stays self-contained with subsections only.
         indent = "    " * (self.depth - 1)
-        pos = _entry_position(self.lineno, self.end, self.provenance, self.docname)
+        start = self.lineno if self.source_start is None else self.source_start
+        pos = _entry_position(start, self.end, self.provenance, self.docname)
         base = f"{indent}{pos}:{self.char} {self.title}"
         parts = []
         if self.children:

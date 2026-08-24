@@ -962,6 +962,44 @@ geometry generally also serves the fresh AI through the parsed model; both
 lose when a concept that should be independently retrievable exists only as
 bold prose.
 
+===================================================
+Choose the structural query before reading source
+===================================================
+
+Do not start with a raw-text search and then try to reconstruct structure from
+the matching lines.  Choose the query from what is known before opening source:
+
+.. list-table:: Structural reading decisions
+   :header-rows: 1
+   :widths: 27 24 49
+
+   * - What is known
+     - First query
+     - Why
+   * - The target or surrounding structure is unknown
+     - ``outline FILE``
+     - It exposes the hierarchy, entry kinds, composition, and complete
+       physical ranges without a linear read.
+   * - One exact heading, selector, term, caption, or preview is known
+     - ``context ENTRY FILE``
+     - Knowing the entry is the reason to query it directly, not an exception
+       that makes ``grep`` safe.  The result supplies its range, path,
+       relatives, findings, and references.
+   * - The structural entry and its current range are known
+     - A targeted source read of that range
+     - This reads the bytes that will be reviewed or edited without asking a
+       text search to infer the entry's boundaries.
+   * - The problem is validation output volume
+     - The semantic and budget controls below
+     - ``--quiet``, structural filters, or ``--max-output-lines`` preserve the
+       documented status and omission contract; a pipe does not.
+
+A remembered title or line number proves neither the entry's current depth and
+parent nor that the title is unique.  It also says nothing about an included
+source, a toctree descendant, or extension-transformed content.  Prior reading
+does not change those facts.  Run ``context`` when the entry is known; run
+``outline`` when it is not; only then read the reported physical range.
+
 ====================================
 ``outline``: the structural oracle
 ====================================
@@ -996,17 +1034,18 @@ entry with its own range.  Every preview — code-block, blockquote,
 table alike — is whitespace-collapsed (no leading/trailing or doubled
 internal spaces) and bounded at 74 characters, ``...``-truncated when
 it doesn't fit: a quick identity for the entry, never its full content.
-The range is the entry's full extent: feed it straight to a targeted
-read (``sed -n 'START,ENDp'``) with no arithmetic — where check_rst
+The range is the entry's full physical extent, starting at a title overline
+when one exists: feed it straight to a targeted source read with no
+arithmetic — where check_rst
 informs about a line number, it informs about the range instead,
 wherever a range applies (findings keep single-line anchors: they
 point *at* a defect, not over a span) — quote zones are exempt
 from the heading-substitute warnings, so seeing them in the outline
 explains absent findings and shows composition — in document order.
-Read it **before editing any file you have not already read this
-session, and again after any edit that could have moved things** —
-having read a file once does not make a remembered line number trust-
-worthy after your own inserts shift everything below them; a fresh
+Read it **before editing when the target or its surrounding structure is not
+already known from a current model query, and again after any edit that could
+have moved things** — having read a file once does not make a remembered line
+number trustworthy after your own inserts shift everything below it; a fresh
 ``outline`` run is authoritative regardless of how many times you
 have already read the file this session, a stale mental line map never
 is.  It answers "where does my new section attach, and at what level"
@@ -1114,10 +1153,14 @@ code-blocks, blockquotes, tables, admonitions, comments, toctrees, and future
 entry classes, using the selector scheme above or exact title, term, caption,
 or preview text.  Resolution is exact, never fuzzy; even an anonymous list
 container or empty block remains addressable through its generated selector.
+An exact known heading is the strongest reason to start here: remembering its
+text does not prove its range, uniqueness, parent, depth, or physical owner.
 
-A unique match reports its selector, kind, exact range and depth; the full
-enclosing section/container path; its parent, previous and next sibling, and
-direct children; findings whose anchors fall in the selected range; outgoing
+A unique match reports its selector, kind, exact physical range and depth.  It
+reports the title line separately when an overline makes it differ from the
+range start, then the full enclosing section/container path; its parent,
+previous and next sibling, and direct children; findings whose anchors fall in
+the selected range; outgoing
 references written inside that range; and document-level incoming
 references.  References require verified Sphinx mode; heuristic mode says
 explicitly that they are unavailable.  Child/reference lists are bounded
@@ -1450,13 +1493,13 @@ defined rather than accidental.
   reference context attached — something no grep over raw markup can
   reconstruct.
 
-Neither rule is absolute.  A deliberately targeted pipeline —
-``grep`` for one known, stable substring, with the complete output
-still redirected somewhere the full result and exit code remain
-inspectable — is a reasonable *addition* to a check, never a
-replacement for actually looking at what ``check_rst`` reported.  The
-line to hold: never pipe *instead of* running the validation loop's
-own steps, only ever *alongside* them, and only when the flags above
+Neither rule is absolute.  A deliberately targeted pipeline over a separately
+retained, complete report — ``grep`` for one known, stable substring while the
+full result and producer exit code remain inspectable — can be a reasonable
+*addition* to a check.  It is not permission to search raw RST for a heading:
+an exact known heading belongs to ``context``, while unknown structure belongs
+to ``outline``.  Never pipe *instead of* running the validation loop's own
+steps; use a pipe only alongside the complete report when the native controls
 genuinely do not fit.
 
 ==========================
@@ -1856,7 +1899,11 @@ unique temporary directory is created for the run and removed again
 once it finishes, at the cost of Sphinx recompiling every page fresh
 each time (see "The three-step loop" above on why a fixed
 ``--build-dir`` is worth setting for repeat runs); pass it explicitly
-and you are responsible for its own cleanup instead.
+and you are responsible for its own cleanup instead.  Concurrent check_rst
+processes that name the same persistent build directory serialize their full
+verified cache use through ``.check_rst.lock``.  Sphinx writes environment and
+doctree pickles in place, so this covers both the build and later reads; use
+separate build directories when actual parallel Sphinx work is required.
 
 ==========================================
 Heuristic mode: without ``--sphinx-src``

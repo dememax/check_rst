@@ -48,6 +48,7 @@ from ._reports import (
 from ._sphinx import (
     _build_sphinx_env_checked,
     _docname_for,
+    _sphinx_build_lock,
     find_incoming_references,
     find_references,
 )
@@ -750,7 +751,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         parents=[outline_full],
         help="print each file's section structure (structure-only by default)",
         description=(
-            "Reader role: this file's section tree, navigable without a linear read. "
+            "Reader role: this file's section tree and complete physical ranges, navigable without a linear read. "
             "Structure-only by default; --with-findings layers bold/rubric WARNINGs on top. "
             "Structure is always whole-document and never affects the exit code."
         ),
@@ -829,7 +830,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help="targeted pre-edit briefing for one entry",
         description=(
             "Reader role: a pre-edit briefing for one exact entry — a stable id, a generated "
-            "selector, or an exact title/term/preview. Never guesses among multiple exact matches."
+            "selector, or an exact title/term/caption/preview. Use this when the entry is known "
+            "instead of searching raw markup. Never guesses among multiple exact matches."
         ),
         epilog=_DOCUMENTATION_EPILOG,
     )
@@ -1220,14 +1222,15 @@ def _run_refs(args: argparse.Namespace, runtime_metadata: dict[str, Any]) -> NoR
     keep_build = args.build_dir is not None
     build_dir = args.build_dir if keep_build else pathlib.Path(tempfile.mkdtemp(prefix="check_rst_"))
     try:
-        env, _warning_text = _build_sphinx_env_checked(args.sphinx_src, build_dir, files=[args.refs])
-        docname = _docname_for(env, args.refs)
-        if docname is None:
-            print(f"check_rst: {args.refs}: not part of the --sphinx-src project")
-            sys.exit(1)
-        outgoing = find_references(env, docname)
-        incoming = find_incoming_references(env, docname)
-        print(_format_references(args.refs, outgoing, incoming))
+        with _sphinx_build_lock(build_dir if keep_build else None):
+            env, _warning_text = _build_sphinx_env_checked(args.sphinx_src, build_dir, files=[args.refs])
+            docname = _docname_for(env, args.refs)
+            if docname is None:
+                print(f"check_rst: {args.refs}: not part of the --sphinx-src project")
+                sys.exit(1)
+            outgoing = find_references(env, docname)
+            incoming = find_incoming_references(env, docname)
+            print(_format_references(args.refs, outgoing, incoming))
     finally:
         if not keep_build:
             shutil.rmtree(build_dir, ignore_errors=True)
@@ -1546,16 +1549,17 @@ def _main() -> None:
         )
 
     if args.context is not None:
-        sys.exit(
-            _run_context_query(
-                args.context,
-                files[0],
-                project_root,
-                args.sphinx_src,
-                args.build_dir,
-                args.no_toctree,
+        with _sphinx_build_lock(args.build_dir if args.sphinx_src is not None else None):
+            sys.exit(
+                _run_context_query(
+                    args.context,
+                    files[0],
+                    project_root,
+                    args.sphinx_src,
+                    args.build_dir,
+                    args.no_toctree,
+                )
             )
-        )
 
     if args.diff_only:
         _run_diff_only(files, whole_file, project_root, no_adornments=args.no_adornments)

@@ -221,6 +221,17 @@ findings, and reference context without raw-markup grep.  This composes stages
 1 and 2 and closes the gap where ``--sections-only`` hides leaf structure while
 a complete outline is too large for a targeted query.
 
+Extended 2026-08-24 after a cold-reader session used raw ``grep`` despite
+knowing the exact heading: the guide now chooses ``context`` precisely for a
+known entry and ``outline`` for unknown structure, then permits a targeted read
+only after either query supplies the physical range.  The same audit exposed a
+second operational defect: concurrent verified ``context``/``outline``
+processes sharing one persistent Sphinx build directory could read a doctree
+while another process rewrote its pickle, observed live as ``EOFError``.
+A deterministic black-box extension fixture reproduced the overlap before the
+fix; check_rst now holds a per-build-directory process lock across the complete
+build and cache-consumption interval, and the concurrent regression passes.
+
 =====================================
 Blockquote entries in ``--outline``
 =====================================
@@ -1328,7 +1339,8 @@ suppression note and first-match jump targets; ``check --format=json`` carries
 Ranges, not start lines
 =========================
 
-*Current status: shipped 2026-07-19.*
+*Current status: shipped 2026-07-19; completed for overline titles
+2026-08-24.*
 
 (Max): outline entries — sections, code-blocks, blockquotes — carry their full
 extent (``508-613:``), computed from the outline sequence and indentation.
@@ -1336,10 +1348,21 @@ Evidence: reading two foreign documents from a downstream project via
 structure-only ``outline`` + ``sed``
 needed exactly these ranges, and the end lines had to be re-derived by hand
 from the *next* entry — deterministic arithmetic that is the tool's half of the
-contract. Chosen over the ``context ENTRY FILE`` alternative as the cheap
-first step (stage 3 remains on the roadmap); generalized as a principle: where
-check_rst informs about a line number, it informs about the range instead,
-where applicable.  Findings deliberately keep single-line anchors.
+contract. Chosen before the then-proposed ``context ENTRY FILE`` query as the
+cheap first step; ``context`` later shipped as its targeted complement.  The
+range was generalized as a principle: where check_rst informs about a line
+number, it informs about the range instead, where applicable.  Findings
+deliberately keep single-line anchors.
+
+The original section range began at the title text even when an overline was
+present, so it was not yet a complete physical edit range.  The 2026-08-24
+regression pins three distinct coordinates: ``source_start`` begins at the
+overline, ``lineno`` remains the compatible title anchor, and ``end`` remains
+the final content line.  Text ``outline`` and ``context`` use the complete
+physical range; ``context`` prints the title line separately when it differs;
+JSON exposes both fields additively.  Inexact extension-transformed or
+configured synthetic structure uses ``source_start: 0`` rather than suggesting
+an editable physical boundary.
 
 ====================
 Outline enrichment

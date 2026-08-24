@@ -1819,6 +1819,7 @@ def test_verified_source_read_mutation_marks_root_coordinates_inexact(tmp_path: 
 
     assert entries[0].title == "Injected"
     assert entries[0].char == "?"
+    assert entries[0].source_start == 0
     assert entries[0].provenance is not None
     assert entries[0].provenance.origin == _types.SourceOrigin.TRANSFORMED
     assert entries[0].provenance.exact is False
@@ -1844,6 +1845,7 @@ def test_rst_prologue_heading_has_synthetic_provenance(tmp_path: Path) -> None:
 
     prologue = next(entry for entry in entries if entry.title == "Prologue")
     assert prologue.char == "?"
+    assert prologue.source_start == 0
     assert prologue.provenance is not None
     assert prologue.provenance.source == "<rst_prologue>"
     assert prologue.provenance.origin == _types.SourceOrigin.RST_PROLOGUE
@@ -1879,6 +1881,7 @@ def test_verified_include_read_mutation_marks_include_chain_inexact(tmp_path: Pa
 
     generated = next(entry for entry in entries if entry.title == "Generated")
     assert generated.char == "?"
+    assert generated.source_start == 0
     assert generated.provenance is not None
     assert generated.provenance.origin == _types.SourceOrigin.INCLUDE
     assert generated.provenance.exact is False
@@ -1915,7 +1918,7 @@ def test_cli_verified_outline_and_json_expose_composition_controls(
     assert exc.value.code == 0
     output = capsys.readouterr().out
     assert '5: include "fragment.rst" (parsed)' in output
-    assert "fragment.rst:2-3:* Included" in output
+    assert "fragment.rst:1-3:* Included" in output
     assert "1 include" in output
 
     monkeypatch.setattr(
@@ -1930,6 +1933,8 @@ def test_cli_verified_outline_and_json_expose_composition_controls(
     assert model["structure_stage"] == "parser-effective"
     assert model["includes"][0]["resolved"] == "fragment.rst"
     included = next(entry for entry in model["outline"] if entry["title"] == "Included")
+    assert included["source_start"] == 1
+    assert included["lineno"] == 2
     assert included["provenance"]["source"] == "fragment.rst"
 
 

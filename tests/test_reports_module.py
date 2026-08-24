@@ -362,7 +362,11 @@ def test_cli_json_stable_section_ids(
     with pytest.raises(SystemExit):
         cli.main()
     data = json.loads(capsys.readouterr().out)
-    assert data["files"][0]["outline"][0]["id"] == "docs/guide:Title"
+    entry = data["files"][0]["outline"][0]
+    assert entry["id"] == "docs/guide:Title"
+    assert entry["source_start"] == 1
+    assert entry["lineno"] == 2
+    assert entry["end"] == 5
 
 
 @pytest.mark.integration
@@ -1804,7 +1808,8 @@ def test_cli_context_section_stable_id_and_applicable_finding(
     out = capsys.readouterr().out
     assert "kind: section" in out
     assert "selector: test:Target" in out
-    assert "range: 6-11" in out
+    assert "range: 5-11" in out
+    assert "title line: 6" in out
     assert "findings:" in out
     assert "standalone bold line 'Decision'" in out
 
@@ -1829,7 +1834,8 @@ def test_cli_context_included_section_reads_its_physical_fragment(
     out = capsys.readouterr().out
     assert f"Context: {fragment}" in out
     assert "selector: fragment:Included" in out
-    assert "range: 2-5" in out
+    assert "range: 1-5" in out
+    assert "title line: 2" in out
     assert "2: ERROR: second effective top-level title 'Included'" in out
     assert "references:\n  unavailable — verified Sphinx mode required" in out
 

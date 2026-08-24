@@ -923,7 +923,8 @@ def _run_check_pipeline(
         _plan_normal_fixes(args, files, whole_file, project_root, state)
 
     _run_phase1(args, files, whole_file, project_root, word_samples, suppress_findings, state)
-    _run_sphinx_phases(args, files, project_root, word_samples, suppress_findings, state)
+    with _sphinx._sphinx_build_lock(args.build_dir if args.sphinx_src is not None else None):
+        _run_sphinx_phases(args, files, project_root, word_samples, suppress_findings, state)
     if args.json:
         _emit_json_result(
             args,

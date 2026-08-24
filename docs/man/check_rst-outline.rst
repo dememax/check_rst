@@ -24,17 +24,22 @@ SYNOPSIS
 DESCRIPTION
 *************
 
-Print section ranges and structural entries without requiring a linear read.
-The structure view is always whole-document and never changes the exit status.
-In verified Sphinx mode, ``toctree`` children are traversed unless
-``--no-toctree`` is given.
+Print complete physical section ranges and structural entries without
+requiring a linear read.  A section range starts at its overline when present;
+the title line remains a separate anchor.  The structure view is always
+whole-document and never changes the exit status.  In verified Sphinx mode,
+``toctree`` children are traversed unless ``--no-toctree`` is given.  Use this
+command when the target structure is unknown; use ``check_rst context`` when
+one exact entry is already known.
 
 Every run prints a ``levels:`` legend: each depth with its adornment
 character and section count, the document's total section count, and the
 first unused character in check_rst's canonical adornment order — or
 ``no free section char`` when every valid character is already assigned.
-That last field answers which character can introduce a new outer level
-without manually enumerating the ones already in use; it is also the
+That last field answers which character is currently unused without manually
+enumerating the ones already in use.  It may introduce a new outer level in a
+self-contained document; it does not identify an existing sibling level and
+is not by itself a repair for included or transformed titles.  It is also the
 remediation lookup for a ``second effective top-level title`` ERROR.
 
 *************

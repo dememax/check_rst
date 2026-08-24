@@ -29,9 +29,11 @@ CONTEXT
 
 ``context`` prints a targeted pre-edit briefing for one structural entry.  An
 entry may be a stable explicit ID, an ``outline``-generated selector, or an
-exact title, term, or preview.  Ambiguous exact matches are reported rather
-than guessed.  Verified mode can follow ``toctree`` entries; ``--no-toctree``
-keeps the query local.
+exact title, term, caption, or preview.  A known heading is the reason to use
+this query instead of raw ``grep``: the result verifies its physical range,
+title anchor, uniqueness, parent, depth, and source owner.  Ambiguous exact
+matches are reported rather than guessed.  Verified mode can follow
+``toctree`` entries; ``--no-toctree`` keeps the query local.
 
 ******
 REFS

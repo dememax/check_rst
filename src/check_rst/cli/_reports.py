@@ -78,6 +78,8 @@ def _entry_asdict(entry: object) -> dict[str, Any]:
     """Serialize a structural dataclass without private ordering machinery."""
     value: dict[str, Any] = dataclasses.asdict(cast("Any", entry))
     value.pop("site", None)
+    if "source_start" in value and value["source_start"] is None:
+        value["source_start"] = value.get("lineno", 0)
     provenance = value.get("provenance")
     if provenance is None:
         value.pop("provenance", None)
@@ -511,6 +513,11 @@ def _entry_lineno(entry: object) -> int:
     return value if isinstance(value, int) else 0
 
 
+def _entry_source_start(entry: object) -> int:
+    value = getattr(entry, "source_start", None)
+    return value if isinstance(value, int) else _entry_lineno(entry)
+
+
 def _entry_end(entry: object) -> int:
     start = _entry_lineno(entry)
     value = getattr(entry, "end", start)
@@ -659,7 +666,7 @@ def _context_entry_label(candidate: ContextMatch) -> str:
 
 
 def _context_candidate_line(candidate: ContextMatch) -> str:
-    start = _entry_lineno(candidate.entry)
+    start = _entry_source_start(candidate.entry)
     end = _entry_end(candidate.entry)
     extent = f"{start}-{end}" if end > start else str(start)
     return f"{candidate.selector} — {_context_entry_label(candidate)} — {extent}"
@@ -698,7 +705,8 @@ def _format_context(
     incoming: list[ReferenceEntry] | None,
 ) -> str:
     parent, previous, following, children, path = _context_relationships(candidates, selected)
-    start = _entry_lineno(selected.entry)
+    start = _entry_source_start(selected.entry)
+    title_line = _entry_lineno(selected.entry)
     end = _entry_end(selected.entry)
     extent = f"{start}-{end}" if end > start else str(start)
 
@@ -720,10 +728,16 @@ def _format_context(
         f"  selector: {selected.selector}",
         f"  kind: {selected.kind}",
         f"  range: {extent}",
-        f"  depth: {_entry_depth(selected.entry)}",
-        f"  summary: {_context_entry_label(selected)}",
-        "path:",
     ]
+    if title_line != start:
+        lines.append(f"  title line: {title_line}")
+    lines.extend(
+        [
+            f"  depth: {_entry_depth(selected.entry)}",
+            f"  summary: {_context_entry_label(selected)}",
+            "path:",
+        ]
+    )
     lines.extend(f"  {_context_candidate_line(item)}" for item in path)
     lines.append(f"parent: {_context_candidate_line(parent)}" if parent is not None else "parent: (none)")
     lines.append("siblings:")

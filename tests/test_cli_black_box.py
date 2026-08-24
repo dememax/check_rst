@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,23 @@ def _run_cli(cwd: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
         check=False,
         text=True,
         capture_output=True,
+    )
+
+
+def _start_cli(cwd: Path, *arguments: str) -> subprocess.Popen[str]:
+    """Start a worktree CLI process for concurrency regressions."""
+    environment = os.environ.copy()
+    existing_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(PROJECT_ROOT / "src"), existing_pythonpath) if part
+    )
+    return subprocess.Popen(
+        [sys.executable, "-m", "check_rst", *arguments],
+        cwd=cwd,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
 
 
@@ -339,6 +357,82 @@ def test_black_box_entitle_refuses_top_level_include_composition(tmp_path: Path)
         assert "top-level include composition is outside entitle's one-file safety boundary" in result.stdout
         assert "--- index.rst" not in result.stdout
     assert {path: path.read_bytes() for path in originals} == originals
+
+
+@pytest.mark.integration
+def test_black_box_concurrent_verified_queries_serialize_shared_sphinx_cache(
+    tmp_path: Path,
+) -> None:
+    """Concurrent readers must not race Sphinx's environment/doctree writes.
+
+    The live defect surfaced nondeterministically as ``EOFError`` while one
+    process unpickled a doctree another process was writing.  This fixture
+    converts the same overlap into a deterministic extension error before
+    either build can corrupt the shared cache.
+    """
+    markers = tmp_path / "markers"
+    project = tmp_path / "docs"
+    project.mkdir()
+    (project / "conf.py").write_text(
+        textwrap.dedent(
+            f"""\
+            import os
+            import time
+            from pathlib import Path
+
+            project = "concurrent-query-regression"
+            extensions = []
+            marker_dir = Path({str(markers)!r})
+
+            def reject_concurrent_source_reads(app, docname, source):
+                marker_dir.mkdir(parents=True, exist_ok=True)
+                ready = marker_dir / f"{{os.getpid()}}.ready"
+                ready.touch()
+                deadline = time.monotonic() + 1.0
+                while time.monotonic() < deadline:
+                    if len(list(marker_dir.glob("*.ready"))) >= 2:
+                        break
+                    time.sleep(0.01)
+                active = marker_dir / "active"
+                try:
+                    descriptor = os.open(active, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                except FileExistsError as exc:
+                    raise RuntimeError("concurrent Sphinx cache access") from exc
+                os.close(descriptor)
+                try:
+                    time.sleep(0.2)
+                finally:
+                    active.unlink(missing_ok=True)
+                    ready.unlink(missing_ok=True)
+
+            def setup(app):
+                app.connect("source-read", reject_concurrent_source_reads)
+            """
+        ),
+        encoding="utf-8",
+    )
+    (project / "index.rst").write_text("#######\nTitle\n#######\n\nBody.\n", encoding="utf-8")
+    build_dir = tmp_path / "shared-build"
+    common = (
+        "--no-config",
+        "--sphinx-src",
+        str(project),
+        "--build-dir",
+        str(build_dir),
+    )
+
+    processes = [
+        _start_cli(project, *common, "context", "Title", "index.rst"),
+        _start_cli(project, *common, "outline", "--sections-only", "index.rst"),
+    ]
+    results = [process.communicate(timeout=20) for process in processes]
+
+    for process, (stdout, stderr) in zip(processes, results, strict=True):
+        assert process.returncode == 0, stdout + stderr
+        assert "concurrent Sphinx cache access" not in stdout + stderr
+        assert "EOFError" not in stdout + stderr
+    assert "entry:" in results[0][0]
+    assert "Outline:" in results[1][0]
 
 
 @pytest.mark.integration

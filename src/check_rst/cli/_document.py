@@ -357,10 +357,9 @@ def build_outline(
             underline_idx = -1
             lines = []
         char = "?"
-        if 0 <= underline_idx < len(lines):
-            underline = lines[underline_idx].strip()
-            if _is_adornment(underline):
-                char = underline[0]
+        underline = lines[underline_idx].strip() if 0 <= underline_idx < len(lines) else ""
+        if _is_adornment(underline):
+            char = underline[0]
         depth = 1
         n: docutils.nodes.Node | None = sec.parent
         while n is not None:
@@ -378,7 +377,13 @@ def build_outline(
                 children += 1
         # The section's block starts at the overline when present — the
         # boundary the PREVIOUS section's extent must stop before.
-        has_overline = title_row >= 2 and title_row - 2 < len(lines) and _is_adornment(lines[title_row - 2].strip())
+        candidate_is_prior_underline = any(prior[0] + 1 == title_row - 1 and prior[6] == provenance for prior in raw)
+        has_overline = (
+            title_row >= 2
+            and title_row - 2 < len(lines)
+            and lines[title_row - 2].strip() == underline
+            and not candidate_is_prior_underline
+        )
         block_start = title_row - 1 if has_overline else title_row
         raw.append((title_row, depth, char, title_node.astext(), children, block_start, provenance, lines))
 
@@ -386,7 +391,7 @@ def build_outline(
     # section's block (findall order is document order), or to EOF; trailing
     # blank separator lines are trimmed.
     entries: list[OutlineEntry] = []
-    for i, (title_row, depth, char, title, children, _bs, provenance, lines) in enumerate(raw):
+    for i, (title_row, depth, char, title, children, block_start, provenance, lines) in enumerate(raw):
         nxt = next(
             (r for r in raw[i + 1 :] if r[1] <= depth and r[6] == provenance),
             None,
@@ -407,6 +412,7 @@ def build_outline(
                 children,
                 end,
                 provenance=provenance,
+                source_start=block_start if provenance is None or provenance.exact else 0,
             )
         )
     return entries
