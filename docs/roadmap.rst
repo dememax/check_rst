@@ -14,7 +14,7 @@ are not the current interface or status ledger.
 
 The implementation, tests, current CLI help, and normative documentation are
 the authority for what exists.  The status index below summarizes that evidence
-as of 2026-08-12.  When later evidence changes an entry, update its status here
+as of 2026-08-14.  When later evidence changes an entry, update its status here
 and its own ``Current status`` line while retaining the dated design history.
 
 ****************
@@ -2264,10 +2264,16 @@ Splitting ``_helpers.py`` into smaller domain modules
 (evaluated 2026-08-10, from the 8-agent review of the interrupted-period
 work, f0676f0..ba4813d, which called it a "dumping ground"): the historical
 snapshot put it at 750 lines, below 6 of the other 11 ``cli/`` modules.  The
-2026-08-12 refresh reaches the same conclusion: 905 lines, below 6 of the
-other 12 modules (``_pipeline.py`` 937, ``_formatting.py`` 1012,
-``_reports.py`` 1227, ``_document.py`` 1287, ``_sphinx.py`` 1313, and
-``__init__.py`` 1411).  The real complaint is
+2026-08-12 refresh reached the same conclusion at 905 lines.  A further
+2026-08-14 refresh — after the pygit2 TOCTOU-race fix and the new
+``_comparison.py`` module (618 lines, the Git-native ``compare`` verb) both
+landed — puts it at 929 lines, still below the same 6 of what are now 13
+other modules (``_pipeline.py`` 937, ``_formatting.py`` 1012,
+``_document.py`` 1287, ``_sphinx.py`` 1310, ``_reports.py`` 1347, and
+``__init__.py`` 1549).  ``_comparison.py`` is the one new module since the
+prior refresh; its own concern (Git-native comparison) is a natural sibling
+of ``_helpers.py``'s existing "Git operations" concern, not a 7th one, and
+it does not change the conclusion below.  The real complaint is
 cohesion, not size: it mixes six unrelated concerns (Git operations,
 adornment/hierarchy policy constants, source hygiene/normalization,
 title-block iteration, doctree-node helpers, enum-marker rendering)
