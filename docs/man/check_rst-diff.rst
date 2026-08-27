@@ -28,6 +28,10 @@ Compute the same candidate source as ``check_rst fix`` without writing it,
 then print a unified diff.  Fix options such as ``--fast`` and the opt-in
 parser-verified text policies have the same meaning as for ``fix``.
 
+``--max-output-lines`` is intentionally unavailable: a truncated patch could
+look complete or applicable.  Narrow the file scope with explicit files or
+``--recursive --exclude PATTERN`` instead.
+
 *************
 EXIT STATUS
 *************

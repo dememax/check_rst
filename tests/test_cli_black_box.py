@@ -128,6 +128,19 @@ def test_black_box_runtime_argument_conflicts_use_stdout_and_status_1(
 
 
 @pytest.mark.integration
+def test_black_box_diff_help_explains_complete_patch_contract(tmp_path: Path) -> None:
+    """A cold reader must learn why report truncation is absent from diff."""
+    result = _run_cli(tmp_path, "diff", "--help")
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    help_text = " ".join(result.stdout.split())
+    assert "--max-output-lines is intentionally unavailable" in help_text
+    assert "a truncated patch could look complete or applicable" in help_text
+    assert "narrow the file scope instead" in help_text
+
+
+@pytest.mark.integration
 def test_black_box_bare_check_staged_file_before_first_commit(tmp_path: Path) -> None:
     """An unborn HEAD has no diff base, so staged files use whole-file scope."""
     subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True, capture_output=True)

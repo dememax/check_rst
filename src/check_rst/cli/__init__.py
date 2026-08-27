@@ -70,8 +70,9 @@ Global options must precede the command. The working directory is the
 project root unless --config selects another project; --no-config skips
 configuration discovery; --sphinx-src enables verified Phase 2 and 3.
 
-check, fix, and outline also accept --max-output-lines to cap report
-length without affecting exit status; see each command's own --help.
+check, fix, and outline also accept --max-output-lines to cap report length
+without affecting exit status; diff rejects it because a truncated patch could look complete or applicable.
+See each command's own --help.
 
 Exit status: 0 no ERROR; 1 one or more ERRORs. Preview commands diff and
 list-table also return 1 when files would change. 2 command-line usage error.
@@ -740,7 +741,11 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         "diff",
         parents=[full, mutating],
         help="print unified diff of what fix would change",
-        description="Reviewer/auditor role, read-only: preview what fix would change. --fast stops after Phase 1.",
+        description=(
+            "Reviewer/auditor role, read-only: preview what fix would change. --fast stops after Phase 1.\n"
+            "--max-output-lines is intentionally unavailable:\n"
+            "a truncated patch could look complete or applicable; narrow the file scope instead."
+        ),
         epilog=_DOCUMENTATION_EPILOG,
     )
     diff_p.set_defaults(**_CLI_ATTR_DEFAULTS)

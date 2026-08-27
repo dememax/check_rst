@@ -674,3 +674,4 @@ def test_top_level_help_mentions_report_length_limiting() -> None:
     undiscoverable from bare `check_rst --help` — a one-line pointer on the
     top-level page is enough for a reader to know to look further."""
     assert "--max-output-lines" in cli._TOP_LEVEL_HELP
+    assert "diff rejects it because a truncated patch could look complete or applicable" in cli._TOP_LEVEL_HELP
