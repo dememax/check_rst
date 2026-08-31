@@ -1702,6 +1702,195 @@ Malformed JSON, a non-object top level, or data missing the required
 ``files``/``summary`` report shape fails with a clean diagnostic rather
 than a traceback or an invented empty comparison.
 
+.. _adopting-new-project:
+
+*****************************************
+Adopting ``check_rst`` in a new project
+*****************************************
+
+A new project should not copy this guide into its contributor instructions.
+It should carry the few facts and decisions that only that repository can
+know, then point to the installed command and this documentation for the
+universal contract.  The result must still be self-contained for a cold
+reader: a contributor or agent arriving with no conversation history needs to
+know which files are maintained, which command may write, and how to recover
+structure before editing.
+
+The adoption order matters.  Declare the Sphinx facts, inspect the existing
+tree read-only, decide whether a full-tree baseline really exists, and only
+then connect an aggregate formatter or release gate.  Doing those steps in the
+opposite order can turn an unknown historical corpus into an accidental
+whole-file normalization request.
+
+===========================
+Declare the project facts
+===========================
+
+Install ``check_rst`` once for the host as described in :doc:`integration`,
+make its launcher available on ``PATH`` to interactive and non-interactive
+processes, and verify the interface actually being adopted::
+
+    check_rst --version
+    check_rst --help
+    check_rst check --help
+
+Record a minimum version in project instructions when the workflow depends on
+a particular subcommand or safety predicate.  Do not infer a version from a
+remembered installation path.
+
+At the repository root, commit the confirmed Sphinx facts::
+
+    sphinx-src = "docs"
+    build-dir = "/tmp/my-project-sphinx-build"
+
+Use ``sphinx-src = "."`` when ``conf.py`` is at the repository root.  Choose a
+per-project build directory so unrelated repositories never share doctrees.
+Verified mode imports ``conf.py`` and every configured extension, so enable it
+only for a trusted project and ensure those extensions are importable by the
+same interpreter that runs ``check_rst``.  The next section specifies the
+complete configuration contract.
+
+===============================================
+Establish the baseline before enabling writes
+===============================================
+
+Run the first tree audit read-only from the repository root::
+
+    check_rst check --skip-fixable --recursive docs
+    check_rst diff --fast --recursive docs
+    check_rst check --recursive docs
+
+The first command still reports non-fixable ERRORs and can exit 1.  The second
+returns 1 when it has a patch to show.  Neither result authorizes a bulk fix:
+review semantic WARNINGs, generated or externally owned files, and the full
+mechanical preview before deciding what the project maintains.
+
+There are three useful outcomes:
+
+- A clean tree can become an explicit full-scan baseline.
+- A historical tree with unrelated findings should begin with bare Git scope;
+  normalize it later in dedicated, reviewable changes rather than hiding the
+  debt or absorbing it into the first feature edit.
+- Generated, vendored, or externally authored RST may remain outside the
+  maintained baseline.  Record the ownership reason and use a direct native
+  recursive command with repeatable ``--exclude`` patterns for the supported
+  remainder.
+
+For routine edits, the project adopts the same safe loop regardless of the
+full-tree decision::
+
+    check_rst check --skip-fixable
+    check_rst fix --fast
+    check_rst check
+
+Bare mode is the ordinary Git-scoped workflow.  Explicit filenames and
+``--recursive`` are deliberate whole-file requests.  When unrelated RST edits
+share the worktree, pass the same owned-file allowlist with ``--git-scope`` to
+all three commands.
+
+=====================================================
+Keep a cold-reader contract in project instructions
+=====================================================
+
+An ``AGENTS.md``, ``CLAUDE.md``, contributor guide, or equivalent instruction
+file should explain the local workflow without becoming a fork of
+``check_rst`` documentation.  This is a suitable starting template::
+
+    RST uses the system-installed check_rst command.  Universal syntax,
+    options, and semantic rules belong to check_rst COMMAND --help and its
+    guide/rules documentation; this repository records only local facts.
+
+    .check_rst.toml declares <Sphinx source> and <build directory>.  After an
+    RST edit run:
+
+        check_rst check --skip-fixable
+        check_rst fix --fast
+        check_rst check
+
+    Review WARNINGs and non-fixable ERRORs before mutation.  Bare selection is
+    Git-scoped; explicit files and --recursive mean whole-file intent.  In a
+    shared dirty worktree use the same owned-file --git-scope allowlist on all
+    three commands.
+
+    For a cold reader, use check_rst outline FILE when the structure or target
+    is unknown and check_rst context ENTRY FILE for one known entry.  Both
+    report physical ranges.  Use refs for reference ownership and compare to
+    explain an existing Git change.  Do not rediscover RST structure with raw
+    grep/head/tail/sed scans, and do not truncate a diff preview.
+
+Replace the angle-bracket facts and add only repository-specific policy:
+maintained directories, exclusions, generated-document provenance, ownership
+boundaries, release commands, required launchers, and a minimum compatible
+version when one exists.  Keep the explanation of the three-step loop and the
+reader-command choice: a bare list of commands is not enough for a fresh
+contributor to distinguish semantic review, mutation, and final validation.
+
+Do not copy the exact adornment hierarchy, width/spacing rules, phase
+internals, option matrices, or historical bug rationale.  Those details are
+owned here and by the installed help; copying them creates an independently
+stale contract without adding a project decision.
+
+========================================================
+Add ``check_formatting`` only after the scope decision
+========================================================
+
+``check_formatting`` is an optional aggregate orchestrator, not a replacement
+for ``check_rst``'s semantic pre-fix review.  It resolves the system
+``check_rst`` command from ``PATH``.  Add ``rst`` to the consuming project's
+``.check_formatting.toml`` only after the normal Git-scoped workflow works::
+
+    checks = ["python", "mypy", "rst"]
+
+If the first audit established a maintained full documentation baseline, also
+declare its recursive root::
+
+    [rst]
+    dir = "docs"
+
+The default aggregate scope preserves ``check_rst``'s bare Git selection.
+Explicit files remain whole-file requests.  ``check_formatting --all`` maps
+the RST checker to a recursive scan and therefore requires ``[rst].dir``.
+Omitting that table for a historical corpus is deliberate: ordinary changed-
+file checks still work, while an unconditional RST scan fails clearly instead
+of silently substituting a smaller scope.
+
+The aggregate wrapper does not translate its generic ignore file into native
+RST exclusions.  If one external document must stay outside a release audit,
+split the gate and preserve that fact in the consuming project::
+
+    check_formatting --all --checks python mypy
+    check_rst check --recursive docs --exclude external-document.rst
+
+Use the actual non-RST checker names configured by the project.  The precise
+adapter mapping and configuration schema belong to `check_formatting's own
+documentation <https://github.com/dememax/check_formatting/blob/main/docs/check_formatting.rst>`_;
+the consuming project should document only why it chose its scope and
+exceptions.
+
+======================================
+Verify the adoption as a cold reader
+======================================
+
+Before treating the integration as complete, verify all of these from a fresh
+shell and repository root:
+
+- ``check_rst --version`` resolves the intended system installation.
+- Output names the committed configuration and the expected Sphinx source.
+- The read-only recursive audit has an explicit disposition for every
+  generated, external, or historical file.
+- A disposable fixture or dedicated test branch completes the changed-file
+  three-step loop without risking untouched project history.
+- ``outline`` for an unknown target and ``context`` for a known entry both
+  provide usable physical ranges without a raw-text search.
+- Shared-worktree instructions preserve the same ``--git-scope`` allowlist
+  across review, fix, and final validation.
+- If ``check_formatting`` is enabled, its ordinary RST scope passes; its
+  ``--all`` RST scope either passes against a declared ``[rst].dir`` or fails
+  intentionally because the project documented that no full baseline exists.
+- Project documentation records local scope and exceptions, while contributor
+  instructions retain the cold-reader workflow and link back here for the
+  universal rules.
+
 **************************************************************
 Per-repo configuration: ``.check_rst.toml`` and ``--config``
 **************************************************************

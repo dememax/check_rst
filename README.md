@@ -143,6 +143,11 @@ sphinx-src = "docs"
 build-dir = "/tmp/my-project-sphinx-build"
 ```
 
+For a complete cold-reader adoption procedure—including the first baseline
+audit, project-instruction template, and optional `check_formatting`
+integration—see “Adopting `check_rst` in a new project” in
+[the guide](docs/guide.rst).
+
 Verified Sphinx mode imports the selected project's `conf.py` and extensions,
 which execute Python code. Use `--sphinx-src` or configuration that supplies it
 only with projects you trust.
