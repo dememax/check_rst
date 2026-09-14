@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import collections
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -22,6 +23,8 @@ from check_rst import cli
 from check_rst.cli import _composition, _document, _formatting, _helpers, _reports, _sphinx, _types
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import docutils.nodes
 
 
@@ -586,17 +589,13 @@ def test_build_sphinx_env_torn_out_flags_a_file_rewritten_during_the_build(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A source file whose on-disk (mtime, size) differs between the moment
-    Sphinx decided to (re)read it and the moment this build finished is a
-    real concurrent-write signal, not a guess — confirmed against the
-    actual Sphinx 9.1 ``env-get-outdated``/``read()`` contract (a second
-    process's edit lands exactly in that window under real parallel-agent
-    use). Simulated deterministically here by mutating the file right
-    after Sphinx's own ``Sphinx.build()`` returns — after its internal read
-    (so the build itself completes normally) but before this function's
-    own post-build recheck."""
+    """A source file whose on-disk signature differs across the monitored
+    build window is a real concurrent-change signal, not a guessed warning
+    classification.  This does not claim to force an OS-level torn read:
+    deterministically mutate the file after Sphinx's own ``build()`` returns
+    but before this function's post-build check to isolate the detector's
+    postcondition from Sphinx parsing behavior."""
     import sphinx.application
-    from collections.abc import Sequence
 
     (tmp_path / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
     target = tmp_path / "index.rst"
@@ -619,6 +618,85 @@ def test_build_sphinx_env_torn_out_flags_a_file_rewritten_during_the_build(
     assert torn == {target.resolve()}
 
 
+@pytest.mark.integration
+def test_build_sphinx_env_torn_out_covers_docs_added_by_another_listener(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Snapshot Sphinx's final read set, not only its native stale set and
+    check_rst's explicitly forced files.  An extension may add a document
+    from its own ``env-get-outdated`` listener; Sphinx reads it in this same
+    build, so a concurrent rewrite must be detected there too."""
+    import sphinx.application
+
+    (tmp_path / "conf.py").write_text(
+        'project = "t"\n'
+        "extensions = []\n\n"
+        "def force_sibling(app, env, added, changed, removed):\n"
+        '    return ["sibling"]\n\n'
+        "def setup(app):\n"
+        '    app.connect("env-get-outdated", force_sibling)\n',
+        encoding="utf-8",
+    )
+    index = tmp_path / "index.rst"
+    index.write_text(_GOOD_BLOCK, encoding="utf-8")
+    sibling = tmp_path / "sibling.rst"
+    sibling.write_text("Sibling\n=======\n\nBefore.\n", encoding="utf-8")
+    build_dir = tmp_path / "_build"
+    _sphinx._build_sphinx_env(tmp_path, build_dir)
+    real_build = sphinx.application.Sphinx.build
+
+    def build_then_mutate(
+        self: sphinx.application.Sphinx,
+        force_all: bool = False,
+        filenames: Sequence[Path] = (),
+    ) -> None:
+        real_build(self, force_all, filenames)
+        sibling.write_text("Sibling\n=======\n\nChanged after read.\n", encoding="utf-8")
+
+    monkeypatch.setattr(sphinx.application.Sphinx, "build", build_then_mutate)
+    torn: set[Path] = set()
+
+    _sphinx._build_sphinx_env(tmp_path, build_dir, [index], torn_out=torn)
+
+    assert torn == {sibling.resolve()}
+
+
+@pytest.mark.integration
+def test_build_sphinx_env_torn_out_detects_same_size_rewrite_with_restored_mtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Size plus a floating-point mtime is not a sufficient write
+    fingerprint: editors or synchronization tools can preserve timestamps,
+    and coarse filesystems can collapse distinct writes.  The metadata
+    signature must still notice a same-size replacement whose mtime is put
+    back after Sphinx reads it."""
+    import sphinx.application
+
+    (tmp_path / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
+    target = tmp_path / "index.rst"
+    target.write_text("Title\n=====\n\nBefore.\n", encoding="utf-8")
+    before = target.stat()
+    real_build = sphinx.application.Sphinx.build
+
+    def build_then_mutate(
+        self: sphinx.application.Sphinx,
+        force_all: bool = False,
+        filenames: Sequence[Path] = (),
+    ) -> None:
+        real_build(self, force_all, filenames)
+        target.write_text("Title\n=====\n\nChanged\n", encoding="utf-8")
+        os.utime(target, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+    monkeypatch.setattr(sphinx.application.Sphinx, "build", build_then_mutate)
+    torn: set[Path] = set()
+
+    _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build", torn_out=torn)
+
+    assert torn == {target.resolve()}
+
+
 @pytest.mark.unit
 def test_build_sphinx_env_checked_silently_retries_once_on_torn_read(
     tmp_path: Path,
@@ -628,8 +706,11 @@ def test_build_sphinx_env_checked_silently_retries_once_on_torn_read(
     """A torn read that clears on retry — the dogfooding evidence this
     guards against (2026-09-14, 6 parallel agents: 3 extra warnings on one
     run, gone on 3 immediate re-runs) — must self-heal silently: no
-    diagnostic printed, the retried build's own result returned."""
+    diagnostic printed, the retried build's own result returned.  The
+    unstable document itself must be forced into that retry even when its
+    mtime would not make Sphinx consider it stale again."""
     calls = 0
+    files_by_call: list[list[Path] | None] = []
     sentinel_env = types.SimpleNamespace()
 
     def fake_build_sphinx_env(
@@ -641,6 +722,7 @@ def test_build_sphinx_env_checked_silently_retries_once_on_torn_read(
     ) -> tuple[object, str]:
         nonlocal calls
         calls += 1
+        files_by_call.append(_files)
         if torn_out is not None and calls == 1:
             torn_out.add(tmp_path / "sibling.rst")
         return sentinel_env, "warning text"
@@ -650,7 +732,8 @@ def test_build_sphinx_env_checked_silently_retries_once_on_torn_read(
     env, warning_text = _sphinx._build_sphinx_env_checked(tmp_path, tmp_path / "_build")
 
     assert calls == 2
-    assert cast(object, env) is sentinel_env
+    assert files_by_call == [None, [tmp_path / "sibling.rst"]]
+    assert cast("object", env) is sentinel_env
     assert warning_text == "warning text"
     assert capsys.readouterr().out == ""
 
@@ -682,7 +765,7 @@ def test_build_sphinx_env_checked_warns_when_torn_read_persists_after_retry(
 
     env, warning_text = _sphinx._build_sphinx_env_checked(tmp_path, tmp_path / "_build")
 
-    assert cast(object, env) is sentinel_env
+    assert cast("object", env) is sentinel_env
     assert warning_text == "warning text"
     out = capsys.readouterr().out
     assert "stayed unstable after" in out

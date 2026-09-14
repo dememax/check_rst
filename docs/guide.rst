@@ -796,6 +796,14 @@ latter ``REFUSED`` as out of scope.  A later aligned table keeps the ordinal
 visible in the source outline; ``--only`` and ``--skip`` use that same
 namespace.
 
+Parsed includes retain that same composed-document numbering, but conversion
+remains a one-file mutation: a table owned by an ``.. include::`` target is
+reported as ``list-table.included-source`` and left unchanged.  Run
+``list-table`` on the reported physical source directly.  This ownership
+check happens before source-range recovery, so an included table's line number
+is never interpreted against unrelated text at the same line in the including
+file.
+
 The conversion and its semantic proof run in bare Docutils mode, never a
 Sphinx environment.  Explicit ``--sphinx-src``/``--build-dir`` arguments are
 incompatible; values from project configuration are reported inactive for
@@ -834,9 +842,11 @@ its impact and a next action:
 * ``UNCHANGED`` means the source is already a list-table.
 * ``REFUSED`` means the source is understood but conversion is out of scope
   or lacks an equivalent representation.  CSV tables are out of scope; a
-  merged row or column has no list-table representation.  An inner table
-  explicitly selected without its aligned ancestor also lacks an independent
-  physical source range; include or first convert that ancestor.
+  merged row or column has no list-table representation; a table physically
+  owned by an included source must be converted by running the command on that
+  source.  An inner table explicitly selected without its aligned ancestor
+  also lacks an independent physical source range; include or first convert
+  that ancestor.
 * ``ERROR`` means selection, source capture, parsing, or semantic proof failed
   — for example an unknown ordinal, a ``source-model`` invariant, or a
   ``semantic-proof`` divergence.  The converter never guesses past one.
@@ -2105,14 +2115,20 @@ up-to-date environment, so any sibling document that changed — not only the
 one explicitly checked — is legitimately re-read as part of one build; if
 something outside check_rst (another agent's edit, an editor's save) is
 writing that sibling at that exact moment, the read can tear.  check_rst
-detects this directly rather than trusting a possibly-torn result: every
-source file a build reads is snapshotted (mtime, size) immediately before
-the read and rechecked immediately after, so a mismatch proves a concurrent
-write landed during this exact build.  The first such build retries once,
-silently — this clears every time it has been observed under real parallel
-agent use.  Still unstable after that retry is a persistent signal, not
-noise: reported explicitly by file name rather than folded into the
-findings, without failing the run.
+detects this directly rather than trusting a possibly-torn result: every root
+document in Sphinx's final reread set is snapshotted at the last supported
+event before reading and rechecked after the build.  The signature includes
+device and inode identity, size, and nanosecond mtime/ctime, so atomic
+replacement and a same-size write with a preserved mtime remain visible; a
+mismatch proves a concurrent change landed during this exact build.  The first
+such build retries once, silently, explicitly forcing every suspect document
+back into Sphinx's reread set rather than relying on its mtime cache — this
+clears every time it has been observed under real parallel agent use.  Still
+unstable after that retry is a persistent signal, not noise: reported
+explicitly by file name rather than folded into the findings, without failing
+the run.  Files consumed inside a document by ``include`` or
+``literalinclude`` are Sphinx dependencies, not root documents in this event's
+reread set, and are outside this detector's stated boundary.
 
 ==========================================
 Heuristic mode: without ``--sphinx-src``

@@ -153,9 +153,10 @@ def _build_sphinx_env(
     reproduction, 2026-07-20 — see _findings_from_sphinx_output).
 
     *torn_out*, if given, is populated with the resolved path of every
-    source file whose on-disk (mtime, size) changed between the moment
-    Sphinx decided to (re)read it and the moment this build finished — a
-    real concurrent write landing during this exact build, not a guess.
+    source file whose on-disk identity or high-resolution change metadata
+    changed between Sphinx's final pre-read event and the moment this build
+    finished — a real concurrent write landing during this exact build,
+    not a guess.
     Confirmed against Sphinx 9.1's own ``read()``: its native
     ``env-get-outdated`` staleness scan covers every found doc, not just
     the ones *files* forces, so a sibling document elsewhere in the same
@@ -227,10 +228,15 @@ def _build_sphinx_env(
         app.connect("source-read", mark_source_read_before, priority=-sys.maxsize)
         app.connect("source-read", mark_source_read_after, priority=sys.maxsize)
         checked_paths = tuple(path.resolve() for path in files) if files else ()
-        # (mtime, size) of every doc Sphinx is about to (re)read, taken
-        # inside the env-get-outdated listener itself — the earliest point
-        # reachable here, strictly before any of their actual reads.
-        reread_snapshot: dict[pathlib.Path, tuple[float, int]] = {}
+        # Identity plus high-resolution change metadata for every doc in
+        # Sphinx's final read set.  st_ctime_ns closes the ordinary
+        # same-size/restored-mtime gap; device and inode catch an atomic
+        # replacement even when the editor preserves timestamps.
+        reread_snapshot: dict[pathlib.Path, tuple[int, int, int, int, int]] = {}
+
+        def source_signature(path: pathlib.Path) -> tuple[int, int, int, int, int]:
+            stat = path.stat()
+            return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
 
         def env_get_outdated(
             _app: Sphinx,
@@ -244,27 +250,37 @@ def _build_sphinx_env(
                 docname = env.path2doc(str(path))
                 if docname is not None and docname in env.found_docs:
                     docnames.append(docname)
-            if torn_out is not None:
-                for docname in {*added, *changed, *docnames}:
-                    try:
-                        doc_path = pathlib.Path(env.doc2path(docname)).resolve()
-                        stat = doc_path.stat()
-                    except OSError:
-                        continue
-                    reread_snapshot[doc_path] = (stat.st_mtime, stat.st_size)
             return docnames
 
-        if checked_paths or torn_out is not None:
+        def snapshot_reread_docs(
+            _app: Sphinx,
+            env: sphinx.environment.BuildEnvironment,
+            docnames: list[str],
+        ) -> None:
+            # env-before-read-docs receives the final set after native
+            # staleness, every env-get-outdated listener, globbed toctree
+            # expansion, and removals.  Run after project listeners so any
+            # supported reordering or additions are visible too.
+            for docname in docnames:
+                try:
+                    doc_path = pathlib.Path(env.doc2path(docname)).resolve()
+                    reread_snapshot[doc_path] = source_signature(doc_path)
+                except OSError:
+                    continue
+
+        if checked_paths:
             app.connect("env-get-outdated", env_get_outdated)
+        if torn_out is not None:
+            app.connect("env-before-read-docs", snapshot_reread_docs, priority=sys.maxsize)
         app.build()
         if torn_out is not None:
             for doc_path, before in reread_snapshot.items():
                 try:
-                    stat = doc_path.stat()
+                    after = source_signature(doc_path)
                 except OSError:
                     torn_out.add(doc_path)
                     continue
-                if (stat.st_mtime, stat.st_size) != before:
+                if after != before:
                     torn_out.add(doc_path)
     return app.env, warning_stream.getvalue()
 
@@ -291,8 +307,11 @@ def _build_sphinx_env_checked(
         torn: set[pathlib.Path] = set()
         env, warning_text = _build_sphinx_env(sphinx_src, build_dir, files, torn_out=torn)
         if torn:
+            retry_files = list(files or [])
+            retry_identities = {path.resolve() for path in retry_files}
+            retry_files.extend(path for path in sorted(torn) if path.resolve() not in retry_identities)
             torn = set()
-            env, warning_text = _build_sphinx_env(sphinx_src, build_dir, files, torn_out=torn)
+            env, warning_text = _build_sphinx_env(sphinx_src, build_dir, retry_files, torn_out=torn)
         if torn:
             names = ", ".join(str(path) for path in sorted(torn))
             print(

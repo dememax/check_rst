@@ -249,9 +249,13 @@ protects the build directory's own cache artifacts, but Sphinx's own
 ``sphinx/builders/__init__.py``) independently re-reads any sibling document
 that changed, not only the one explicitly checked — and a sibling actively
 being written by a concurrent agent at that moment can tear. check_rst now
-snapshots (mtime, size) for every document a build reads immediately before
-that read and rechecks immediately after; a mismatch proves a concurrent write
-landed during this exact build. The first such build retries once, silently —
+snapshots every root document in Sphinx's final reread set at
+``env-before-read-docs`` (after native staleness, extension additions, and
+globbed-toctree expansion) and rechecks after the build. Device/inode identity,
+size, and nanosecond mtime/ctime cover atomic replacement and same-size writes
+whose mtime is preserved. A mismatch proves a concurrent change landed during
+this exact build. The first such build retries once, silently, forcing every
+suspect document into the retry rather than trusting Sphinx's mtime cache —
 matching the observed self-healing re-runs; still unstable after that retry is
 reported explicitly by file name rather than folded into the findings.
 
@@ -2238,6 +2242,17 @@ source ranges, and proves every stage plus the final aggregate.  The
 ``list-table.nested-aligned-table`` code remains only for a descendant selected
 without authorizing its still-aligned ancestor; ``--only`` never expands its
 own scope implicitly.
+
+Extended 2026-09-14 after a reported result changed following an unrelated
+downstream edit: the remaining include-chain hypothesis exposed an ownership
+bug, not a Sphinx-mode issue (``list-table`` deliberately never loads Sphinx).
+Shared table discovery follows parsed includes so its ordinals agree with
+``outline``, but the converter passed an included table's physical line number
+to source recovery over the including file's lines.  Coincident text at that
+numeric line could therefore change the classification.  The planner now
+refuses such entries as ``list-table.included-source`` before any range lookup
+and directs the caller to run the command on the physical target; local tables
+keep their composed-document ordinals and continue independently.
 
 Parser/range invariants and canonical-tree divergence are reported separately
 as ``source-model`` and ``semantic-proof`` errors/refusals.  They never escape

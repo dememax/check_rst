@@ -951,6 +951,42 @@ def test_plan_refuses_inner_table_only_until_ancestor_is_converted(tmp_path: Pat
 
 
 @pytest.mark.integration
+def test_plan_refuses_table_owned_by_an_included_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Table discovery follows parsed includes for outline-compatible
+    ordinals, but a one-file conversion must never interpret the included
+    table's physical line number against the including file's source.  Run
+    list-table on the owned source directly instead."""
+    fragment = tmp_path / "fragment.rst"
+    fragment.write_text("Fragment\n========\n\n" + _GRID, encoding="utf-8")
+    p = _rst(tmp_path, "Title\n=====\n\n.. include:: fragment.rst\n")
+
+    result = _list_table._plan_list_table_file(p, only=[], skip=[])
+
+    assert result.fatal is None
+    assert result.converted == []
+    assert len(result.refusals) == 1
+    assert result.refusals[0].code == "list-table.included-source"
+    assert "fragment.rst" in result.refusals[0].reason
+    assert result.candidate == result.original
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "list-table", str(p)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "REFUSED [list-table.included-source]" in out
+    assert "Run list-table on the reported included source directly." in out
+
+    direct = _list_table._plan_list_table_file(fragment, only=[], skip=[])
+    assert direct.fatal is None
+    assert direct.converted == [1]
+
+
+@pytest.mark.integration
 def test_plan_converts_nested_table_when_only_also_selects_its_ancestor(tmp_path: Path) -> None:
     p = _rst(tmp_path, "Title\n#####\n\n" + _NESTED_ALIGNED_TABLE)
 

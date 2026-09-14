@@ -34,6 +34,7 @@ from ._types import (
     ListTableFileResult,
     ListTableIssue,
     ParsedTable,
+    SourceOrigin,
     TableEntry,
 )
 
@@ -276,6 +277,15 @@ def _table_has_span(parsed: ParsedTable) -> bool:
 def _evaluate_list_table_candidate(lines: list[str], entry: TableEntry) -> ListTableCandidate:
     """Judge one table ready for conversion, or refuse it with a reported
     reason and stable diagnostic code."""
+    if entry.provenance is not None and entry.provenance.origin is SourceOrigin.INCLUDE:
+        return ListTableCandidate(
+            entry,
+            None,
+            entry.caption,
+            f"belongs to included source {entry.provenance.source!r}, not the file being converted",
+            refusal_code="list-table.included-source",
+            refusal_category="contextual",
+        )
     if entry.kind == "list":
         return ListTableCandidate(
             entry,
@@ -620,6 +630,7 @@ def _list_table_issue(
         impact += "; other selected tables may still convert"
     actions = {
         "list-table.span": "Keep the aligned table, remove the span, or exclude it with --skip.",
+        "list-table.included-source": "Run list-table on the reported included source directly.",
         "list-table.nested-aligned-table": "Convert its aligned-table ancestor first, then run list-table again.",
         "list-table.source-model": "Inspect the reported source range; the converter will not guess its boundaries.",
         "list-table.semantic-proof": "Keep the aligned table and inspect the reported doctree divergence.",
