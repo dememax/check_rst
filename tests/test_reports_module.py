@@ -1915,6 +1915,56 @@ def test_cli_context_ambiguous_candidates_are_bounded_without_silent_truncation(
 
 
 @pytest.mark.integration
+def test_cli_context_no_exact_match_hints_closest_candidate(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A plausible ASCII guess at a heading with a non-ASCII character (a
+    curly quote, an arrow, ...) must not silently resolve to a different
+    entry — but the miss should name the real title so a round-trip
+    through `outline` isn't the only way to find the exact string."""
+    p = rst_repo / "test.rst"
+    p.write_text(
+        "#######\nTitle\n#######\n\n****************\nDeux voies → ici\n****************\n\nBody.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "Deux voies -> ici", str(p)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "no exact entry match for 'Deux voies -> ici'" in out
+    assert "hint: inspect selectors with outline" in out
+    assert "closest candidates:" in out
+    assert "Deux voies → ici" in out
+    assert "Context:" not in out
+
+
+@pytest.mark.integration
+def test_cli_context_no_exact_match_omits_hint_without_any_close_candidate(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A query unrelated to anything in the document gets the plain miss —
+    no unhelpful/misleading suggestions manufactured from nothing."""
+    p = rst_repo / "test.rst"
+    p.write_text("#######\nTitle\n#######\n\nBody.\n", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "context", "Utterly unrelated query", str(p)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "no exact entry match for 'Utterly unrelated query'" in out
+    assert "closest candidates:" not in out
+
+
+@pytest.mark.integration
 def test_cli_context_universal_selector_addresses_anonymous_container(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,

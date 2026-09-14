@@ -1170,7 +1170,12 @@ An exact semantic value may legitimately occur more than once.  In that
 case the command exits 1 and prints compact candidates with selector, kind,
 range, and parent path instead of guessing; at most 20 are printed, followed
 by the suppressed count.  Repeat the command with the chosen selector.  No
-match also exits 1.  A unique resolution exits 0 even when the briefing
+match also exits 1, and additionally prints up to 3 textually closest
+candidates — e.g. a plausible plain-ASCII guess at a title carrying a curly
+quote or an arrow — so the exact string can be copied without a round-trip
+through ``outline``; this is a hint only, never a selection, and a query
+unrelated to anything in the document gets the plain miss with no manufactured
+suggestions.  A unique resolution exits 0 even when the briefing
 contains an applicable ERROR: the exit status answers whether the query was
 resolved, not whether the document validates.  ``context`` prepares an
 edit; the three-step validation loop still validates it.
@@ -2093,6 +2098,21 @@ processes that name the same persistent build directory serialize their full
 verified cache use through ``.check_rst.lock``.  Sphinx writes environment and
 doctree pickles in place, so this covers both the build and later reads; use
 separate build directories when actual parallel Sphinx work is required.
+
+That lock protects the build directory's own cache artifacts, not arbitrary
+source files elsewhere in the project.  Resolving cross-references needs an
+up-to-date environment, so any sibling document that changed — not only the
+one explicitly checked — is legitimately re-read as part of one build; if
+something outside check_rst (another agent's edit, an editor's save) is
+writing that sibling at that exact moment, the read can tear.  check_rst
+detects this directly rather than trusting a possibly-torn result: every
+source file a build reads is snapshotted (mtime, size) immediately before
+the read and rechecked immediately after, so a mismatch proves a concurrent
+write landed during this exact build.  The first such build retries once,
+silently — this clears every time it has been observed under real parallel
+agent use.  Still unstable after that retry is a persistent signal, not
+noise: reported explicitly by file name rather than folded into the
+findings, without failing the run.
 
 ==========================================
 Heuristic mode: without ``--sphinx-src``

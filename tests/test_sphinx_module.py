@@ -11,7 +11,7 @@ import sys
 import textwrap
 import types
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from _support import _GOOD_BLOCK, BuildSphinxEnv, _build_multi_file_env
@@ -565,6 +565,129 @@ def test_build_sphinx_env_reemits_persistent_warning_with_cached_build_dir(
     assert "Inconsistent title style" in first_warning_text
     assert "Inconsistent title style" in second_warning_text
     assert read_log.read_text(encoding="utf-8").splitlines() == ["index"]
+
+
+@pytest.mark.integration
+def test_build_sphinx_env_torn_out_stays_empty_without_concurrent_write(tmp_path: Path) -> None:
+    """The common case: nothing raced this build, so *torn_out* — an
+    explicit opt-in, defaulting to None for every existing caller — stays
+    empty rather than manufacturing a false positive."""
+    (tmp_path / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
+    (tmp_path / "index.rst").write_text(_GOOD_BLOCK, encoding="utf-8")
+    torn: set[Path] = set()
+
+    _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build", torn_out=torn)
+
+    assert torn == set()
+
+
+@pytest.mark.integration
+def test_build_sphinx_env_torn_out_flags_a_file_rewritten_during_the_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A source file whose on-disk (mtime, size) differs between the moment
+    Sphinx decided to (re)read it and the moment this build finished is a
+    real concurrent-write signal, not a guess — confirmed against the
+    actual Sphinx 9.1 ``env-get-outdated``/``read()`` contract (a second
+    process's edit lands exactly in that window under real parallel-agent
+    use). Simulated deterministically here by mutating the file right
+    after Sphinx's own ``Sphinx.build()`` returns — after its internal read
+    (so the build itself completes normally) but before this function's
+    own post-build recheck."""
+    import sphinx.application
+    from collections.abc import Sequence
+
+    (tmp_path / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
+    target = tmp_path / "index.rst"
+    target.write_text(_GOOD_BLOCK, encoding="utf-8")
+    real_build = sphinx.application.Sphinx.build
+
+    def build_then_mutate(
+        self: sphinx.application.Sphinx,
+        force_all: bool = False,
+        filenames: Sequence[Path] = (),
+    ) -> None:
+        real_build(self, force_all, filenames)
+        target.write_text(target.read_text(encoding="utf-8") + "\nMore.\n", encoding="utf-8")
+
+    monkeypatch.setattr(sphinx.application.Sphinx, "build", build_then_mutate)
+    torn: set[Path] = set()
+
+    _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build", torn_out=torn)
+
+    assert torn == {target.resolve()}
+
+
+@pytest.mark.unit
+def test_build_sphinx_env_checked_silently_retries_once_on_torn_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A torn read that clears on retry — the dogfooding evidence this
+    guards against (2026-09-14, 6 parallel agents: 3 extra warnings on one
+    run, gone on 3 immediate re-runs) — must self-heal silently: no
+    diagnostic printed, the retried build's own result returned."""
+    calls = 0
+    sentinel_env = types.SimpleNamespace()
+
+    def fake_build_sphinx_env(
+        _sphinx_src: Path,
+        _build_dir: Path,
+        _files: list[Path] | None = None,
+        *,
+        torn_out: set[Path] | None = None,
+    ) -> tuple[object, str]:
+        nonlocal calls
+        calls += 1
+        if torn_out is not None and calls == 1:
+            torn_out.add(tmp_path / "sibling.rst")
+        return sentinel_env, "warning text"
+
+    monkeypatch.setattr(_sphinx, "_build_sphinx_env", fake_build_sphinx_env)
+
+    env, warning_text = _sphinx._build_sphinx_env_checked(tmp_path, tmp_path / "_build")
+
+    assert calls == 2
+    assert cast(object, env) is sentinel_env
+    assert warning_text == "warning text"
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.unit
+def test_build_sphinx_env_checked_warns_when_torn_read_persists_after_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Still torn after one retry is a persistent signal, not noise: report
+    it explicitly by name rather than silently trusting possibly-unreliable
+    findings, and still return the build result rather than raising."""
+    target = tmp_path / "sibling.rst"
+    sentinel_env = types.SimpleNamespace()
+
+    def fake_build_sphinx_env(
+        _sphinx_src: Path,
+        _build_dir: Path,
+        _files: list[Path] | None = None,
+        *,
+        torn_out: set[Path] | None = None,
+    ) -> tuple[object, str]:
+        if torn_out is not None:
+            torn_out.add(target)
+        return sentinel_env, "warning text"
+
+    monkeypatch.setattr(_sphinx, "_build_sphinx_env", fake_build_sphinx_env)
+
+    env, warning_text = _sphinx._build_sphinx_env_checked(tmp_path, tmp_path / "_build")
+
+    assert cast(object, env) is sentinel_env
+    assert warning_text == "warning text"
+    out = capsys.readouterr().out
+    assert "stayed unstable after" in out
+    assert str(target) in out
+    assert "rerun once that edit settles" in out
 
 
 @pytest.mark.integration

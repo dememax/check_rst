@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import difflib
 import functools
 import importlib.metadata
 import json
@@ -799,6 +800,43 @@ def _format_context_candidates(
     return "\n".join(lines)
 
 
+_CLOSEST_CANDIDATE_LIMIT = 3
+_CLOSEST_CANDIDATE_CUTOFF = 0.6
+
+
+def _closest_context_candidates(candidates: list[ContextMatch], query: str) -> list[ContextMatch]:
+    """Rank *candidates* by textual closeness to *query*, for a "no exact
+    match" hint only — never a selection.  A plausible near-ASCII guess at
+    a title carrying a curly quote, an arrow, or another non-ASCII
+    character should surface its exact selector/title here so it can be
+    copied verbatim, without any fuzzy threshold ever choosing a
+    structurally different entry outright (see _resolve_context_matches,
+    whose exact-match contract this must not weaken).  A query unrelated
+    to anything in the document yields nothing, deliberately: a forced
+    "closest" match to a below-cutoff candidate would be noise, not help.
+    """
+    scored: list[tuple[float, int, ContextMatch]] = []
+    for candidate in candidates:
+        texts = (candidate.selector, candidate.universal_selector, *candidate.match_texts)
+        best = max((difflib.SequenceMatcher(None, query, text).ratio() for text in texts), default=0.0)
+        if best >= _CLOSEST_CANDIDATE_CUTOFF:
+            scored.append((best, candidate.index, candidate))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [candidate for _score, _index, candidate in scored[:_CLOSEST_CANDIDATE_LIMIT]]
+
+
+def _format_no_exact_match(path: pathlib.Path, query: str, candidates: list[ContextMatch]) -> str:
+    lines = [
+        f"check_rst: {path}: no exact entry match for {query!r}",
+        f"hint: inspect selectors with outline {path}",
+    ]
+    closest = _closest_context_candidates(candidates, query)
+    if closest:
+        lines.append("closest candidates:")
+        lines.extend(f"  {_context_candidate_line(candidate)}" for candidate in closest)
+    return "\n".join(lines)
+
+
 def _run_context_query(
     query: str,
     path: pathlib.Path,
@@ -920,7 +958,7 @@ def _run_context_query(
         candidates = _context_candidates(entries, local_docname)
         matches = _resolve_context_matches(entries, query, local_docname)
         if not matches:
-            print(f"check_rst: {path}: no exact entry match for {query!r}\nhint: inspect selectors with outline {path}")
+            print(_format_no_exact_match(path, query, candidates))
             return 1
         if len(matches) > 1:
             print(_format_context_candidates(path, query, candidates, matches))

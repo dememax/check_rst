@@ -232,6 +232,29 @@ A deterministic black-box extension fixture reproduced the overlap before the
 fix; check_rst now holds a per-build-directory process lock across the complete
 build and cache-consumption interval, and the concurrent regression passes.
 
+Extended 2026-09-14 after a dogfooding session (6 parallel agents re-syncing
+adopted docs through a shared Sphinx project and ``--build-dir``) reported two
+more findings from real concurrent use. First, ``context``'s exact-match
+requirement (deliberately kept exact — no fuzzy fallback may silently choose a
+structurally different entry, same as the ``compare`` matcher's own rule) left
+a miss with no way to find the true string short of an ``outline`` round-trip;
+a miss now additionally prints up to 3 textually closest candidates via
+``difflib`` (cutoff 0.6, the same technique and threshold "Did you mean"
+reference suggestions above already use) — a hint only, never a selection.
+Second, transient extra ``misc.highlighting_failure`` warnings on one run that
+three immediate re-runs did not reproduce turned out to be a distinct
+concurrency gap from the ``EOFError`` one above: the per-build-directory lock
+protects the build directory's own cache artifacts, but Sphinx's own
+``env-get-outdated`` staleness scan (confirmed against Sphinx 9.1 source,
+``sphinx/builders/__init__.py``) independently re-reads any sibling document
+that changed, not only the one explicitly checked — and a sibling actively
+being written by a concurrent agent at that moment can tear. check_rst now
+snapshots (mtime, size) for every document a build reads immediately before
+that read and rechecks immediately after; a mismatch proves a concurrent write
+landed during this exact build. The first such build retries once, silently —
+matching the observed self-healing re-runs; still unstable after that retry is
+reported explicitly by file name rather than folded into the findings.
+
 =====================================
 Blockquote entries in ``--outline``
 =====================================

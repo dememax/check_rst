@@ -136,6 +136,8 @@ def _build_sphinx_env(
     sphinx_src: pathlib.Path,
     build_dir: pathlib.Path,
     files: list[pathlib.Path] | None = None,
+    *,
+    torn_out: set[pathlib.Path] | None = None,
 ) -> tuple[sphinx.environment.BuildEnvironment, str]:
     """Build a real, in-process Sphinx environment rooted at *sphinx_src*.
 
@@ -149,6 +151,21 @@ def _build_sphinx_env(
     sphinx-build subprocess finds that doctree already fresh and never
     re-parses the file to reproduce them (confirmed by direct
     reproduction, 2026-07-20 — see _findings_from_sphinx_output).
+
+    *torn_out*, if given, is populated with the resolved path of every
+    source file whose on-disk (mtime, size) changed between the moment
+    Sphinx decided to (re)read it and the moment this build finished — a
+    real concurrent write landing during this exact build, not a guess.
+    Confirmed against Sphinx 9.1's own ``read()``: its native
+    ``env-get-outdated`` staleness scan covers every found doc, not just
+    the ones *files* forces, so a sibling document elsewhere in the same
+    project can legitimately be re-read here too, and can be caught
+    mid-write by a concurrent editor under real parallel use (dogfooding,
+    2026-09-14: 6 parallel agents sharing one --build-dir, transient extra
+    ``misc.highlighting_failure`` warnings on one run, gone on 3 immediate
+    re-runs — see _build_sphinx_env_checked, which retries on this signal).
+    Left untouched when *torn_out* is None, so omitting it preserves every
+    existing caller's behavior exactly.
 
     Uses the "dummy" builder: resolves the full environment and every
     document's doctree (directives, options, cross-references) exactly as a
@@ -209,25 +226,46 @@ def _build_sphinx_env(
         app.connect("include-read", mark_include_read_after, priority=sys.maxsize)
         app.connect("source-read", mark_source_read_before, priority=-sys.maxsize)
         app.connect("source-read", mark_source_read_after, priority=sys.maxsize)
-        if files:
-            checked_paths = tuple(path.resolve() for path in files)
+        checked_paths = tuple(path.resolve() for path in files) if files else ()
+        # (mtime, size) of every doc Sphinx is about to (re)read, taken
+        # inside the env-get-outdated listener itself — the earliest point
+        # reachable here, strictly before any of their actual reads.
+        reread_snapshot: dict[pathlib.Path, tuple[float, int]] = {}
 
-            def force_checked_docs(
-                _app: Sphinx,
-                env: sphinx.environment.BuildEnvironment,
-                _added: set[str],
-                _changed: set[str],
-                _removed: set[str],
-            ) -> list[str]:
-                docnames = []
-                for path in checked_paths:
-                    docname = env.path2doc(str(path))
-                    if docname is not None and docname in env.found_docs:
-                        docnames.append(docname)
-                return docnames
+        def env_get_outdated(
+            _app: Sphinx,
+            env: sphinx.environment.BuildEnvironment,
+            added: set[str],
+            changed: set[str],
+            _removed: set[str],
+        ) -> list[str]:
+            docnames = []
+            for path in checked_paths:
+                docname = env.path2doc(str(path))
+                if docname is not None and docname in env.found_docs:
+                    docnames.append(docname)
+            if torn_out is not None:
+                for docname in {*added, *changed, *docnames}:
+                    try:
+                        doc_path = pathlib.Path(env.doc2path(docname)).resolve()
+                        stat = doc_path.stat()
+                    except OSError:
+                        continue
+                    reread_snapshot[doc_path] = (stat.st_mtime, stat.st_size)
+            return docnames
 
-            app.connect("env-get-outdated", force_checked_docs)
+        if checked_paths or torn_out is not None:
+            app.connect("env-get-outdated", env_get_outdated)
         app.build()
+        if torn_out is not None:
+            for doc_path, before in reread_snapshot.items():
+                try:
+                    stat = doc_path.stat()
+                except OSError:
+                    torn_out.add(doc_path)
+                    continue
+                if (stat.st_mtime, stat.st_size) != before:
+                    torn_out.add(doc_path)
     return app.env, warning_stream.getvalue()
 
 
@@ -236,9 +274,34 @@ def _build_sphinx_env_checked(
     build_dir: pathlib.Path,
     files: list[pathlib.Path] | None = None,
 ) -> tuple[sphinx.environment.BuildEnvironment, str]:
-    """CLI boundary for _build_sphinx_env: one diagnostic, never a traceback."""
+    """CLI boundary for _build_sphinx_env: one diagnostic, never a traceback.
+
+    Also retries the build exactly once, transparently, if *torn_out* came
+    back non-empty — a source file this build read genuinely changed while
+    it was running (see _build_sphinx_env's own docstring). Confirmed
+    dogfooding evidence (2026-09-14, 6 parallel agents sharing one
+    --build-dir) showed this clears on an immediate re-run every time it
+    was observed, so the common case self-heals silently rather than
+    surfacing a result the caller has no reason to distrust. Still torn
+    after that one retry is a different, persistent signal — reported by
+    name rather than silently trusted, but still returned rather than
+    raised: a torn read is not a build failure.
+    """
     try:
-        return _build_sphinx_env(sphinx_src, build_dir, files)
+        torn: set[pathlib.Path] = set()
+        env, warning_text = _build_sphinx_env(sphinx_src, build_dir, files, torn_out=torn)
+        if torn:
+            torn = set()
+            env, warning_text = _build_sphinx_env(sphinx_src, build_dir, files, torn_out=torn)
+        if torn:
+            names = ", ".join(str(path) for path in sorted(torn))
+            print(
+                f"check_rst: source changed while Sphinx was building and stayed unstable "
+                f"after one retry: {names}\n"
+                "hint: another process is likely editing this concurrently — findings "
+                "touching it in this run may reflect a torn read; rerun once that edit settles."
+            )
+        return env, warning_text
     except Exception as exc:
         detail = " ".join(str(exc).splitlines())
         print(f"check_rst: Sphinx environment build failed: {type(exc).__name__}: {detail}")
