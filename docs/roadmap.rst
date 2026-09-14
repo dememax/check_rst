@@ -93,6 +93,10 @@ These entries are intentionally not presented as one uniform priority:
 * Structure-aware list-to-section transformation — accepted, deferred.
 * Foreign-adornment configuration — deferred with its original urgency gone.
 * Diff-hunk classification — logged from one workaround, not queued.
+* Concurrent-change detection for included dependencies — root documents in
+  Sphinx's reread set are covered; ``include``/``literalinclude`` inputs are
+  not.  No failure involving those dependencies has been observed, so an
+  extension is awaiting evidence.
 
 ==========
 Declined
