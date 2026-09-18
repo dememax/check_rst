@@ -664,7 +664,16 @@ def _run_sphinx_phases(
             # counting and printing an identical finding only once.
             sphinx_v = list(dict.fromkeys(sphinx_v))
             if args.skip_fixable and state.suppressed_fixable:
-                suppressed_paths = set(state.suppressed_fixable)
+                # Counter[path] += 0 (both call sites above) still inserts a
+                # zero-valued key — dict/Counter __setitem__ always runs, even
+                # for n == 0.  Filter to a positive count here rather than
+                # trusting key presence, so a file that merely passed through
+                # the --skip-fixable code path with nothing actually
+                # suppressed can't make an unrelated, genuinely non-fixable
+                # Sphinx ERROR (e.g. an "Inconsistent title style" level
+                # skip) get dropped as an already-reported-and-fixed
+                # duplicate (dogfooding report, 2026-09-18).
+                suppressed_paths = {path for path, count in state.suppressed_fixable.items() if count > 0}
                 sphinx_v = [
                     finding
                     for finding in sphinx_v

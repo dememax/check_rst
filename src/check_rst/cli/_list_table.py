@@ -183,7 +183,18 @@ def _locate_aligned_table_source(lines: list[str], entry: TableEntry) -> _Aligne
         end = _aligned_table_end(lines, start)
         indent = _leading_whitespace(lines[start])
         return _AlignedTableSource(start, end, start, end, indent, indent, None, ())
-    raise ValueError("table is nested inside source that cannot be edited independently")
+    # Show what is actually at the reported position, not just the fact
+    # that neither pattern matched: a legitimate nested-cell case reads as
+    # table-shaped content one level in (see _NESTED_ALIGNED_TABLE in
+    # tests), while stale/unrelated content here — the open, unreproduced
+    # 2026-09-18 dogfooding report's own suspicion — reads as ordinary
+    # prose. Either way this is now diagnosable from the refusal's own
+    # text, without re-opening the file and the entry's line number by
+    # hand ("capture the moment, not the memory").
+    raise ValueError(
+        f"table is nested inside source that cannot be edited independently "
+        f"(line {start + 1} reads: {lines[start]!r})"
+    )
 
 
 def _resolve_list_table_selection(

@@ -337,6 +337,69 @@ def test_verified_cli_checks_source_read_effective_titles(
 
 
 @pytest.mark.integration
+def test_skip_fixable_does_not_hide_a_non_fixable_title_level_skip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A genuinely non-fixable Sphinx-phase "Inconsistent title style"
+    ERROR must survive --skip-fixable, even though this file's own
+    adornment check ran the --skip-fixable code path with nothing
+    actually fixable to suppress (fixable_v == [], since the adornments
+    here are already syntactically valid).  ``Counter[path] += 0`` still
+    inserts a zero-valued key (dogfooding report, 2026-09-18); a stale
+    reading of that key's mere presence — rather than its value — must
+    not make _is_sphinx_fixable_duplicate treat this ERROR as an
+    already-reported-and-fixed duplicate."""
+    (tmp_path / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
+    doc = tmp_path / "doc.rst"
+    doc.write_text(
+        "###########\n"
+        "Doc Title\n"
+        "###########\n"
+        "\n"
+        "*********\n"
+        "Section\n"
+        "*********\n"
+        "\n"
+        "========\n"
+        "Subsec\n"
+        "========\n"
+        "\n"
+        "---------\n"
+        "Deepest\n"
+        "---------\n"
+        "\n"
+        "Body text under the deepest section.\n"
+        "\n"
+        "*************\n"
+        "Section Two\n"
+        "*************\n"
+        "\n"
+        "---------\n"
+        "Skipped\n"
+        "---------\n"
+        "\n"
+        "A level 3 title never appears between depth-2 'Section Two' and\n"
+        "this depth-4 title -- a genuine, non-fixable level skip.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "index.rst").write_text("Index\n=====\n\n.. toctree::\n\n   doc\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst", "--sphinx-src", str(tmp_path), "check", "--skip-fixable", str(doc)],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "Inconsistent title style: skip from level 2 to 4" in out
+    assert "1 error(s)" in out
+
+
+@pytest.mark.integration
 def test_title_enforcement_keeps_rst_epilogue_provenance(tmp_path: Path) -> None:
     """Synthetic Sphinx content remains visible without a fake physical line."""
     (tmp_path / "conf.py").write_text(

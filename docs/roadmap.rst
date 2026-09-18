@@ -2258,6 +2258,29 @@ refuses such entries as ``list-table.included-source`` before any range lookup
 and directs the caller to run the command on the physical target; local tables
 keep their composed-document ordinals and continue independently.
 
+Extended 2026-09-18 after a dogfooding follow-up report: the original
+transient-flip symptom (table converts, then refuses as
+``list-table.nested-aligned-table`` after an unrelated downstream edit,
+no ``include`` involved) remains open — reported again the same day,
+still not standalone-reproduced despite three independent attempts
+(sequential same-file edit, 16-iteration concurrent execution, and this
+session's own code-reading of ``_plan_list_table_text``'s already-proven
+same-buffer/reverse-splice-order guarantees, which rules the multi-table
+case out directly). One correlational lead from that report — the flip
+did not recur on a resync that also avoided a depth-mixing mistake
+(the same real adornment character assigned to two different intended
+heading depths) — was tested directly here and ruled out: a genuine
+``Inconsistent title style`` level skip introduced downstream of an
+already-converted table left that table's own kind/lineno/depth
+unaffected, because docutils' section-level confusion changes doctree
+parenting, never the raw text line numbers this recovery keys off.  The
+refusal's own message now shows the actual current line at the reported
+position (``... (line N reads: ...)``) rather than only naming the
+predicate that failed, so the next real occurrence is diagnosable from
+its own output — legitimate nested-cell content reads as table-shaped,
+a stale/unrelated position would not — without needing to reproduce it
+first.
+
 Parser/range invariants and canonical-tree divergence are reported separately
 as ``source-model`` and ``semantic-proof`` errors/refusals.  They never escape
 as a traceback and never authorize a guessed rewrite.

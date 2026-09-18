@@ -950,6 +950,28 @@ def test_plan_refuses_inner_table_only_until_ancestor_is_converted(tmp_path: Pat
     assert result.candidate == result.original
 
 
+@pytest.mark.unit
+def test_nested_aligned_table_refusal_shows_the_actual_line_at_the_reported_lineno(
+    tmp_path: Path,
+) -> None:
+    """A 2026-09-18 dogfooding report saw this exact refusal fire for a
+    table with no aligned-table ancestor at all — transiently, after an
+    unrelated downstream edit, never reproduced standalone since. The
+    reported reason alone ("cannot be edited independently") gives no way
+    to tell a legitimate nested-cell case from `entry.lineno` pointing at
+    stale/unrelated content without re-opening the file and the entry's
+    own line number by hand. Show what is actually there, in the
+    refusal itself, so the next real occurrence is diagnosable from its
+    own output alone — "capture the moment, not the memory"."""
+    p = _rst(tmp_path, "Title\n#####\n\n" + _NESTED_ALIGNED_TABLE)
+
+    result = _list_table._plan_list_table_file(p, only=[2], skip=[])
+
+    assert result.fatal is not None
+    assert "line 7 reads:" in result.fatal.reason
+    assert "table:: Inner" in result.fatal.reason
+
+
 @pytest.mark.integration
 def test_plan_refuses_table_owned_by_an_included_source(
     tmp_path: Path,
