@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import pathlib
 import re
@@ -32,6 +33,7 @@ from ._helpers import (
     _normalize_source,
     _read_source,
 )
+from ._labels import explicit_labels
 from ._types import (
     _INLINE_CONTAINER_TYPES,
     AdmonitionEntry,
@@ -390,6 +392,14 @@ def build_outline(
     # Extents: a section runs to the line before the next same-or-shallower
     # section's block (findall order is document order), or to EOF; trailing
     # blank separator lines are trimmed.
+    label_definitions = explicit_labels(document)
+    labels_by_heading: dict[tuple[str | None, int, str], list[tuple[str, int]]] = {}
+    for label in label_definitions:
+        if label.target_kind == "section" and label.target_title is not None:
+            labels_by_heading.setdefault((label.source, label.target_line, label.target_title), []).append(
+                (label.name, label.line)
+            )
+
     entries: list[OutlineEntry] = []
     for i, (title_row, depth, char, title, children, block_start, provenance, lines) in enumerate(raw):
         nxt = next(
@@ -413,8 +423,25 @@ def build_outline(
                 end,
                 provenance=provenance,
                 source_start=block_start if provenance is None or provenance.exact else 0,
+                labels=tuple(labels_by_heading.get((provenance.source if provenance else None, title_row, title), ())),
             )
         )
+    targets_by_index: dict[int, list[tuple[str, int, str, int]]] = {}
+    for label in label_definitions:
+        if label.target_kind == "section":
+            continue
+        containing = [
+            i
+            for i, entry in enumerate(entries)
+            if (entry.provenance.source if entry.provenance else None) == label.source
+            and (entry.source_start or entry.lineno) <= label.line <= entry.end
+        ]
+        if containing:
+            targets_by_index.setdefault(containing[-1], []).append(
+                (label.name, label.line, label.target_kind, label.target_line)
+            )
+    for i, targets in targets_by_index.items():
+        entries[i] = dataclasses.replace(entries[i], targets=tuple(targets))
     return entries
 
 

@@ -34,6 +34,7 @@ from ._formatting import (
     check_hierarchy,
     check_single_top_level,
 )
+from ._labels import LabelDefinition, explicit_labels
 from ._lint import check_directives, check_homoglyphs, check_nested_inline_markup
 from ._sphinx import (
     _build_sphinx_env_checked,
@@ -78,6 +79,12 @@ from ._types import (
 def _entry_asdict(entry: object) -> dict[str, Any]:
     """Serialize a structural dataclass without private ordering machinery."""
     value: dict[str, Any] = dataclasses.asdict(cast("Any", entry))
+    if isinstance(entry, OutlineEntry):
+        value["labels"] = [{"name": name, "line": line} for name, line in entry.labels]
+        value["targets"] = [
+            {"name": name, "line": line, "target_kind": kind, "target_line": target_line}
+            for name, line, kind, target_line in entry.targets
+        ]
     value.pop("site", None)
     if "source_start" in value and value["source_start"] is None:
         value["source_start"] = value.get("lineno", 0)
@@ -704,6 +711,7 @@ def _format_context(
     findings: list[Finding],
     outgoing: list[ReferenceEntry] | None,
     incoming: list[ReferenceEntry] | None,
+    label: LabelDefinition | None = None,
 ) -> str:
     parent, previous, following, children, path = _context_relationships(candidates, selected)
     start = _entry_source_start(selected.entry)
@@ -730,6 +738,24 @@ def _format_context(
         f"  kind: {selected.kind}",
         f"  range: {extent}",
     ]
+    if label is not None:
+        location = f"{label.source}:" if label.source is not None else ""
+        lines.extend(
+            [
+                f"  label: {label.name}",
+                f"  defined at: {location}{label.line}",
+                f"  target: {label.target_kind} at {label.target_line}",
+            ]
+        )
+    if isinstance(selected.entry, OutlineEntry) and selected.entry.labels:
+        lines.append("  labels: " + ", ".join(f"{name}@{line}" for name, line in selected.entry.labels))
+    if isinstance(selected.entry, OutlineEntry) and selected.entry.targets:
+        lines.append(
+            "  targets: "
+            + ", ".join(
+                f"{name}@{line} -> {kind}@{target_line}" for name, line, kind, target_line in selected.entry.targets
+            )
+        )
     if title_line != start:
         lines.append(f"  title line: {title_line}")
     lines.extend(
@@ -957,7 +983,53 @@ def _run_context_query(
             entries.extend(local_entries)
         candidates = _context_candidates(entries, local_docname)
         matches = _resolve_context_matches(entries, query, local_docname)
+        selected_label: LabelDefinition | None = None
+        is_selector = any(query in (candidate.selector, candidate.universal_selector) for candidate in candidates)
+        if not is_selector:
+            label_matches = [label for label in explicit_labels(document) if label.name.casefold() == query.casefold()]
+            if len(label_matches) == 1:
+                label = label_matches[0]
+                destination = [
+                    candidate
+                    for candidate in candidates
+                    if isinstance(candidate.entry, OutlineEntry)
+                    and candidate.entry.title == label.target_title
+                    and candidate.entry.lineno == label.target_line
+                    and candidate.source == label.source
+                ]
+                if not destination:
+                    containing = [
+                        candidate
+                        for candidate in candidates
+                        if isinstance(candidate.entry, OutlineEntry)
+                        and _entry_source_start(candidate.entry) <= label.target_line <= _entry_end(candidate.entry)
+                        and candidate.source == label.source
+                    ]
+                    destination = containing[-1:]
+                if matches and destination and matches != destination:
+                    print(f"check_rst: {path}: {query!r} matches both an entry and a label with different destinations")
+                    print("entry candidates:")
+                    print("\n".join(f"  {_context_candidate_line(candidate)}" for candidate in matches))
+                    print("label destination:")
+                    print(f"  {_context_candidate_line(destination[0])} — defined at {label.line}")
+                    return 1
+                if not matches:
+                    matches = destination
+                if matches == destination:
+                    selected_label = label
+            elif len(label_matches) > 1:
+                print(f"check_rst: {path}: label {query!r} has {len(label_matches)} definitions; cannot choose one")
+                return 1
         if not matches:
+            if selected_label is not None:
+                label = selected_label
+                location = f"{label.source}:" if label.source is not None else ""
+                print(
+                    f"Context: {path}\nquery: {query!r}\n"
+                    f"label: {label.name}\ndefined at: {location}{label.line}\n"
+                    f"target: {label.target_kind} at {label.target_line}\npath: (no section)"
+                )
+                return 0
             print(_format_no_exact_match(path, query, candidates))
             return 1
         if len(matches) > 1:
@@ -1021,6 +1093,7 @@ def _run_context_query(
                 list(dict.fromkeys(findings)),
                 outgoing,
                 incoming,
+                selected_label,
             )
         )
         return 0

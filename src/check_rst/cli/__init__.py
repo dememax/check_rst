@@ -26,6 +26,7 @@ from ._helpers import (
     _git_worktree_root,
     _unmerged_files,
 )
+from ._labels import project_targets, target_location
 from ._list_table import _plan_list_table_file
 from ._output import (
     OutputBudgetSink,
@@ -51,6 +52,7 @@ from ._sphinx import (
     _sphinx_build_lock,
     find_incoming_references,
     find_references,
+    find_target_references,
 )
 
 if TYPE_CHECKING:
@@ -62,7 +64,7 @@ Check .rst files against reStructuredText and Sphinx project rules.
 
 A required command selects one action: check and diff serve the
 reviewer/auditor role; fix, list-table, and entitle serve the modifier role;
-outline, context, and refs serve the reader role. Phase 0 checks byte
+outline, context, refs, and targets serve the reader role. Phase 0 checks byte
 hygiene, Phase 1 checks RST formatting and directives, Phase 2 resolves
 Sphinx-aware structure, and Phase 3 runs a real Sphinx build.
 
@@ -87,6 +89,8 @@ Examples:
     check_rst outline doc.rst
     check_rst context 'doc:Section' doc.rst
     check_rst refs doc.rst
+    check_rst refs --target section-label
+    check_rst targets --exact section-label
     check_rst list-table doc.rst
     check_rst entitle "Reference Guide" document.rst
     check_rst compare --from main --to HEAD
@@ -360,6 +364,7 @@ _CLI_ATTR_DEFAULTS: dict[str, object] = {
     "quiet": False,
     "recursive": False,
     "refs": None,
+    "target": None,
     "sections_only": False,
     "single_space_prose": False,
     "skip_fixable": False,
@@ -820,22 +825,37 @@ def _build_cli_parser() -> argparse.ArgumentParser:
 
     refs_p = sub.add_parser(
         "refs",
-        help="per-file :doc:/:ref: reference report",
+        help="per-file references or exact uses of a label",
         description=(
-            "Reader role: this file's outgoing targets and every other file's incoming reference "
-            "to it, from the live Sphinx environment, never objects.inv. Requires --sphinx-src."
+            "Reader role: with FILE, report its outgoing targets and incoming document-level references; "
+            "with --target LABEL, report exact uses of that resolved Sphinx label across the project. "
+            "Uses the live Sphinx environment, never objects.inv. Requires --sphinx-src."
         ),
         epilog=_DOCUMENTATION_EPILOG,
     )
-    refs_p.add_argument("file", type=pathlib.Path, metavar="FILE")
+    refs_p.add_argument("file", nargs="?", type=pathlib.Path, metavar="FILE")
+    refs_p.add_argument("--target", metavar="LABEL", help="show exact uses of one Sphinx label across the project")
     refs_p.set_defaults(**_CLI_ATTR_DEFAULTS)
+
+    targets_p = sub.add_parser(
+        "targets",
+        help="list or locate valid Sphinx cross-reference targets",
+        description="Reader role: bounded project-wide :ref: labels and :doc: names from the live Sphinx registry.",
+        epilog=_DOCUMENTATION_EPILOG,
+    )
+    targets_p.add_argument("pattern", nargs="?", metavar="PATTERN", help="case-insensitive substring of name or title")
+    targets_p.add_argument("--exact", metavar="NAME", help="show the definition and destination of one exact target")
+    targets_p.add_argument(
+        "--limit", type=int, default=30, metavar="N", help="maximum inventory rows; report omissions"
+    )
+    targets_p.set_defaults(**_CLI_ATTR_DEFAULTS)
 
     context_p = sub.add_parser(
         "context",
         help="targeted pre-edit briefing for one entry",
         description=(
-            "Reader role: a pre-edit briefing for one exact entry — a stable id, a generated "
-            "selector, or an exact title/term/caption/preview. Use this when the entry is known "
+            "Reader role: a pre-edit briefing for one exact entry — an explicit label, a stable id, "
+            "a generated selector, or an exact title/term/caption/preview. Use this when the entry is known "
             "instead of searching raw markup. Never guesses among multiple exact matches."
         ),
         epilog=_DOCUMENTATION_EPILOG,
@@ -1216,6 +1236,29 @@ def _run_refs(args: argparse.Namespace, runtime_metadata: dict[str, Any]) -> NoR
     already fully self-contained branch."""
     if args.sphinx_src is None:
         _require_verified_sphinx("--refs")
+    if (args.refs is None) == (args.target is None):
+        _cli_fail("refs requires exactly one of FILE or --target LABEL")
+    if args.target is not None and not args.target.strip():
+        _cli_fail("refs --target LABEL must not be empty")
+    if args.target is not None:
+        print(_format_runtime(runtime_metadata))
+        keep_build = args.build_dir is not None
+        build_dir = args.build_dir if keep_build else pathlib.Path(tempfile.mkdtemp(prefix="check_rst_"))
+        try:
+            with _sphinx_build_lock(build_dir if keep_build else None):
+                env, _warning_text = _build_sphinx_env_checked(args.sphinx_src, build_dir, files=[])
+                labels = {item.name.casefold(): item for item in project_targets(env) if item.kind == "ref"}
+                target = labels.get(args.target.casefold())
+                if target is None:
+                    print(f"check_rst: no Sphinx label {args.target!r}")
+                    sys.exit(1)
+                print(f"References to {target.name} ({target.docname}#{target.anchor}):")
+                uses = find_target_references(env, target.name)
+                print("\n".join(f"  {entry}" for entry in uses) if uses else "  (none)")
+        finally:
+            if not keep_build:
+                shutil.rmtree(build_dir, ignore_errors=True)
+        sys.exit(0)
     if not args.refs.is_file():
         problem = "No such file or directory" if not args.refs.exists() else "not a regular file"
         print(f"check_rst: {args.refs}: {problem}")
@@ -1236,6 +1279,56 @@ def _run_refs(args: argparse.Namespace, runtime_metadata: dict[str, Any]) -> NoR
             outgoing = find_references(env, docname)
             incoming = find_incoming_references(env, docname)
             print(_format_references(args.refs, outgoing, incoming))
+    finally:
+        if not keep_build:
+            shutil.rmtree(build_dir, ignore_errors=True)
+    sys.exit(0)
+
+
+def _run_targets(args: argparse.Namespace, runtime_metadata: dict[str, Any]) -> NoReturn:
+    if args.sphinx_src is None:
+        _require_verified_sphinx("targets")
+    if args.limit < 1:
+        _cli_fail("targets --limit must be >= 1")
+    if args.exact is not None and args.pattern is not None:
+        _cli_fail("targets PATTERN and --exact NAME are incompatible")
+    print(_format_runtime(runtime_metadata))
+    keep_build = args.build_dir is not None
+    build_dir = args.build_dir if keep_build else pathlib.Path(tempfile.mkdtemp(prefix="check_rst_targets_"))
+    try:
+        with _sphinx_build_lock(build_dir if keep_build else None):
+            env, _warning_text = _build_sphinx_env_checked(args.sphinx_src, build_dir, files=[])
+            records = project_targets(env)
+            if args.exact is not None:
+                matches = [record for record in records if record.name.casefold() == args.exact.casefold()]
+                if not matches:
+                    print(f"check_rst: no Sphinx target {args.exact!r}")
+                    sys.exit(1)
+                for record in matches:
+                    path, line = target_location(env, record)
+                    location = path.relative_to(args.sphinx_src) if path.is_relative_to(args.sphinx_src) else path
+                    if record.kind == "doc":
+                        print(f"doc {record.name}: {location} -> {record.docname}")
+                    else:
+                        line_text = str(line) if line else "unknown line"
+                        print(f"ref {record.name}: {location}:{line_text} -> {record.docname}#{record.anchor}")
+                    if record.title:
+                        print(f"  title: {record.title}")
+            else:
+                pattern = (args.pattern or "").casefold()
+                matches = [
+                    record
+                    for record in records
+                    if pattern in record.name.casefold() or pattern in record.title.casefold()
+                ]
+                print(f"Targets: {len(matches)} match(es)")
+                for record in matches[: args.limit]:
+                    title = f" — {record.title}" if record.title else ""
+                    destination = f"{record.docname}#{record.anchor}" if record.anchor else record.docname
+                    print(f"  {record.kind} {record.name} -> {destination}{title}")
+                omitted = len(matches) - args.limit
+                if omitted > 0:
+                    print(f"  ({omitted} suppressed; narrow PATTERN or raise --limit)")
     finally:
         if not keep_build:
             shutil.rmtree(build_dir, ignore_errors=True)
@@ -1529,8 +1622,10 @@ def _main() -> None:
             print(f"check_rst: --build-dir {args.build_dir}: {existing} is not a directory")
             sys.exit(1)
 
-    if args.refs is not None:
+    if args.command == "refs":
         _run_refs(args, runtime_metadata)
+    if args.command == "targets":
+        _run_targets(args, runtime_metadata)
 
     files, whole_file = _discover_and_validate_files(args, project_root)
 

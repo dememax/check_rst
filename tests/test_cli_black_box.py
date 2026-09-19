@@ -141,6 +141,137 @@ def test_black_box_diff_help_explains_complete_patch_contract(tmp_path: Path) ->
 
 
 @pytest.mark.integration
+def test_label_navigation_and_exact_incoming_references(tmp_path: Path) -> None:
+    """A label definition and its users must remain distinguishable from the containing file."""
+    (tmp_path / "conf.py").write_text("project = 'Labels'\n", encoding="utf-8")
+    (tmp_path / "index.rst").write_text(
+        "Home\n====\n\nSee :ref:`first-label` and :ref:`second-label`.\n\n.. toctree::\n\n   page\n   other\n",
+        encoding="utf-8",
+    )
+    page = tmp_path / "page.rst"
+    page.write_text(
+        "######\nPage\n######\n\n.. _first-label:\n.. _alias-label:\n\n*******\nFirst\n*******\n\n"
+        ".. _second-label:\n\n********\nSecond\n********\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "other.rst").write_text(
+        "Other\n=====\n\nSee :ref:`second-label` and :ref:`alias-label`.\n", encoding="utf-8"
+    )
+    common = ("--sphinx-src", str(tmp_path))
+
+    outline = _run_cli(tmp_path, *common, "outline", "--sections-only", str(page))
+    assert outline.returncode == 0
+    assert "first-label" in outline.stdout
+    assert "second-label" in outline.stdout
+
+    context = _run_cli(tmp_path, *common, "context", "first-label", str(page))
+    assert context.returncode == 0
+    assert 'section "First"' in context.stdout
+    assert "defined at: 5" in context.stdout
+
+    targets = _run_cli(tmp_path, *common, "targets", "--exact", "first-label")
+    assert targets.returncode == 0
+    assert "page.rst:5" in targets.stdout
+    assert "First" in targets.stdout
+
+    uses = _run_cli(tmp_path, *common, "refs", "--target", "first-label")
+    assert uses.returncode == 0
+    assert "index" in uses.stdout
+    assert "other" not in uses.stdout
+
+
+@pytest.mark.integration
+def test_target_inventory_is_bounded_and_reports_omissions(tmp_path: Path) -> None:
+    (tmp_path / "conf.py").write_text("project = 'Labels'\n", encoding="utf-8")
+    (tmp_path / "index.rst").write_text(
+        "Home\n====\n\n.. _alpha-label:\n\nAlpha\n-----\n\n.. _beta-label:\n\nBeta\n----\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(tmp_path, "--sphinx-src", str(tmp_path), "targets", "label", "--limit", "1")
+
+    assert result.returncode == 0
+    assert "alpha-label" in result.stdout
+    assert "beta-label" not in result.stdout
+    assert "1 suppressed" in result.stdout
+
+    document_target = _run_cli(tmp_path, "--sphinx-src", str(tmp_path), "targets", "--exact", "index")
+    assert document_target.returncode == 0
+    assert "doc index: index.rst -> index" in document_target.stdout
+
+
+@pytest.mark.integration
+def test_nonsection_label_is_reported_as_location_not_heading(tmp_path: Path) -> None:
+    (tmp_path / "conf.py").write_text("project = 'Labels'\n", encoding="utf-8")
+    document = tmp_path / "index.rst"
+    document.write_text(
+        "######\nHome\n######\n\n.. _detail:\n\nA paragraph.\n\n.. code-block:: rst\n\n   .. _not-a-label:\n",
+        encoding="utf-8",
+    )
+    common = ("--sphinx-src", str(tmp_path))
+
+    outline = _run_cli(tmp_path, *common, "outline", "--sections-only", str(document))
+    assert "targets: detail@5 -> paragraph@7" in outline.stdout
+    assert "not-a-label" not in outline.stdout
+
+    context = _run_cli(tmp_path, *common, "context", "detail", str(document))
+    assert context.returncode == 0
+    assert "target: paragraph at 7" in context.stdout
+    assert 'summary: section "Home"' in context.stdout
+
+    missing = _run_cli(tmp_path, *common, "targets", "--exact", "not-a-label")
+    assert missing.returncode == 1
+    assert "no Sphinx target" in missing.stdout
+
+    snapshot = _run_cli(tmp_path, "--no-config", "check", "--format=json", str(document))
+    assert snapshot.returncode == 0
+    root = json.loads(snapshot.stdout)["files"][0]["outline"][0]
+    assert root["targets"] == [{"name": "detail", "line": 5, "target_kind": "paragraph", "target_line": 7}]
+
+
+@pytest.mark.integration
+def test_context_does_not_guess_when_label_and_title_name_different_entries(tmp_path: Path) -> None:
+    document = tmp_path / "index.rst"
+    document.write_text(
+        "######\nHome\n######\n\n*******\nfirst\n*******\n\n.. _first:\n\n********\nSecond\n********\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(tmp_path, "--no-config", "context", "first", str(document))
+
+    assert result.returncode == 1
+    assert "matches both an entry and a label" in result.stdout
+    assert "Second" in result.stdout
+
+
+@pytest.mark.integration
+def test_context_resolves_label_without_enclosing_section(tmp_path: Path) -> None:
+    document = tmp_path / "standalone.rst"
+    document.write_text(".. _spot:\n\nText.\n", encoding="utf-8")
+
+    result = _run_cli(tmp_path, "--no-config", "context", "spot", str(document))
+
+    assert result.returncode == 0
+    assert "defined at: 1" in result.stdout
+    assert "target: paragraph at 3" in result.stdout
+    assert "path: (no section)" in result.stdout
+
+
+@pytest.mark.integration
+def test_targets_include_extension_generated_section_labels(tmp_path: Path) -> None:
+    (tmp_path / "conf.py").write_text(
+        "project = 'Labels'\nextensions = ['sphinx.ext.autosectionlabel']\nautosectionlabel_prefix_document = True\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "index.rst").write_text("######\nHome\n######\n", encoding="utf-8")
+
+    result = _run_cli(tmp_path, "--sphinx-src", str(tmp_path), "targets", "--exact", "index:home")
+
+    assert result.returncode == 0
+    assert "index.rst:2" in result.stdout
+
+
+@pytest.mark.integration
 def test_black_box_bare_check_staged_file_before_first_commit(tmp_path: Path) -> None:
     """An unborn HEAD has no diff base, so staged files use whole-file scope."""
     subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True, capture_output=True)

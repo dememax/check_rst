@@ -335,6 +335,8 @@ class OutlineEntry:
     docname: str | None = None
     provenance: SourceProvenance | None = None
     source_start: int | None = None  # first physical line, including an overline
+    labels: tuple[tuple[str, int], ...] = ()  # explicit definitions preceding this heading
+    targets: tuple[tuple[str, int, str, int], ...] = ()  # labels for content within this section
 
     def __str__(self) -> str:
         return self.formatted()
@@ -373,6 +375,13 @@ class OutlineEntry:
             parts.append(f"{self.children} {_plural(self.children, 'subsection')}")
         if extra:
             parts.extend(extra)
+        if self.labels:
+            parts.append("labels: " + ", ".join(f"{name}@{line}" for name, line in self.labels))
+        if self.targets:
+            parts.append(
+                "targets: "
+                + ", ".join(f"{name}@{line} -> {kind}@{target_line}" for name, line, kind, target_line in self.targets)
+            )
         if parts:
             return f"{base} [{', '.join(parts)}]"
         return base

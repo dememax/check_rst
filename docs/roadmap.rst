@@ -28,7 +28,8 @@ Shipped / implementation record
 The following capabilities are implemented and protected by tests:
 
 * JSON document model (current interface: ``check --format=json``).
-* "Did you mean" reference suggestions; ``refs``; and ``context``.
+* "Did you mean" reference suggestions; ``refs`` with exact-label usage;
+  ``targets`` inventory and lookup; and label-aware ``context``.
 * Blockquote, code-block, table, admonition, comment, and list entries in
   ``outline``; table identification; structure-only ``outline``; and
   ``--sections-only``.
@@ -58,9 +59,8 @@ The following capabilities are implemented and protected by tests:
 Agreed next work
 ==================
 
-Three concrete capabilities remain agreed but unimplemented:
+Two concrete capabilities remain agreed but unimplemented:
 
-* ``list-targets [PATTERN]``.
 * ``fix --precheck``: a consolidated, fail-closed edit-validation cycle.
 * The remaining semantic-comparison dimensions below sections, implemented in
   the staged order recorded under "Semantic-diff coverage below the section
@@ -139,8 +139,7 @@ output.
 Reference intelligence
 ========================
 
-Current status: mixed. Suggestions and ``refs`` are shipped;
-``list-targets`` is agreed next work.
+Current status: shipped. Suggestions, ``refs``, and ``targets`` are available.
 
 Derived from the Phase 2 in-process Sphinx environment (*not* from parsing
 ``objects.inv`` — that artifact needs a completed HTML build and holds less
@@ -166,7 +165,7 @@ human/AI on a typo'd cross-reference target.
 ``list-targets [PATTERN]``
 ----------------------------
 
-*Current status: agreed next work; not implemented.*
+Current status: shipped 2026-09-19 as ``targets [PATTERN]``.
 
 A deterministic menu of valid ``:ref:``/``:doc:`` targets.  This repo alone has
 7396 ``:ref:`` labels (autosectionlabel puts one on every heading) and 1444
@@ -180,6 +179,11 @@ options they already are, but the shape is otherwise new: an optional
 positional ``PATTERN`` with no required file at all, unlike any of the
 shapes already built (``full``, ``fast``, ``single-file`` all need at least
 one file argument).
+
+The shipped noun ``targets`` also offers ``--exact NAME`` to report a
+definition and its resolved destination.  Explicit labels appear in
+``outline`` and resolve through ``context``.  ``refs --target LABEL`` reports
+exact users, while ``refs FILE`` retains its document-level graph role.
 
 ---------------
 ``refs FILE``

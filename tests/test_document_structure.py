@@ -109,6 +109,20 @@ def test_bare_outline_exposes_include_boundary_and_foreign_blocks(tmp_path: Path
 
 
 @pytest.mark.integration
+def test_outline_label_in_include_keeps_fragment_line_coordinates(tmp_path: Path) -> None:
+    root = tmp_path / "index.rst"
+    root.write_text("Index\n=====\n\n.. include:: fragment.rst\n", encoding="utf-8")
+    (tmp_path / "fragment.rst").write_text(".. _fragment-label:\n\nFragment\n--------\n", encoding="utf-8")
+
+    document = _document.Document(root, tmp_path)
+    section = next(entry for entry in document.outline if entry.title == "Fragment")
+
+    assert section.provenance is not None
+    assert section.provenance.source == "fragment.rst"
+    assert section.labels == (("fragment-label", 1),)
+
+
+@pytest.mark.integration
 def test_bare_outline_reads_included_adornment_with_declared_encoding(tmp_path: Path) -> None:
     """Physical source recovery must use the include directive's encoding."""
     root = tmp_path / "index.rst"

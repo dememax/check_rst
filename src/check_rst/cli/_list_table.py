@@ -192,8 +192,7 @@ def _locate_aligned_table_source(lines: list[str], entry: TableEntry) -> _Aligne
     # text, without re-opening the file and the entry's line number by
     # hand ("capture the moment, not the memory").
     raise ValueError(
-        f"table is nested inside source that cannot be edited independently "
-        f"(line {start + 1} reads: {lines[start]!r})"
+        f"table is nested inside source that cannot be edited independently (line {start + 1} reads: {lines[start]!r})"
     )
 
 

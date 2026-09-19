@@ -150,11 +150,10 @@ def test_refs_verb_populates_full_attribute_contract() -> None:
 
 
 @pytest.mark.unit
-def test_refs_verb_requires_exactly_one_positional() -> None:
+def test_refs_verb_accepts_either_file_or_target() -> None:
     parser = cli._build_cli_parser()
-    with pytest.raises(SystemExit) as exc:
-        parser.parse_args(["refs"])
-    assert exc.value.code == 2
+    assert parser.parse_args(["refs", "file.rst"]).file == pathlib.Path("file.rst")
+    assert parser.parse_args(["refs", "--target", "some-label"]).target == "some-label"
 
 
 @pytest.mark.unit

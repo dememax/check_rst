@@ -990,11 +990,16 @@ the matching lines.  Choose the query from what is known before opening source:
      - ``outline FILE``
      - It exposes the hierarchy, entry kinds, composition, and complete
        physical ranges without a linear read.
-   * - One exact heading, selector, term, caption, or preview is known
+   * - One exact heading, explicit label, selector, term, caption, or preview
+       is known within a file
      - ``context ENTRY FILE``
      - Knowing the entry is the reason to query it directly, not an exception
        that makes ``grep`` safe.  The result supplies its range, path,
        relatives, findings, and references.
+   * - A Sphinx label is known, but its file is not
+     - ``targets --exact LABEL``
+     - The live registry locates its definition and resolved destination
+       without guessing which document owns it.
    * - The structural entry and its current range are known
      - A targeted source read of that range
      - This reads the bytes that will be reviewed or edited without asking a
@@ -1008,7 +1013,8 @@ A remembered title or line number proves neither the entry's current depth and
 parent nor that the title is unique.  It also says nothing about an included
 source, a toctree descendant, or extension-transformed content.  Prior reading
 does not change those facts.  Run ``context`` when the entry is known; run
-``outline`` when it is not; only then read the reported physical range.
+``outline`` when it is not; use ``targets --exact`` when a label is known but
+its file is not.  Only then read the reported physical range.
 
 ====================================
 ``outline``: the structural oracle
@@ -1189,6 +1195,39 @@ suggestions.  A unique resolution exits 0 even when the briefing
 contains an applicable ERROR: the exit status answers whether the query was
 resolved, not whether the document validates.  ``context`` prepares an
 edit; the three-step validation loop still validates it.
+
+====================
+Targets and labels
+====================
+
+``check_rst targets [PATTERN]`` lists valid Sphinx ``:ref:`` labels and
+``:doc:`` document names from the live project environment.  The optional
+pattern is a case-insensitive substring of a target name or title.  Output is
+bounded to 30 rows by default; ``--limit N`` changes that budget, and the
+suppressed count is always reported.  This command requires verified Sphinx
+mode.  It includes labels created by extensions such as
+``sphinx.ext.autosectionlabel`` as well as explicit ``.. _label:`` targets.
+
+Use ``check_rst targets --exact NAME`` when the spelling is known but the
+defining file is not.  It reports the physical definition line when one can
+be established, the owning document and Sphinx anchor, and the target title
+when available.  An unknown source line is reported as such, never guessed.
+``:doc:`` names are document targets, not explicit labels.
+
+Within a known file, ``context LABEL FILE`` resolves an explicit internal
+label to its destination and reports the separate definition line.  A label
+before a heading selects that section.  A label before other content reports
+the enclosing section when one exists, and identifies the content kind and
+destination line; the enclosing section must not be mistaken for the label's
+actual target.  A standalone label without an enclosing section still gets a
+definition and destination briefing.
+``outline`` prints explicit section labels beside their headings and other
+internal labels as ``targets`` metadata on the containing section.  These
+annotations remain visible under ``--sections-only``.  Literal text that
+merely resembles a target inside a code block is not a definition.
+The ``check --format=json`` outline records carry structured ``labels``
+(section definitions) and ``targets`` (other definitions) arrays with physical
+source lines.
 
 =============================================================
 Block previews: know what's inside without opening the file
@@ -1629,6 +1668,12 @@ doesn't resolve prints ``BROKEN`` in the outgoing list — Phase 3 already
 reports why (and, since the previous section, suggests the fix); this
 list exists to show what's THERE, not to duplicate that diagnosis.
 
+``check_rst refs --target LABEL`` instead reports uses of one valid Sphinx
+label across the project, including uses in the defining document.  It
+requires the written label name to match and resolve, so references to other
+labels in the same file are excluded.  Use ``targets --exact LABEL`` to
+locate the definition; use ``refs --target LABEL`` to find its users.
+
 =============================================
 compare: explain changes that already exist
 =============================================
@@ -1827,11 +1872,18 @@ file should explain the local workflow without becoming a fork of
     shared dirty worktree use the same owned-file --git-scope allowlist on all
     three commands.
 
+    For a new heading, copy the depth character from outline, write a
+    nine-character underline without an overline, and let fix --fast compute
+    adornment geometry.
+
     For a cold reader, use check_rst outline FILE when the structure or target
-    is unknown and check_rst context ENTRY FILE for one known entry.  Both
-    report physical ranges.  Use refs for reference ownership and compare to
-    explain an existing Git change.  Do not rediscover RST structure with raw
-    grep/head/tail/sed scans, and do not truncate a diff preview.
+    is unknown and check_rst context ENTRY FILE for one known entry or
+    explicit label.  Use check_rst targets --exact LABEL when its file is
+    unknown.  These queries report physical locations.  Use refs FILE for
+    document links, refs --target LABEL for exact label uses, and compare to
+    explain an existing Git change.  Read a reported range directly; a raw
+    text match alone cannot establish depth, parentage, or entry boundaries.
+    Do not truncate check_rst output or a diff preview with a pipe.
 
 Replace the angle-bracket facts and add only repository-specific policy:
 maintained directories, exclusions, generated-document provenance, ownership
@@ -1839,6 +1891,9 @@ boundaries, release commands, required launchers, and a minimum compatible
 version when one exists.  Keep the explanation of the three-step loop and the
 reader-command choice: a bare list of commands is not enough for a fresh
 contributor to distinguish semantic review, mutation, and final validation.
+Check the installed command's help before adopting newly added reader verbs
+in a downstream instruction file; a worktree implementation and an older
+installed command can report the same version before the next release.
 
 Do not copy the exact adornment hierarchy, width/spacing rules, phase
 internals, option matrices, or historical bug rationale.  Those details are

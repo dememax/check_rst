@@ -490,6 +490,20 @@ def find_incoming_references(env: sphinx.environment.BuildEnvironment, target_do
     return incoming
 
 
+def find_target_references(env: sphinx.environment.BuildEnvironment, label: str) -> list[ReferenceEntry]:
+    """Find uses of one resolved label, including uses in its own document."""
+    anonlabels = env.domaindata.get("std", {}).get("anonlabels", {})
+    destination = anonlabels.get(label.lower())
+    if destination is None:
+        return []
+    uses: list[ReferenceEntry] = []
+    for docname in sorted(env.found_docs):
+        for entry in find_references(env, docname):
+            if entry.reftype == "ref" and entry.target.lower() == label.lower() and entry.resolved == destination[0]:
+                uses.append(entry)
+    return uses
+
+
 def _toctree_anomalies(
     env: sphinx.environment.BuildEnvironment,
 ) -> dict[str, list[str]]:
