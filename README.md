@@ -99,8 +99,8 @@ sed -i 's/docutils>=0.21,<0.23/docutils>=0.21/' \
 ~/opt/check_rst-ubuntu/bin/python -m pip check
 ```
 
-Ruff is not installed into this environment. Use the system Ruff 0.16.2,
-which is the exact version required by `pyproject.toml`.
+Ruff is not installed into this environment. Use a system Ruff version that
+satisfies `[tool.ruff].required-version` in `pyproject.toml`.
 
 For development, install the checkout in editable mode:
 
@@ -142,6 +142,11 @@ A repository can declare its Sphinx source and reusable build directory in
 sphinx-src = "docs"
 build-dir = "/tmp/my-project-sphinx-build"
 ```
+
+With verified Sphinx configuration, `check_rst targets --exact LABEL` locates a
+label's definition, `check_rst context LABEL FILE` describes an explicit label
+in a known file, and `check_rst refs --target LABEL` lists its exact users.
+`check_rst refs FILE` retains the document-level reference report.
 
 For a complete cold-reader adoption procedure—including the first baseline
 audit, project-instruction template, and optional `check_formatting`

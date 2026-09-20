@@ -22,7 +22,7 @@ Command manuals
 * :doc:`check_rst-list-table` — table-source conversion;
 * :doc:`check_rst-entitle` — wrap a document under a new top-level title;
 * :doc:`check_rst-hierarchy` — the live adornment order;
-* :doc:`check_rst-reports` — context, refs, and compare queries.
+* :doc:`check_rst-reports` — context, targets, refs, and compare queries.
 
 *****************
 Concept manuals

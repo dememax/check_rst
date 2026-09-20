@@ -40,6 +40,11 @@ and lists.  Outline IDs are stable document-and-title identities with an
 occurrence suffix only when required.  Statistics distinguish unrequested
 word analysis from requested-but-unavailable analysis.
 
+Outline records include ``labels`` for explicit section labels and ``targets``
+for other explicit internal labels.  Each item includes the physical
+definition line.  Empty arrays mean no such labels were modeled for that
+entry.
+
 For an outline section, ``source_start`` is the first line of its complete
 physical block, including an overline; ``lineno`` remains the title-line
 anchor, and ``end`` is the final content line.  ``source_start`` is 0 when no

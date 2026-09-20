@@ -30,7 +30,10 @@ the title line remains a separate anchor.  The structure view is always
 whole-document and never changes the exit status.  In verified Sphinx mode,
 ``toctree`` children are traversed unless ``--no-toctree`` is given.  Use this
 command when the target structure is unknown; use ``check_rst context`` when
-one exact entry is already known.
+one exact entry or explicit label is already known.  Explicit labels attached
+to headings appear beside their sections; other internal labels appear as
+target metadata on the containing section.  They remain visible under
+``--sections-only``.
 
 Every run prints a ``levels:`` legend: each depth with its adornment
 character and section count, the document's total section count, and the

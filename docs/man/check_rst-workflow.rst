@@ -18,11 +18,13 @@ READ BEFORE EDITING
 
 Choose the structural query before reading source.  Use ``outline FILE`` when
 the target or surrounding hierarchy is unknown, and ``context ENTRY FILE``
-when one exact heading, selector, term, caption, or preview is known.  Knowing
-the heading is the reason to use ``context``, not permission to recover it with
-``grep``.  Read the reported physical range only after the model resolves it;
-rerun the query after edits that may move source.  Use verified ``refs`` when a
-cross-reference change depends on incoming or outgoing uses.
+when one exact heading, explicit label, selector, term, caption, or preview is
+known in a file.  Use verified ``targets --exact LABEL`` when a label is known
+but its file is not.  Knowing the heading or label is the reason to use the
+reader query, not permission to infer structure from ``grep``.  Read the
+reported physical range only after the model resolves it; rerun the query
+after edits that may move source.  Use ``refs FILE`` for document relationships
+or ``refs --target LABEL`` for exact label users.
 
 *******************
 DECLARE STRUCTURE

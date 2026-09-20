@@ -1401,8 +1401,8 @@ program output, not terminal-wrapped display rows.
 The initial compatibility boundary protects formats whose completeness is
 part of their meaning.  ``check``, ``fix`` (bare or ``--fast``), and
 ``outline`` accept the limit.  ``check --format=json``, ``compare``,
-``refs``, ``context``, and ``diff`` (bare or ``--fast`` — the flag is not
-even defined on ``diff``'s own parser) reject it: truncated JSON must
+``refs``, ``targets``, ``context``, and ``diff`` (bare or ``--fast`` — the flag
+is not even defined on ``diff``'s own parser) reject it: truncated JSON must
 not become invalid or look complete, and a truncated patch must not look
 applicable.
 
@@ -1461,7 +1461,8 @@ information is either irrelevant to that question or explicitly counted.
 The safest escalation order is therefore semantic before positional:
 
 1. Ask only for the needed product.  Use ``outline`` for structure,
-   ``context`` for one entry, ``refs`` for reference relationships, and
+   ``context`` for one entry, ``targets`` for project label discovery,
+   ``refs`` for reference relationships, and
    ``hierarchy`` for the adornment ranking instead of extracting those facts
    from a complete ``check`` report.
 2. Remove narration with ``--quiet``.  This is the only general reduction
@@ -1499,8 +1500,8 @@ actually requested.
 Some outputs are atomic and consequently have no line-budget option.
 ``check --format=json`` and ``compare --snapshots`` must remain valid complete data;
 ``diff`` and ``list-table`` previews must remain complete patches; ``refs``,
-``context``, and ``hierarchy`` are purpose-specific answers for which no line
-budget is defined.  Use ``--quiet`` where the command supports it, but never
+``targets``, ``context``, and ``hierarchy`` are purpose-specific answers for
+which no line budget is defined.  Use ``--quiet`` where supported, but never
 manufacture a partial JSON object or patch with ``head`` or ``tail``.
 
 ======================
@@ -1952,6 +1953,8 @@ shell and repository root:
   three-step loop without risking untouched project history.
 - ``outline`` for an unknown target and ``context`` for a known entry both
   provide usable physical ranges without a raw-text search.
+- ``targets --exact LABEL`` locates a known label whose file is unknown, and
+  ``refs --target LABEL`` reports its exact users.
 - Shared-worktree instructions preserve the same ``--git-scope`` allowlist
   across review, fix, and final validation.
 - If ``check_formatting`` is enabled, its ordinary RST scope passes; its
@@ -2053,13 +2056,14 @@ A typo'd ``sphix-src`` silently ignored would be worse than no config
 at all (the same fail-loudly precedent as ``--sphinx-src`` without a
 ``conf.py``).  An explicitly requested config that is missing, not a
 regular file, malformed TOML, or empty also fails before Git discovery,
-any checking phase, or ``fix``.  ``refs`` accepts ``--config`` because
-it needs project settings; ``compare --snapshots`` rejects it because that
-mode is self-contained and reads no RST project.  Git-backed ``compare``
+any checking phase, or ``fix``.  ``refs`` and ``targets`` accept ``--config``
+because they need project settings; ``compare --snapshots`` rejects it because
+that mode is self-contained and reads no RST project.  Git-backed ``compare``
 accepts ``--config`` to select the repository root.
 
-The same actionable verified-mode error applies to every option whose
-meaning depends on Phase 3 data: ``refs``, explicit ``--build-dir``, and
+The same actionable verified-mode error applies to every query or option
+that needs a live Sphinx environment: ``refs``, ``targets``, explicit
+``--build-dir``, and
 ``--no-toctree``.  On ``check`` the last also requires ``--format=json``;
 otherwise it would do nothing.  On ``outline`` and ``context`` — the other
 two verbs that carry ``--no-toctree`` — an outline consumer is guaranteed

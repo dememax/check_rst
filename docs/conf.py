@@ -67,7 +67,7 @@ man_pages = [
     (
         "man/check_rst-reports",
         "check_rst-reports",
-        "query entry context, references, and semantic changes",
+        "query entry context, targets, references, and semantic changes",
         [author],
         1,
     ),
