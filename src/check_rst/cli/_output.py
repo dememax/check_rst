@@ -32,6 +32,24 @@ from ._types import (
 )
 
 
+def _configure_stdout_for_filesystem_paths(stream: TextIO) -> None:
+    """Make an ordinary strict console preserve surrogate-escaped paths.
+
+    Unix filenames are bytes.  Python represents undecodable filename bytes
+    as low surrogates, but a language locale commonly leaves stdout's UTF-8
+    encoder at ``strict`` and therefore rejects those paths.  The C/POSIX
+    UTF-8 mode already selects ``surrogateescape``; make the strict case
+    behave the same while respecting an explicit non-strict error policy.
+
+    ``StringIO`` and output adapters need not expose ``reconfigure``.  The
+    caller invokes this before installing :class:`OutputBudgetSink`, so the
+    retained real stream owns the byte-preserving policy.
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is not None and getattr(stream, "errors", None) == "strict":
+        reconfigure(errors="surrogateescape")
+
+
 class OutputBudgetSink:
     """A line-oriented report sink that retains only a bounded prefix.
 

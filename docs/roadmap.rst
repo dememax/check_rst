@@ -2407,6 +2407,33 @@ uses ``pygit2.enums.DeltaStatus`` rather than the older module-level
 ``GIT_DELTA_*`` aliases.  The complete suite was exercised against both the
 1.20.0 floor and the then-current 1.20.1 release.
 
+=============================================
+Surrogate-safe console and JSON path output
+=============================================
+
+Accepted and implemented on 2026-09-22 after the 1.20 floor exposed the next
+boundary: ``diff --fast`` on a byte-named file reached its preview successfully
+but strict UTF-8 standard output rejected the path's low surrogate.  The same
+live probe found independent crashes in ordinary ``check``, ``outline``, and
+``list-table`` reports.  Existing in-process coverage had hidden the defect
+because pytest's default ``capfd`` stream uses ``errors="replace"``.
+
+CLI startup now changes an ordinary strict standard-output stream to
+``surrogateescape`` before any output-budget adapter retains it.  This is one
+output-boundary policy rather than an audit of every ``print`` call; it matches
+the C/POSIX UTF-8 behavior that already worked and preserves exact filename
+bytes in unified-diff headers.  Standard error keeps Python's
+``backslashreplace`` policy, and an explicit non-strict standard-output policy
+is not overridden.
+
+JSON remains a separate machine-readable contract: lone surrogates become
+``\uDCXX`` escapes before printing, so the wire bytes remain valid UTF-8 while
+a surrogate-preserving consumer can recover the original filesystem bytes.
+Black-box regressions pin strict and surrogate-escape diff output, an ordinary
+outline report, and JSON parsing/path round-trip.  A blanket
+``UnicodeEncodeError`` catch was declined: it could disguise a truncated patch
+or JSON document as a handled outcome instead of proving complete output.
+
 ***********************************************************
 Declined decisions and reasons — counter-evidence welcome
 ***********************************************************

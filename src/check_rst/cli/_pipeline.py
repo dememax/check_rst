@@ -739,7 +739,14 @@ def _emit_json_result(
     }
     if state.sphinx_findings_json is not None:
         data["sphinx_findings"] = state.sphinx_findings_json
-    print(json.dumps(data, ensure_ascii=False, indent=2))
+    payload = json.dumps(data, ensure_ascii=False, indent=2)
+    # Human reports and unified diffs preserve Unix filename bytes through
+    # stdout's surrogateescape policy.  JSON instead promises a UTF-8 text:
+    # turn only lone surrogate code points into JSON \uDCXX escapes.  Normal
+    # non-ASCII text stays literal, json.loads reconstructs the surrogate, and
+    # os.fsencode can therefore recover the original filename byte.
+    payload = payload.encode("utf-8", errors="backslashreplace").decode("utf-8")
+    print(payload)
     sys.exit(1 if state.total_errors else 0)
 
 

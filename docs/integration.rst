@@ -42,6 +42,14 @@ environment that bypassed the package resolver fails clearly before relying
 on those path APIs.  The ``git`` executable is needed by the test suite's
 repository fixtures, not by an installed ``check_rst`` command.
 
+The console boundary preserves those paths too.  CLI startup changes a strict
+standard-output error handler to ``surrogateescape`` before installing any
+report sink, while leaving an explicit non-strict policy and standard error
+alone.  Human reports and unified diffs can therefore round-trip the original
+filename bytes.  The JSON interface instead writes a valid UTF-8 ``\uDCXX``
+escape for each undecodable byte; a surrogate-preserving parser plus the
+platform filesystem encoder recovers the physical path.
+
 The interpreter boundary must still include every Sphinx extension loaded by
 consumer ``conf.py`` files.  On Gentoo, the preferred host-wide installation
 is therefore a virtual environment created with ``--system-site-packages``

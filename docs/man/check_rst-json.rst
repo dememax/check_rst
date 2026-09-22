@@ -20,6 +20,12 @@ PRODUCTION
 standard output.  Progress and human finding lines are suppressed.  The
 process still returns ``1`` when the report contains ERROR findings.
 
+An undecodable Unix filename byte is serialized as a reversible low-surrogate
+JSON escape (``\uDC80`` through ``\uDCFF``), never as a raw non-UTF-8 output
+byte.  Consumers that need the physical path bytes must preserve that lone
+surrogate while parsing and encode the resulting string with the platform
+filesystem encoding and ``surrogateescape`` error handler.
+
 *******************
 TOP-LEVEL MEMBERS
 *******************

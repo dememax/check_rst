@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import io
 import re
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,27 @@ from check_rst.cli import _helpers, _output, _types
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+@pytest.mark.unit
+def test_configure_stdout_changes_only_strict_encoding_errors() -> None:
+    strict = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", errors="strict")
+    explicit = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", errors="backslashreplace")
+
+    _output._configure_stdout_for_filesystem_paths(strict)
+    _output._configure_stdout_for_filesystem_paths(explicit)
+
+    assert strict.errors == "surrogateescape"
+    assert explicit.errors == "backslashreplace"
+
+
+@pytest.mark.unit
+def test_configure_stdout_accepts_stream_without_reconfigure() -> None:
+    stream = io.StringIO()
+
+    _output._configure_stdout_for_filesystem_paths(stream)
+
+    assert stream.getvalue() == ""
 
 
 @pytest.mark.unit

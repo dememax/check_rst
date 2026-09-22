@@ -89,7 +89,7 @@ def test_diff_fast_preview_never_tracebacks_on_non_utf8_filename(
     tmp_path: Path,
     stdout_error_handler: str,
 ) -> None:
-    """``diff --fast`` must report a clean result for a change touching a
+    """``diff --fast`` must emit its complete byte-named-file preview for a
     non-UTF-8-named file, never a raw traceback — regardless of the
     interpreter's stdout text error handler, which a real locale selects
     two different ways: a "real" language locale (e.g. this Ubuntu dev
@@ -102,15 +102,12 @@ def test_diff_fast_preview_never_tracebacks_on_non_utf8_filename(
     depending on which locales happen to be generated on whichever host
     runs this suite.
 
-    Currently FAILS for stdout_error_handler="strict" — a real, confirmed
-    bug in ``_run_diff_only``'s own ``print(preview, end="")``
-    (``cli/__init__.py``): the diff preview embeds the raw filename, and a
-    strict-UTF-8 stdout cannot encode the surrogate-escaped byte. Left
-    failing deliberately, not skipped or xfail-marked, so a normal full-
-    suite run keeps surfacing it until that print is made as tolerant of a
-    non-UTF-8 filename as every other such code path in this project
-    already is — at which point this assertion starts passing for both
-    parameters with no test-code change needed."""
+    The original regression was one instance of a CLI-wide output-boundary
+    defect: ``check``, ``outline``, ``list-table``, and JSON output also
+    failed or became lossy when a filesystem surrogate reached stdout. The
+    assertions below require the real result, not merely the absence of a
+    traceback, so an exception handler or silently omitted preview cannot
+    produce a vacuous pass."""
     raw_path = os.fsencode(tmp_path) + b"/non_utf8_\xff.rst"
     fd = os.open(raw_path, os.O_WRONLY | os.O_CREAT, 0o600)
     os.write(fd, b"Title\n=====\n\nBody.\n")
@@ -124,10 +121,62 @@ def test_diff_fast_preview_never_tracebacks_on_non_utf8_filename(
         env_overrides={"PYTHONIOENCODING": f"utf-8:{stdout_error_handler}"},
     )
 
-    assert "Traceback" not in result.stderr, (
-        f"non-UTF-8 filename preview raised instead of reporting cleanly "
-        f"(stdout errors={stdout_error_handler!r}):\n{result.stderr}"
+    decoded_path = os.fsdecode(raw_path)
+    assert result.returncode == 1
+    assert result.stderr == ""
+    assert result.stdout.startswith(f"--- {decoded_path}\n+++ {decoded_path}\n")
+    assert "+#######\n Title\n-=====\n+#######\n" in result.stdout
+    assert result.stdout.splitlines()[-1] == ("check_rst: 1 file(s) checked, 0 error(s), 1 file(s) would change")
+
+
+@pytest.mark.integration
+def test_outline_strict_stdout_preserves_non_utf8_filename(tmp_path: Path) -> None:
+    """The startup output policy protects ordinary reports, not only diffs."""
+    raw_path = os.fsencode(tmp_path) + b"/non_utf8_\xff.rst"
+    fd = os.open(raw_path, os.O_WRONLY | os.O_CREAT, 0o600)
+    os.write(fd, b"#######\nTitle\n#######\n\nBody.\n")
+    os.close(fd)
+    decoded_path = os.fsdecode(raw_path)
+
+    result = _run_cli(
+        tmp_path,
+        "--no-config",
+        "outline",
+        decoded_path,
+        env_overrides={"PYTHONIOENCODING": "utf-8:strict"},
     )
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert f"Outline: {decoded_path}\n" in result.stdout
+    assert result.stdout.splitlines()[-1].startswith("check_rst: 1 file(s) checked, 0 error(s)")
+
+
+@pytest.mark.integration
+def test_json_strict_stdout_escapes_non_utf8_filename_and_round_trips_bytes(
+    tmp_path: Path,
+) -> None:
+    """JSON stays valid UTF-8 while retaining the reversible path surrogate."""
+    raw_path = os.fsencode(tmp_path) + b"/non_utf8_\xff.rst"
+    fd = os.open(raw_path, os.O_WRONLY | os.O_CREAT, 0o600)
+    os.write(fd, b"#######\nTitle\n#######\n\nBody.\n")
+    os.close(fd)
+
+    result = _run_cli(
+        tmp_path,
+        "--no-config",
+        "check",
+        "--format=json",
+        os.fsdecode(raw_path),
+        env_overrides={"PYTHONIOENCODING": "utf-8:strict"},
+    )
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    wire_bytes = result.stdout.encode("utf-8")
+    assert b"\\udcff" in wire_bytes
+    report = json.loads(wire_bytes)
+    assert os.fsencode(report["files"][0]["path"]) == raw_path
 
 
 @pytest.fixture

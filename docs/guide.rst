@@ -608,6 +608,17 @@ representation, including the status and diff APIs used here.  ``check_rst``
 checks that minimum version at startup even when installation metadata was
 bypassed.  The installed command does not require a ``git`` executable.
 
+That byte-preserving contract continues through human-readable output.  When
+standard output is an ordinary strict text stream, CLI startup changes only
+its error handler to ``surrogateescape``; a caller's explicit non-strict
+policy remains untouched.  A language locale and the C/POSIX UTF-8 mode
+therefore both emit the original filename bytes instead of crashing, and a
+``diff`` preview retains the real path in its patch headers.  Standard error
+keeps Python's protective ``backslashreplace`` policy.  JSON is deliberately
+different: it remains valid UTF-8 text and represents an undecodable filename
+byte through a reversible ``\uDC80``--``\uDCFF`` escape rather than writing the
+raw byte.
+
 Every explicitly selected blank-line or editorial-spacing modifier is also a
 whole-document policy.  Git scope limits which files may change; it does not
 turn a document-wide style request into a hunk-local one.
