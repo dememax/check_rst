@@ -198,3 +198,105 @@ unrelated entries below.
   ``--sphinx-src``, pure text scan), so it has no ancestors to walk —
   logged as this function's third KNOWN, ACCEPTED limitation, the same
   kind already documented for its other two.
+
+****************************************************
+Cross-review diagnostics: the output-boundary case
+****************************************************
+
+A Codex and Claude Code review exchange on 2026-09-22 began with one failing
+``diff --fast`` regression and ended with a CLI-wide output contract.  Neither
+reviewer's first account was complete.  The useful result came from treating
+each claim as a hypothesis to reproduce, tracing the real control flow, and
+letting counter-evidence change the proposed solution.  The implemented policy
+and product contract live under "Surrogate-safe console and JSON path output"
+in :doc:`roadmap`; this section records the reusable diagnostic method.
+
+The durable findings were:
+
+The capture stream is part of the test environment
+  Pytest's default ``capfd`` text wrapper uses ``errors="replace"``.  A low
+  filesystem surrogate is therefore silently substituted instead of raising
+  as it does on an ordinary language locale's strict standard output.  An
+  in-process passing test was not evidence about the installed command.  This
+  finding is specific to fd capture: ``capsys`` uses a different text wrapper,
+  so neither fixture's behavior should be generalized to all pytest capture.
+
+The child encoder and parent decoder are separate boundaries
+  ``PYTHONIOENCODING`` deterministically selects the child interpreter's
+  standard-output error handler.  A parent using ``subprocess.run(text=True)``
+  then decodes the captured bytes independently and can raise its own
+  ``UnicodeDecodeError`` after the child succeeded.  The black-box helper pins
+  the child policy and uses ``errors="surrogateescape"`` for capture, so the
+  assertion observes the child's complete output rather than a parent-side
+  decoding accident.
+
+Version parity is not environment parity
+  The Ubuntu host's ``fr_FR.UTF-8`` default selected strict standard output;
+  Gentoo host ``gl63`` used ``C.utf8`` and PEP 540's ``surrogateescape``.  The
+  same command therefore failed on one host and passed on the other despite
+  running the same code.  Cross-host evidence must record locale and effective
+  stream encoding/error policy as well as Python and dependency versions; the
+  regression itself uses ``PYTHONIOENCODING`` instead of depending on either
+  host default.
+
+Assert the required result, not merely the absence of one failure signature
+  ``"Traceback" not in stderr`` would also pass if a broad
+  exception handler silently omitted the preview.  The strengthened regression
+  requires the expected exit status, empty standard error, exact byte-named
+  diff headers and body, and the authoritative final status line.  JSON
+  coverage additionally requires valid UTF-8, successful parsing, and recovery
+  of the original filename byte.
+
+One crashing print call may expose an output-boundary defect
+  Probing ``check``, ``outline``, ``list-table``, and JSON found independent
+  failures; enumerating individual ``print`` sites would not protect the next
+  one.  Moving the invariant to CLI startup fixed the shared boundary, while
+  focused black-box tests retained evidence for the semantically distinct
+  diff, human report, and JSON paths.
+
+Output channels do not necessarily share one encoding contract
+  Human reports and unified-diff headers need Unix filename bytes to
+  round-trip, so a strict standard output becomes ``surrogateescape``.  JSON
+  promises UTF-8 text, so the same low surrogate must instead become a
+  reversible JSON escape.  Standard error already uses Python's defensive
+  ``backslashreplace`` policy and did not need modification.
+
+Presence is not positive evidence in a value-bearing mapping
+  ``Counter[key] += 0`` still materializes ``key``.  An earlier
+  ``--skip-fixable`` defect treated the resulting key set as proof that a
+  fixable finding had been suppressed and could consequently hide an unrelated
+  Sphinx error.  When values carry the event count, downstream logic must test
+  the positive value rather than container truthiness or key presence.
+
+A modeled coordinate is not yet an editable source range
+  Docutils line metadata identifies where a semantic observation arose; it
+  does not by itself prove the physical bytes safe to replace.  The
+  ``list-table`` investigation became actionable only after source recovery
+  required an enclosing grid/simple-table range and gave an unlocated model
+  position its own refusal.  Before mutation, join parser evidence back to the
+  current source geometry and fail closed when that physical predicate is not
+  proven.
+
+Trace reachability before using a hypothetical as proof
+  A direct ``sys.stdout.buffer`` write would bypass text adapters and was
+  rightly rejected, but one supporting example claimed ``diff --fast`` could
+  encounter an ``OutputBudgetSink`` under ``--max-output-lines``.  The parser
+  rejects that option for ``diff`` before its handler runs.  The architectural
+  conclusion survived; the stated execution path did not.  Rejected
+  invocations, startup adapters, and command handlers are different
+  control-flow regions.
+
+A last-resort exception catch is not automatically defense in depth
+  A blanket ``UnicodeEncodeError`` catch can append a clean-looking diagnostic
+  after partial patch or JSON output and conceal the implementation defect that
+  produced it.  Clean diagnostics are required for anticipated external
+  failures; complete-output assertions are the stronger protection for an
+  internal output invariant.
+
+The cross-review was productive because corrections were symmetric: one pass
+widened the symptom beyond ``diff`` and exposed the capture-fixture blind spot;
+another separated JSON from byte-preserving text output and rejected a
+vacuous-pass assertion; follow-up tracing corrected an unreachable
+``OutputBudgetSink`` example.  Earlier dogfooding supplied the zero-count and
+modeled-position parallels.  Independent agreement mattered only after those
+claims survived direct probes, source tracing, and executable tests.
