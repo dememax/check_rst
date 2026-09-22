@@ -19,19 +19,43 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures" / "combined_sphinx"
 
 
-def _run_cli(cwd: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
-    """Run the worktree module through a genuine interpreter boundary."""
+def _run_cli(
+    cwd: Path,
+    *arguments: str,
+    env_overrides: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run the worktree module through a genuine interpreter boundary.
+
+    *env_overrides* merges into the inherited environment — e.g.
+    PYTHONIOENCODING, to pin stdout's text error handler deterministically
+    instead of depending on which locale happens to be active on whichever
+    host runs this test (a real language locale like fr_FR.UTF-8 leaves
+    Python's default 'strict' handler in place; the C/POSIX locale family,
+    e.g. Gentoo dev host gl63's C.utf8, auto-activates PEP 540 UTF-8 mode,
+    which sets 'surrogateescape' instead — confirmed live on both hosts,
+    2026-09-22, to change whether the exact same command crashes).
+    ``errors="surrogateescape"`` on this call's own output capture is a
+    separate, unconditional robustness fix: it keeps THIS helper from
+    raising while reading back a child process that legitimately wrote a
+    raw non-UTF-8 byte to stdout/stderr, regardless of what the child's own
+    encoding produced — every existing caller's normal ASCII/valid-UTF-8
+    output decodes identically either way, so this changes nothing for
+    them.
+    """
     environment = os.environ.copy()
     existing_pythonpath = environment.get("PYTHONPATH")
     environment["PYTHONPATH"] = os.pathsep.join(
         part for part in (str(PROJECT_ROOT / "src"), existing_pythonpath) if part
     )
+    if env_overrides:
+        environment.update(env_overrides)
     return subprocess.run(
         [sys.executable, "-m", "check_rst", *arguments],
         cwd=cwd,
         env=environment,
         check=False,
         text=True,
+        errors="surrogateescape",
         capture_output=True,
     )
 
@@ -50,6 +74,59 @@ def _start_cli(cwd: Path, *arguments: str) -> subprocess.Popen[str]:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "stdout_error_handler",
+    [
+        pytest.param("strict", id="strict-e.g.-fr_FR.UTF-8"),
+        pytest.param("surrogateescape", id="surrogateescape-e.g.-C.utf8"),
+    ],
+)
+def test_diff_fast_preview_never_tracebacks_on_non_utf8_filename(
+    tmp_path: Path,
+    stdout_error_handler: str,
+) -> None:
+    """``diff --fast`` must report a clean result for a change touching a
+    non-UTF-8-named file, never a raw traceback — regardless of the
+    interpreter's stdout text error handler, which a real locale selects
+    two different ways: a "real" language locale (e.g. this Ubuntu dev
+    host's fr_FR.UTF-8) leaves Python's default 'strict' handler in place;
+    the C/POSIX locale family (e.g. Gentoo dev host gl63's C.utf8)
+    auto-activates PEP 540 UTF-8 mode, which sets 'surrogateescape'
+    instead. Confirmed live on both real dev hosts, 2026-09-22: this exact
+    command crashes under the former, does not under the latter.
+    PYTHONIOENCODING reproduces both deterministically here without
+    depending on which locales happen to be generated on whichever host
+    runs this suite.
+
+    Currently FAILS for stdout_error_handler="strict" — a real, confirmed
+    bug in ``_run_diff_only``'s own ``print(preview, end="")``
+    (``cli/__init__.py``): the diff preview embeds the raw filename, and a
+    strict-UTF-8 stdout cannot encode the surrogate-escaped byte. Left
+    failing deliberately, not skipped or xfail-marked, so a normal full-
+    suite run keeps surfacing it until that print is made as tolerant of a
+    non-UTF-8 filename as every other such code path in this project
+    already is — at which point this assertion starts passing for both
+    parameters with no test-code change needed."""
+    raw_path = os.fsencode(tmp_path) + b"/non_utf8_\xff.rst"
+    fd = os.open(raw_path, os.O_WRONLY | os.O_CREAT, 0o600)
+    os.write(fd, b"Title\n=====\n\nBody.\n")
+    os.close(fd)
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True, capture_output=True)
+
+    result = _run_cli(
+        tmp_path,
+        "diff",
+        "--fast",
+        env_overrides={"PYTHONIOENCODING": f"utf-8:{stdout_error_handler}"},
+    )
+
+    assert "Traceback" not in result.stderr, (
+        f"non-UTF-8 filename preview raised instead of reporting cleanly "
+        f"(stdout errors={stdout_error_handler!r}):\n{result.stderr}"
     )
 
 
