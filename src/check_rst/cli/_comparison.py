@@ -94,13 +94,13 @@ _WORKTREE_DIFF_FLAGS = (
 
 
 _STATUS_NAMES = {
-    pygit2.GIT_DELTA_ADDED: "added",
-    pygit2.GIT_DELTA_COPIED: "copied",
-    pygit2.GIT_DELTA_DELETED: "deleted",
-    pygit2.GIT_DELTA_MODIFIED: "modified",
-    pygit2.GIT_DELTA_RENAMED: "renamed",
-    pygit2.GIT_DELTA_TYPECHANGE: "typechange",
-    pygit2.GIT_DELTA_UNTRACKED: "untracked",
+    pygit2.enums.DeltaStatus.ADDED: "added",
+    pygit2.enums.DeltaStatus.COPIED: "copied",
+    pygit2.enums.DeltaStatus.DELETED: "deleted",
+    pygit2.enums.DeltaStatus.MODIFIED: "modified",
+    pygit2.enums.DeltaStatus.RENAMED: "renamed",
+    pygit2.enums.DeltaStatus.TYPECHANGE: "typechange",
+    pygit2.enums.DeltaStatus.UNTRACKED: "untracked",
 }
 
 
@@ -341,11 +341,9 @@ def _patch_signature(patches: tuple[pygit2.Patch, ...]) -> tuple[object, ...]:
     )
 
 
-def _unborn_status_paths(repo: pygit2.Repository, worktree_root: pathlib.Path) -> Iterable[str]:
+def _unborn_status_paths(repo: pygit2.Repository) -> Iterable[str]:
     try:
         return repo.status(untracked_files="all")
-    except UnicodeDecodeError:
-        return _helpers._status_paths_with_surrogateescape(worktree_root)
     except pygit2.GitError as exc:
         raise RuntimeError(f"git status failed: {exc}") from exc
 
@@ -360,7 +358,7 @@ def _compare_unborn_head(
     """Compare the absent HEAD tree without materializing one in Git's ODB."""
     files: list[GitFileChange] = []
     if new.kind is GitStateKind.WORKTREE:
-        for path in sorted(_unborn_status_paths(repo, worktree_root)):
+        for path in sorted(_unborn_status_paths(repo)):
             candidate = worktree_root / path
             if pathlib.PurePosixPath(path).suffix != ".rst" or not candidate.is_file():
                 continue

@@ -19,6 +19,7 @@ import tempfile
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import docutils.nodes
+import pygit2
 
 from check_rst import __version__
 
@@ -148,6 +149,10 @@ def _runtime_metadata(verified: bool, word_samples: bool) -> dict[str, Any]:
             "executable": sys.executable,
         },
         "docutils": {"version": getattr(docutils, "__version__", None)},
+        "pygit2": {
+            "version": getattr(pygit2, "__version__", None),
+            "libgit2_version": str(pygit2.LIBGIT2_VERSION),
+        },
         "sphinx": sphinx_runtime,
         "snowballstemmer": stemmer_runtime,
     }
@@ -162,6 +167,10 @@ def _format_runtime(metadata: dict[str, Any]) -> str:
     if metadata["sphinx"] is not None:
         parts.append(f"Sphinx {metadata['sphinx']['version'] or 'unknown'}")
     parts.append(f"docutils {metadata['docutils']['version'] or 'unknown'}")
+    parts.append(
+        f"pygit2 {metadata['pygit2']['version'] or 'unknown'}"
+        f"/libgit2 {metadata['pygit2']['libgit2_version'] or 'unknown'}"
+    )
     if metadata["snowballstemmer"] is not None:
         parts.append(f"snowballstemmer {metadata['snowballstemmer']['version'] or 'unavailable'}")
     return "runtime: " + ", ".join(parts)

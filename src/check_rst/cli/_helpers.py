@@ -10,7 +10,6 @@ import os
 import pathlib
 import re
 import stat
-import subprocess
 import tempfile
 import unicodedata
 from typing import TYPE_CHECKING, NoReturn, cast
@@ -49,6 +48,18 @@ CALL_COUNTS: collections.Counter[str] = collections.Counter()
 
 
 _JSON_SCHEMA_VERSION = 1
+_MIN_PYGIT2_VERSION = (1, 20, 0)
+
+
+def _require_pygit2_version() -> None:
+    """Fail clearly if the imported pygit2 lacks surrogate-safe Git paths."""
+    imported_version = getattr(pygit2, "__version__", None)
+    installed = imported_version if isinstance(imported_version, str) else "unknown"
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:\+[A-Za-z0-9.-]+)?", installed)
+    if match is not None and tuple(map(int, match.groups())) >= _MIN_PYGIT2_VERSION:
+        return
+    print(f"check_rst: pygit2 1.20.0 or newer is required; found {installed}")
+    raise SystemExit(1)
 
 
 def _atomic_write_bytes(path: pathlib.Path, data: bytes) -> None:
@@ -209,45 +220,6 @@ def _repo_for_root(project_root: pathlib.Path | None) -> pygit2.Repository:
     return repo
 
 
-def _status_paths_with_surrogateescape(worktree_root: pathlib.Path) -> list[str]:
-    """Return status paths when pygit2 cannot decode a Git filename.
-
-    Git paths are byte strings. Its NUL-delimited porcelain format preserves
-    those bytes exactly, so os.fsdecode can apply the platform's
-    surrogateescape policy without requiring a HEAD revision.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-            cwd=worktree_root,
-            check=False,
-            capture_output=True,
-            # Porcelain stdout is locale-stable, but Git's failure diagnostics
-            # are translated. Preserve PATH and Git-specific environment while
-            # keeping this exceptional CLI boundary deterministic.
-            env=os.environ | {"LC_ALL": "C"},
-        )
-    except OSError as exc:
-        _git_failure("status", exc)
-    if result.returncode != 0:
-        detail = os.fsdecode(result.stderr).strip() or os.fsdecode(result.stdout).strip() or "unknown Git error"
-        _git_failure("status", RuntimeError(detail))
-
-    paths: list[str] = []
-    entries = result.stdout.split(b"\0")
-    index = 0
-    while index < len(entries):
-        entry = entries[index]
-        index += 1
-        if not entry:
-            continue
-        status = entry[:2]
-        paths.append(os.fsdecode(entry[3:]))
-        if b"R" in status or b"C" in status:
-            index += 1  # consume the separate original-path field
-    return paths
-
-
 def _git_worktree_root(project_root: pathlib.Path | None = None) -> pathlib.Path:
     """Return the repository worktree root for the selected project root."""
     repo = _repo_for_root(project_root)
@@ -311,20 +283,12 @@ def _changed_rst_files(
     worktree_root = pathlib.Path(repo.workdir)
     try:
         status: Iterable[str] = repo.status(untracked_files="all")
-    except UnicodeDecodeError:
-        # Git filenames are byte strings; status()'s str-keyed dict cannot
-        # represent one that isn't valid UTF-8. Use Git's byte-oriented,
-        # machine-readable status only for this compatibility path; unlike a
-        # diff fallback, it works equally before and after the first commit.
-        status = _status_paths_with_surrogateescape(worktree_root)
     except pygit2.GitError as exc:
         _git_failure("status", exc)
     files: list[pathlib.Path] = []
     # A rename reports as a separate delete (the dead original path, dropped
     # below by is_file() since nothing is there anymore) plus add (the live
-    # new path) — no special-casing needed, unlike the single combined "R"
-    # porcelain entry the previous subprocess-based parser had to skip the
-    # original-path field of.
+    # new path).
     for path in status:
         candidate = worktree_root / path
         if candidate.suffix == ".rst" and candidate.is_file():

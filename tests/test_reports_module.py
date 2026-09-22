@@ -266,6 +266,8 @@ def test_cli_json_valid_and_complete(
     assert data["mode"] == "heuristic"
     assert data["runtime"]["python"]["executable"] == sys.executable
     assert data["runtime"]["docutils"]["version"]
+    assert data["runtime"]["pygit2"]["version"]
+    assert data["runtime"]["pygit2"]["libgit2_version"]
     assert data["runtime"]["sphinx"] is None
     assert data["runtime"]["snowballstemmer"] is None
     assert data["config"] is None  # no per-repo config in this sandbox

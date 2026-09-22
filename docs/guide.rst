@@ -601,18 +601,12 @@ document-level policies are deliberately wider: Phase 0 byte hygiene
 hierarchy character remapping is whole-document because a heading
 character's rank has no per-hunk meaning.
 
-Repository discovery, ordinary status, diff ranges, index membership, and
-merge conflicts use ``pygit2`` rather than the Git CLI.  One compatibility
-path is deliberately different: Git permits filenames that are not valid
-UTF-8, while ``pygit2`` exposes status paths as Python strings.  If that API
-cannot decode a status path, ``check_rst`` invokes ``git status
---porcelain=v1 -z`` to preserve the raw bytes and applies the platform's
-filesystem decoding policy.  The ``git`` executable is therefore a
-conditional requirement only for a worktree whose current status contains
-such a path; if it is unavailable, the command stops with a ``git status
-failed`` diagnostic.  That fallback preserves the caller's environment but
-forces ``LC_ALL=C`` so Git's failure detail is deterministic rather than
-localized.
+Repository discovery, status, diff ranges, index membership, and merge
+conflicts use ``pygit2`` rather than the Git CLI.  Since version 1.20,
+``pygit2`` exposes non-UTF-8 Git paths through Python's surrogate-escape
+representation, including the status and diff APIs used here.  ``check_rst``
+checks that minimum version at startup even when installation metadata was
+bypassed.  The installed command does not require a ``git`` executable.
 
 Every explicitly selected blank-line or editorial-spacing modifier is also a
 whole-document policy.  Git scope limits which files may change; it does not
@@ -849,7 +843,11 @@ its impact and a next action:
   that ancestor.
 * ``ERROR`` means selection, source capture, parsing, or semantic proof failed
   — for example an unknown ordinal, a ``source-model`` invariant, or a
-  ``semantic-proof`` divergence.  The converter never guesses past one.
+  ``semantic-proof`` divergence.  The
+  ``list-table.unlocated-aligned-table`` code specifically means table
+  discovery reported a position that is neither an editable aligned-table
+  start nor physically enclosed by an aligned-table ancestor.  The converter
+  never guesses past one.
 
 ----------------------------------------
 Semantic proof and source preservation
@@ -896,6 +894,20 @@ An explicit ``--only`` never authorizes an unselected ancestor conversion.
 Selecting an inner table alone therefore remains a contextual
 ``list-table.nested-aligned-table`` refusal: include its ancestor in the scope,
 or convert the ancestor first and rerun the inner selection.
+
+------------------------------------
+Unexpected modeled table positions
+------------------------------------
+
+``list-table.nested-aligned-table`` is emitted only after physical source
+geometry establishes an enclosing grid or simple table.  Its ancestor-first
+action is therefore applicable to the reported source.
+
+``list-table.unlocated-aligned-table`` has a different meaning: the modeled
+line contains neither an editable table start nor a position inside an aligned
+table.  Rerun ``list-table`` on the current file.  If the refusal recurs,
+preserve the complete diagnostic, the source file, and its current Git diff in
+a bug report.  The source is left unchanged at that position.
 
 ======================================================
 entitle: wrap a document under a new top-level title
@@ -1608,8 +1620,9 @@ The subprocess always uses the same Python interpreter as ``check_rst``;
 it never picks an unrelated ``sphinx-build`` from ``PATH``.  A non-zero
 Sphinx exit is always an ERROR even when the captured output contains only
 WARNINGs, so a failed build cannot look successful merely because it also
-printed a selected-file warning.  The verified-mode preamble records the
-Python, Sphinx, and docutils versions that produced the result.
+printed a selected-file warning.  The runtime preamble records the Python,
+docutils, pygit2, and libgit2 versions that shaped source selection and
+checking; verified mode adds Sphinx.
 
 Some useful Sphinx concerns are not reliable selected-file diagnostics.
 In particular, a document can be included by multiple toctree entries —
@@ -2031,8 +2044,8 @@ config's absolute path for ``--config``.  The ``--format=json`` model carries
 the same ``config`` object saying which file supplied which values.
 You always know why a run is in verified mode.  It also carries a schema
 version and structured runtime metadata; normal verified output prints the
-corresponding concise ``runtime: check_rst …, Python …, Sphinx …, docutils …``
-line.
+corresponding concise ``runtime: check_rst …, Python …, Sphinx …, docutils …,
+pygit2 …/libgit2 …`` line.
 When prose-word sampling is requested, snowballstemmer's version joins the
 runtime record because it affects grouping and typo candidates.
 

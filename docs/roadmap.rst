@@ -2278,12 +2278,22 @@ heading depths) — was tested directly here and ruled out: a genuine
 already-converted table left that table's own kind/lineno/depth
 unaffected, because docutils' section-level confusion changes doctree
 parenting, never the raw text line numbers this recovery keys off.  The
-refusal's own message now shows the actual current line at the reported
-position (``... (line N reads: ...)``) rather than only naming the
-predicate that failed, so the next real occurrence is diagnosable from
-its own output — legitimate nested-cell content reads as table-shaped,
-a stale/unrelated position would not — without needing to reproduce it
-first.
+refusal's own message first gained the actual current line at the reported
+position (``... (line N reads: ...)``).  The 2026-09-21 follow-up identified
+that this evidence still shared the ``nested-aligned-table`` code and its
+misleading ancestor-first action even when the line was stale or unrelated.
+Source recovery now searches for a physical grid/simple-table range containing
+the modeled position.  Only a proven range receives
+``list-table.nested-aligned-table``; a mismatch without one receives the
+distinct ``list-table.unlocated-aligned-table`` source-model error, with the
+actual line and instructions to rerun and preserve the diagnostic, source, and
+Git diff if it recurs.  This makes the next occurrence actionable without
+claiming that the still-unreproduced root cause is solved.
+
+Automatic failure dumps remain deferred.  Persisting source bytes and a Git
+diff by default would unexpectedly copy project content and require a new
+storage, retention, and cleanup contract before the unknown failure has shown
+which additional evidence is necessary.
 
 Parser/range invariants and canonical-tree divergence are reported separately
 as ``source-model`` and ``semantic-proof`` errors/refusals.  They never escape
@@ -2376,6 +2386,26 @@ composition-aware repairs.  ``NAME`` must be non-empty, a single line, and not
 itself indistinguishable from a bare adornment line; the
 exhausted-hierarchy case (all 32 valid adornment characters already in use) is
 refused with a clear diagnostic rather than silently reusing one.
+
+=======================================================
+pygit2 1.20 floor and removal of the Git CLI fallback
+=======================================================
+
+Accepted and implemented for 0.6.1 on 2026-09-22.  pygit2 1.20 fixed
+surrogate-escape handling for non-UTF-8 names across repository status, diff,
+and index paths.
+That is the exact capability the previous ``git status --porcelain=v1 -z``
+fallback supplied.  The package floor therefore moved from 1.19 to 1.20, the
+fallback and its subprocess-specific tests were removed, and byte-named path
+coverage now proves the pygit2-only route with no ``git`` executable on
+``PATH``.
+
+The packaging constraint is backed by a startup version check for environments
+installed with ``--no-deps`` or otherwise assembled outside a resolver.  Runtime
+provenance records both pygit2 and its linked libgit2, and delta classification
+uses ``pygit2.enums.DeltaStatus`` rather than the older module-level
+``GIT_DELTA_*`` aliases.  The complete suite was exercised against both the
+1.20.0 floor and the then-current 1.20.1 release.
 
 ***********************************************************
 Declined decisions and reasons — counter-evidence welcome

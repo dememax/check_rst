@@ -21,7 +21,7 @@ dependencies = [
     "docutils>=0.22.4,<0.24",
     "Sphinx>=9.1,<10",
     "snowballstemmer>=3.1,<4",
-    "pygit2>=1.19,<2",
+    "pygit2>=1.20,<2",
 ]
 
 # Static-analysis dependencies pulled in only by `pip install check-rst[dev]`.

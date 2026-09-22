@@ -50,7 +50,7 @@ wheel explicitly instead:
 ```bash
 cd /path/to/check_rst
 python3.14 -m pip wheel --wheel-dir dist .
-python3.14 -m pip install dist/check_rst-0.6.0-py3-none-any.whl
+python3.14 -m pip install dist/check_rst-0.6.1-py3-none-any.whl
 ```
 
 The generated wheel is a pure-Python, platform-independent package. Its exact
@@ -91,7 +91,7 @@ sed -i 's/docutils>=0.21,<0.23/docutils>=0.21/' \
     /tmp/check_rst-sphinx-source/sphinx-9.1.0/pyproject.toml
 ~/opt/check_rst-ubuntu/bin/python -m pip install \
     /tmp/check_rst-sphinx-source/sphinx-9.1.0 \
-    docutils==0.23 snowballstemmer==3.1.1 pygit2==1.19.3 \
+    docutils==0.23 snowballstemmer==3.1.1 pygit2==1.20.1 \
     mypy==2.2.0 types-docutils==0.22.3.20260518 \
     pytest==9.1.1 pytest-cov==7.1.0 setuptools==83.0.0
 ~/opt/check_rst-ubuntu/bin/python -m pip install \

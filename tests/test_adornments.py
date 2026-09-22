@@ -1910,7 +1910,7 @@ def test_changed_rst_files_works_before_any_commit_exists(
     since Git status needs no HEAD to exist, but a same-shaped diff-based
     query does (confirmed live: it raises KeyError, not a tolerable
     failure), so this scenario must keep using the status-based path, not
-    silently regress onto the diff-based non-UTF-8-filename fallback."""
+    silently regress onto diff-based selection."""
     _git(tmp_path, "init")
     monkeypatch.setattr(_helpers, "PROJECT_ROOT", tmp_path)
     p = tmp_path / "new.rst"
@@ -1925,7 +1925,7 @@ def test_changed_rst_files_supports_non_utf8_path_before_any_commit_exists(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The non-UTF-8 status fallback must not require an existing HEAD."""
+    """pygit2 status must preserve byte-named paths without an existing HEAD."""
     _git(tmp_path, "init")
     monkeypatch.setattr(_helpers, "PROJECT_ROOT", tmp_path)
     raw_path = os.fsencode(tmp_path) + b"/non_utf8_\xff.rst"
@@ -1998,11 +1998,15 @@ def test_changed_rst_files_and_ranges_support_linked_worktree(
 
 
 @pytest.mark.integration
-def test_changed_rst_files_supports_non_utf8_git_filename(rst_repo: Path) -> None:
-    """Git filenames are byte strings; porcelain -z must use surrogateescape."""
+def test_changed_rst_files_supports_non_utf8_git_filename(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """pygit2 must expose byte-named paths without a Git executable."""
     raw_path = os.fsencode(rst_repo) + b"/non_utf8_\xff.rst"
     fd = os.open(raw_path, os.O_WRONLY | os.O_CREAT, 0o600)
     os.close(fd)
+    monkeypatch.setenv("PATH", "")
 
     assert _helpers._changed_rst_files() == [Path(os.fsdecode(raw_path))]
 

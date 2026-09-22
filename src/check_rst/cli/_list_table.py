@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 from . import _helpers
 from ._document import (
+    _GRID_TABLE_BORDER_RE,
     _SIMPLE_TABLE_RULE_RE,
     _TABLE_DIRECTIVE_RE,
     Document,
@@ -59,6 +60,14 @@ class _AlignedTableSource:
     first_prefix: str
     caption: str | None
     options: tuple[tuple[str, str], ...]
+
+
+class _NestedAlignedTableSourceError(ValueError):
+    """The modeled position is physically enclosed by an aligned table."""
+
+
+class _UnlocatedAlignedTableSourceError(ValueError):
+    """The modeled position has no editable table or enclosing table."""
 
 
 def _leading_whitespace(line: str) -> str:
@@ -118,14 +127,35 @@ def _is_simple_table_rule(line: str) -> bool:
     return bool(_SIMPLE_TABLE_RULE_RE.match(line))
 
 
+def _enclosing_aligned_table_range(lines: list[str], position: int) -> tuple[int, int] | None:
+    """Return a physical aligned-table range containing *position*.
+
+    A modeled line that is not itself editable proves table nesting only when
+    a preceding grid/simple table start has an extent that contains it.  This
+    scan affects diagnostics alone; conversion still requires an exact source
+    start at the modeled line.
+    """
+    for candidate_start in range(position - 1, -1, -1):
+        line = lines[candidate_start]
+        if not (_GRID_TABLE_BORDER_RE.match(line) or _is_simple_table_rule(line)):
+            continue
+        try:
+            candidate_end = _aligned_table_end(lines, candidate_start)
+        except IndexError, ValueError:
+            continue
+        if position < candidate_end:
+            return candidate_start, candidate_end
+    return None
+
+
 def _locate_aligned_table_source(lines: list[str], entry: TableEntry) -> _AlignedTableSource:
     """Recover the exact editable source block represented by *entry*.
 
     Directive ownership is established by its marker and indented body;
     bare tables are established by their top border/rule.  If neither is
-    present at the reported source line, the table lives in a virtual
-    nested parse (for example inside an outer aligned-table cell) and
-    cannot safely be spliced until that ancestor is converted first.
+    present at the reported source line, physical source geometry must prove
+    whether the table lives in a virtual nested parse (for example inside an
+    outer aligned-table cell) or whether its modeled position is inconsistent.
     """
     start = entry.lineno - 1
     if not 0 <= start < len(lines):
@@ -183,16 +213,17 @@ def _locate_aligned_table_source(lines: list[str], entry: TableEntry) -> _Aligne
         end = _aligned_table_end(lines, start)
         indent = _leading_whitespace(lines[start])
         return _AlignedTableSource(start, end, start, end, indent, indent, None, ())
-    # Show what is actually at the reported position, not just the fact
-    # that neither pattern matched: a legitimate nested-cell case reads as
-    # table-shaped content one level in (see _NESTED_ALIGNED_TABLE in
-    # tests), while stale/unrelated content here — the open, unreproduced
-    # 2026-09-18 dogfooding report's own suspicion — reads as ordinary
-    # prose. Either way this is now diagnosable from the refusal's own
-    # text, without re-opening the file and the entry's line number by
-    # hand ("capture the moment, not the memory").
-    raise ValueError(
-        f"table is nested inside source that cannot be edited independently (line {start + 1} reads: {lines[start]!r})"
+    actual_line = f"line {start + 1} reads: {lines[start]!r}"
+    ancestor = _enclosing_aligned_table_range(lines, start)
+    if ancestor is not None:
+        ancestor_start, ancestor_end = ancestor
+        raise _NestedAlignedTableSourceError(
+            "table is nested inside an aligned-table ancestor that cannot be edited independently "
+            f"(ancestor lines {ancestor_start + 1}-{ancestor_end}; {actual_line})"
+        )
+    raise _UnlocatedAlignedTableSourceError(
+        "reported table position does not begin an editable aligned table and no enclosing "
+        f"aligned-table ancestor was found ({actual_line})"
     )
 
 
@@ -326,15 +357,32 @@ def _evaluate_list_table_candidate(lines: list[str], entry: TableEntry) -> ListT
 
     try:
         source = _locate_aligned_table_source(lines, entry)
-    except (IndexError, ValueError) as exc:
-        nested = "nested inside source" in str(exc)
+    except _NestedAlignedTableSourceError as exc:
         return ListTableCandidate(
             entry,
             None,
             entry.caption,
             str(exc),
-            refusal_code="list-table.nested-aligned-table" if nested else "list-table.source-model",
-            refusal_category="incompatible" if nested else "source-model",
+            refusal_code="list-table.nested-aligned-table",
+            refusal_category="incompatible",
+        )
+    except _UnlocatedAlignedTableSourceError as exc:
+        return ListTableCandidate(
+            entry,
+            None,
+            entry.caption,
+            str(exc),
+            refusal_code="list-table.unlocated-aligned-table",
+            refusal_category="source-model",
+        )
+    except (IndexError, ValueError) as exc:
+        return ListTableCandidate(
+            entry,
+            None,
+            entry.caption,
+            str(exc),
+            refusal_code="list-table.source-model",
+            refusal_category="source-model",
         )
 
     option_names = {name for name, _ in source.options}
@@ -642,6 +690,10 @@ def _list_table_issue(
         "list-table.span": "Keep the aligned table, remove the span, or exclude it with --skip.",
         "list-table.included-source": "Run list-table on the reported included source directly.",
         "list-table.nested-aligned-table": "Convert its aligned-table ancestor first, then run list-table again.",
+        "list-table.unlocated-aligned-table": (
+            "Run list-table on the current file again. If this refusal recurs, report this diagnostic "
+            "with the source file and its current Git diff."
+        ),
         "list-table.source-model": "Inspect the reported source range; the converter will not guess its boundaries.",
         "list-table.semantic-proof": "Keep the aligned table and inspect the reported doctree divergence.",
         "list-table.unknown-ordinal": "Run outline to obtain the current table ordinals, then retry.",

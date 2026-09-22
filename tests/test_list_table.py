@@ -968,8 +968,32 @@ def test_nested_aligned_table_refusal_shows_the_actual_line_at_the_reported_line
     result = _list_table._plan_list_table_file(p, only=[2], skip=[])
 
     assert result.fatal is not None
+    assert "ancestor lines 4-14" in result.fatal.reason
     assert "line 7 reads:" in result.fatal.reason
     assert "table:: Inner" in result.fatal.reason
+
+
+@pytest.mark.unit
+def test_unlocated_table_does_not_claim_an_aligned_table_ancestor() -> None:
+    """A stale or transient modeled line must not receive the nested-table
+    remedy unless physical source geometry establishes an enclosing table."""
+    lines = ["Title", "=====", "", "Ordinary prose."]
+    entry = _types.TableEntry(4, 1, "grid", (2, 2), None, "A B 1 2", 4)
+
+    candidate = _list_table._evaluate_list_table_candidate(lines, entry)
+    issue = _list_table._list_table_issue(
+        1,
+        entry,
+        candidate.refusal_code or "",
+        candidate.refusal_category or "",
+        candidate.refusal or "",
+    )
+
+    assert candidate.refusal_code == "list-table.unlocated-aligned-table"
+    assert candidate.refusal is not None
+    assert "no enclosing aligned-table ancestor was found" in candidate.refusal
+    assert "Convert its aligned-table ancestor" not in issue.action
+    assert "report" in issue.action
 
 
 @pytest.mark.integration

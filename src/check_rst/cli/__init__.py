@@ -1702,6 +1702,7 @@ def _requested_output_limit(argv: list[str]) -> int | None:
 
 def main() -> None:
     """Run the CLI, installing the whole-report sink when requested."""
+    _helpers._require_pygit2_version()
     limit = _requested_output_limit(sys.argv[1:])
     if limit is None:
         _main()

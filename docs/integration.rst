@@ -34,15 +34,13 @@ checkout when protection from an activated virtual environment is required;
 that launcher belongs to the host configuration, not to a consuming
 repository.
 
-Normal Git integration is provided by the declared ``pygit2`` dependency and
-does not shell out to the Git CLI.  The ``git`` executable is a conditional
-compatibility dependency when a worktree's current status contains a filename
-that is not valid UTF-8: ``pygit2`` cannot expose that status path as a Python
-string, so ``check_rst`` uses Git's NUL-delimited byte output for that query.
-If the executable is unavailable in this exceptional case, the command exits
-with a clean ``git status failed`` diagnostic.  The subprocess preserves the
-caller's environment except for forcing ``LC_ALL=C`` to keep Git's failure
-detail deterministic.
+Normal Git integration is provided by ``pygit2`` 1.20 or newer and does not
+shell out to the Git CLI.  Version 1.20 makes non-UTF-8 filenames available
+through Python's surrogate-escape representation in status, diff, and index
+paths.  The CLI checks the imported ``pygit2`` version at startup, so an
+environment that bypassed the package resolver fails clearly before relying
+on those path APIs.  The ``git`` executable is needed by the test suite's
+repository fixtures, not by an installed ``check_rst`` command.
 
 The interpreter boundary must still include every Sphinx extension loaded by
 consumer ``conf.py`` files.  On Gentoo, the preferred host-wide installation

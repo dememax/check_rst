@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import docutils.nodes
 import docutils.utils
+import pygit2
 import pytest
 from _support import _rst
 
@@ -18,6 +19,41 @@ from check_rst.cli import _helpers, _lint
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("installed", ["1.19.3", "1.20.0rc1", "unknown"])
+def test_cli_rejects_unsupported_pygit2_runtime_version(
+    installed: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A mismatched installed environment fails before any CLI operation."""
+    monkeypatch.setattr(pygit2, "__version__", installed)
+    monkeypatch.setattr("sys.argv", ["check_rst", "--version"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert f"pygit2 1.20.0 or newer is required; found {installed}" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("installed", ["1.20.0", "1.20.1", "1.20.0+gentoo"])
+def test_cli_accepts_required_pygit2_runtime_version(
+    installed: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(pygit2, "__version__", installed)
+    monkeypatch.setattr("sys.argv", ["check_rst", "--version"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    assert "check_rst 0.6.1" in capsys.readouterr().out
 
 
 @pytest.mark.unit
@@ -280,79 +316,6 @@ def test_cli_bare_repository_uses_clean_no_worktree_diagnostic(
     output = capsys.readouterr().out
     assert "not a git repository" in output
     assert "name files explicitly or use --recursive" in output
-
-
-@pytest.mark.unit
-def test_surrogateescape_status_fallback_reports_subprocess_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    failure = subprocess.CompletedProcess(
-        args=["git", "status"],
-        returncode=128,
-        stdout=b"",
-        stderr=b"fatal: index file corrupt\n",
-    )
-    monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: failure)
-
-    with pytest.raises(SystemExit) as exc:
-        _helpers._status_paths_with_surrogateescape(tmp_path)
-
-    assert exc.value.code == 1
-    output = capsys.readouterr().out
-    assert "git status failed" in output
-    assert "index file corrupt" in output
-
-
-@pytest.mark.unit
-def test_surrogateescape_status_fallback_forces_c_locale_and_preserves_environment(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Machine-readable Git output and its failure diagnostics are independent
-    of the invoking process's locale without losing unrelated environment."""
-    monkeypatch.setenv("LANG", "fr_FR.UTF-8")
-    monkeypatch.setenv("LC_ALL", "fr_FR.UTF-8")
-    monkeypatch.setenv("CHECK_RST_TEST_SENTINEL", "preserved")
-    invocation: dict[str, object] = {}
-
-    def successful_git(*_args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
-        invocation.update(kwargs)
-        return subprocess.CompletedProcess(args=["git", "status"], returncode=0, stdout=b"", stderr=b"")
-
-    monkeypatch.setattr(subprocess, "run", successful_git)
-
-    assert _helpers._status_paths_with_surrogateescape(tmp_path) == []
-    environment = invocation["env"]
-    assert isinstance(environment, dict)
-    assert environment["LC_ALL"] == "C"
-    assert environment["LANG"] == "fr_FR.UTF-8"
-    assert environment["CHECK_RST_TEST_SENTINEL"] == "preserved"
-    assert os.environ["LC_ALL"] == "fr_FR.UTF-8"
-
-
-@pytest.mark.unit
-def test_surrogateescape_status_fallback_reports_missing_git_executable(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """The exceptional byte-path fallback remains a clean CLI boundary when
-    the otherwise-optional Git executable is unavailable."""
-
-    def missing_git(*_args: object, **_kwargs: object) -> None:
-        raise FileNotFoundError(2, "No such file or directory", "git")
-
-    monkeypatch.setattr(subprocess, "run", missing_git)
-
-    with pytest.raises(SystemExit) as exc:
-        _helpers._status_paths_with_surrogateescape(tmp_path)
-
-    assert exc.value.code == 1
-    output = capsys.readouterr().out
-    assert "git status failed" in output
-    assert "No such file or directory" in output
 
 
 @pytest.mark.integration
