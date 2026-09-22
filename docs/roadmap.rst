@@ -2411,7 +2411,7 @@ uses ``pygit2.enums.DeltaStatus`` rather than the older module-level
 Surrogate-safe console and JSON path output
 =============================================
 
-Accepted and implemented on 2026-09-22 after the 1.20 floor exposed the next
+Accepted and implemented for 0.6.2 on 2026-09-22 after the 1.20 floor exposed the next
 boundary: ``diff --fast`` on a byte-named file reached its preview successfully
 but strict UTF-8 standard output rejected the path's low surrogate.  The same
 live probe found independent crashes in ordinary ``check``, ``outline``, and

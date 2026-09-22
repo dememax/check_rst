@@ -558,7 +558,7 @@ def test_run_sphinx_nonzero_with_only_warning_adds_failure_error(
 def test_runtime_metadata_names_behavior_affecting_dependencies() -> None:
     runtime = _reports._runtime_metadata(verified=True, word_samples=True)
 
-    assert runtime["check_rst"]["version"] == "0.6.1"
+    assert runtime["check_rst"]["version"] == "0.6.2"
     assert runtime["python"]["version"]
     assert runtime["python"]["executable"] == sys.executable
     assert runtime["docutils"]["version"]
@@ -580,7 +580,7 @@ def test_cli_version_reports_release_identity(
 
     assert exc.value.code == 0
     assert capsys.readouterr().out == (
-        "check_rst 0.6.1\nCopyright (C) 2026 Maxime P. DEMENTYEV\nLicense: GPL-3.0-only\n"
+        "check_rst 0.6.2\nCopyright (C) 2026 Maxime P. DEMENTYEV\nLicense: GPL-3.0-only\n"
     )
 
 
@@ -1581,7 +1581,7 @@ def test_sphinx_src_valid_dir_runs_phase2_and_phase3(
     out = capsys.readouterr().out
     assert "Phase 2: Python Sphinx rules" in out
     assert "Phase 3: Sphinx build integrity" in out
-    assert "runtime: check_rst 0.6.1, Python " in out
+    assert "runtime: check_rst 0.6.2, Python " in out
     assert "Sphinx " in out
     assert "docutils " in out
     assert out.index("Phase 2: Python Sphinx rules") < out.index("Phase 3: Sphinx build integrity")
