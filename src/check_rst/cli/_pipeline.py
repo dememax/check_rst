@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 if TYPE_CHECKING:
     import argparse
+    from collections.abc import Callable
 
 from . import _reports, _sphinx
 from ._composition import CompositionIndex
@@ -145,6 +146,33 @@ def _plan_normal_fixes(
             f"check_rst: {len(files)} file(s) selected, {state.total_errors} input error(s), 0 file(s) fixed"
         )
         raise SystemExit(1)
+
+
+def _owned_findings_filter(
+    path: pathlib.Path,
+    files: list[pathlib.Path],
+    project_root: pathlib.Path,
+) -> Callable[[list[Finding]], list[Finding]]:
+    """Return a filter dropping findings another selected input reports.
+
+    A source-intrinsic finding in an included fragment describes that
+    fragment's own text.  When the fragment is itself a selected input, its
+    own run reports the finding in its own coordinates; repeating it from
+    every including root would print and count one physical finding twice.
+    Composition-dependent findings — the effective single-title rule — are
+    never passed through this filter: they exist only in the composed root.
+    """
+    root = path.resolve()
+    inputs = {selected.resolve() for selected in files}
+
+    def owned_elsewhere(finding: Finding) -> bool:
+        if finding.source is None or finding.source.startswith("<"):
+            return False
+        owner = pathlib.Path(finding.source)
+        owner = (owner if owner.is_absolute() else project_root / owner).resolve()
+        return owner != root and owner in inputs
+
+    return lambda findings: [finding for finding in findings if not owned_elsewhere(finding)]
 
 
 def _run_phase1(
@@ -307,14 +335,15 @@ def _run_phase1(
                 state.total_errors += e
                 state.total_warnings += w
 
-        nested_inline_v = check_nested_inline_markup(path, whole_file, doc=document)
+        own = _owned_findings_filter(path, files, project_root)
+        nested_inline_v = own(check_nested_inline_markup(path, whole_file, doc=document))
         if args.json:
             state.json_records[path]["findings"].extend(nested_inline_v)
         _, w = _print_findings(nested_inline_v, pstr, args.no_warnings, suppress_findings)
         state.total_warnings += w  # WARNING-only: choosing one of two roles is semantic.
 
         if not args.no_directives:
-            directive_v = check_directives(path, whole_file, args.verbose, doc=document)
+            directive_v = own(check_directives(path, whole_file, args.verbose, doc=document))
             if args.json:
                 state.json_records[path]["findings"].extend(directive_v)
             e, w = _print_findings(directive_v, pstr, args.no_warnings, suppress_findings)
@@ -323,7 +352,7 @@ def _run_phase1(
             state.total_errors += e  # directive findings are warnings; e stays 0
             state.total_warnings += w
 
-        homoglyph_v = check_homoglyphs(path, doc=document)
+        homoglyph_v = own(check_homoglyphs(path, doc=document))
         if args.json:
             state.json_records[path]["findings"].extend(homoglyph_v)
         _, w = _print_findings(homoglyph_v, pstr, args.no_warnings, suppress_findings)
@@ -490,7 +519,9 @@ def _run_sphinx_phases(
                 bare_filename_docname = _docname_for(env, path)
                 if bare_filename_docname is None:
                     continue
-                bare_filename_v = check_bare_filenames(env, bare_filename_docname, bare_filename_doc)
+                bare_filename_v = _owned_findings_filter(path, files, project_root)(
+                    check_bare_filenames(env, bare_filename_docname, bare_filename_doc)
+                )
                 multiple_toctree_v = check_multiple_toctree_parents(env, [path], anomalies=toctree_anomalies)
                 single_top_v: list[Finding] = []
                 if not args.no_adornments:

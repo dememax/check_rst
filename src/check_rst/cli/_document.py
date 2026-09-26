@@ -41,6 +41,7 @@ from ._types import (
     CodeBlockEntry,
     CommentEntry,
     Finding,
+    FindingLocation,
     IncludeEntry,
     ListEntry,
     OutlineEntry,
@@ -199,8 +200,8 @@ class _DocumentCore:
         context = self._comment_source_contexts.get(id(node))
         return self.source_context(node) if context is None else context
 
-    def finding_location(self, node: docutils.nodes.Node, lineno: int) -> tuple[int, str | None, tuple[int, ...]]:
-        """Return a finding's physical line, ``Finding.source``, and occurrence.
+    def finding_location(self, node: docutils.nodes.Node, lineno: int) -> FindingLocation:
+        """Return where a finding at *node* belongs.
 
         *lineno* is the parser-coordinate line a checker computed for *node*.
         A node without its own source belongs to its nearest located ancestor,
@@ -208,24 +209,38 @@ class _DocumentCore:
         ``source=None``; included content names its physical owner in that
         owner's coordinates.  An inexact owner reports line 0 rather than a
         plausible but unproven line, as the single-title rule does.  The
-        occurrence identifies which include composed the content (see
-        CompositionIndex.occurrence), so repeats can be collapsed without
-        merging distinct constructs.
+        occurrence identifies which include composed the content, so repeats
+        can be collapsed without merging distinct constructs.
         """
         owner, provenance = self.composition.located(node)
-        occurrence = self.composition.occurrence(provenance)
         if provenance is None:
-            return lineno, None, occurrence
+            return FindingLocation(lineno, None, (), lineno)
         physical = self.composition.physical_line(owner, lineno) if provenance.exact else 0
-        return physical, provenance.source, occurrence
+        return self._included_location(physical, provenance)
 
-    def comment_finding_location(self, node: docutils.nodes.Node) -> tuple[int, str | None, tuple[int, ...]]:
-        """Return the recovered comment start, ``Finding.source``, and occurrence."""
+    def comment_finding_location(self, node: docutils.nodes.Node) -> FindingLocation:
+        """Return where a comment finding belongs, from its recovered start."""
         start, _lines, provenance = self.comment_source_context(node)
-        occurrence = self.composition.occurrence(provenance)
         if provenance is None:
-            return start, None, occurrence
-        return (start if provenance.exact else 0), provenance.source, occurrence
+            return FindingLocation(start, None, (), start)
+        return self._included_location(start if provenance.exact else 0, provenance)
+
+    def _included_location(self, lineno: int, provenance: SourceProvenance) -> FindingLocation:
+        """Locate non-root content; scope it through its outermost include.
+
+        The root's changed-line ranges are root coordinates.  The only root
+        line of an included finding is the include directive that composed
+        it, so the root's scope selects included content exactly when that
+        directive changed; synthetic content has no root line at all.
+        """
+        chain = provenance.include_chain
+        outermost = chain[0] if chain and chain[0].source == self.composition.root_source else None
+        return FindingLocation(
+            lineno,
+            provenance.source,
+            self.composition.occurrence(provenance),
+            outermost.lineno if outermost is not None else 0,
+        )
 
 
 class _DocumentInlineMixin(_DocumentCore):

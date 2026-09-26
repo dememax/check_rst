@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import docutils.nodes
 import docutils.statemachine
@@ -162,6 +162,22 @@ class Finding:
         if not isinstance(item, str):
             return False
         return item in str(self)
+
+
+class FindingLocation(NamedTuple):
+    """Where one finding belongs; see Document.finding_location.
+
+    ``lineno`` and ``source`` are the physical coordinates reported to the
+    reader.  ``occurrence`` identifies the include that composed the content.
+    ``scope_line`` is the root-coordinate line a changed-line scope tests:
+    the finding's own line for root content, the outermost include
+    directive's line for included content, 0 when the root has no such line.
+    """
+
+    lineno: int
+    source: str | None
+    occurrence: tuple[int, ...]
+    scope_line: int
 
 
 # (1-based inclusive physical span of a title, title-diagnostic code) pairs

@@ -605,6 +605,13 @@ document-level policies are deliberately wider: Phase 0 byte hygiene
 hierarchy character remapping is whole-document because a heading
 character's rank has no per-hunk meaning.
 
+Hunks are root-file coordinates, so they never select an included fragment's
+lines directly.  A scoped semantic finding from included content — a
+pseudo-heading, mistyped directive, or nested inline markup — enters the run
+when the root's include directive itself changed, and not otherwise.  A
+fragment that is itself a selected input reports its own findings once, in its
+own run, instead of again from every file that includes it.
+
 Repository discovery, status, diff ranges, index membership, and merge
 conflicts use ``pygit2`` rather than the Git CLI.  Since version 1.20,
 ``pygit2`` exposes non-UTF-8 Git paths through Python's surrogate-escape

@@ -158,19 +158,19 @@ def check_homoglyphs(path: pathlib.Path, doc: Document | None = None) -> list[Fi
         s = str(text_node)
         base_line = _node_line(text_node)
         for start, _end, word in _homoglyph_words_in(s):
-            lineno, source, occurrence = document.finding_location(text_node, base_line + s[:start].count("\n"))
+            location = document.finding_location(text_node, base_line + s[:start].count("\n"))
             findings.append(
                 (
                     Finding(
-                        lineno,
+                        location.lineno,
                         Severity.WARNING,
                         f"{word!r} mixes Cyrillic and Latin letters that look "
                         "identical — probably a keyboard-layout slip, not "
                         "intentional",
-                        source=source,
+                        source=location.source,
                         code=FindingCode.TEXT_HOMOGLYPH,
                     ),
-                    occurrence,
+                    location.occurrence,
                 )
             )
     return _collapse_include_repeats(findings)
@@ -196,22 +196,21 @@ def check_nested_inline_markup(
         nested = document.nested_inline_by_node.get(id(outer), ())
         if not nested:
             continue
-        lineno = _inline_node_line(outer)
-        if not _in_scope(ranges, lineno, lineno):
+        location = document.finding_location(outer, _inline_node_line(outer))
+        if not _in_scope(ranges, location.scope_line, location.scope_line):
             continue
-        lineno, owner_source, occurrence = document.finding_location(outer, lineno)
         source = " ".join(str(outer.rawsource).split())
         if len(source) > _BOLD_PREVIEW_LEN:
             source = source[:_BOLD_PREVIEW_LEN] + "…"
         inner_kinds = ", ".join(dict.fromkeys(_inline_kind(node) for node in nested))
         finding = Finding(
-            lineno=lineno,
+            lineno=location.lineno,
             severity=Severity.WARNING,
             text=(f"nested inline markup in {_inline_kind(outer)} span {source!r} (contains {inner_kinds})"),
-            source=owner_source,
+            source=location.source,
             code=FindingCode.INLINE_NESTED_MARKUP,
         )
-        findings.append((finding, occurrence))
+        findings.append((finding, location.occurrence))
     return _collapse_include_repeats(findings)
 
 
@@ -246,15 +245,16 @@ def check_directives(
     nested_strong_ids = set(document.nested_inline_by_node)
 
     def warn(node: docutils.nodes.Node, code: FindingCode, text: str, *, comment: bool = False) -> None:
-        if comment:
-            scope_line = document.comment_source_context(node)[0]
-            lineno, source, occurrence = document.comment_finding_location(node)
-        else:
-            scope_line = _node_line(node)
-            lineno, source, occurrence = document.finding_location(node, scope_line)
-        if _in_scope(ranges, scope_line, scope_line):
-            finding = Finding(lineno=lineno, severity=Severity.WARNING, text=text, source=source, code=code)
-            findings.append((finding, occurrence))
+        location = (
+            document.comment_finding_location(node) if comment else document.finding_location(node, _node_line(node))
+        )
+        # Scope in root coordinates: included content is selected through
+        # its outermost include directive, never through its own lines.
+        if _in_scope(ranges, location.scope_line, location.scope_line):
+            finding = Finding(
+                lineno=location.lineno, severity=Severity.WARNING, text=text, source=location.source, code=code
+            )
+            findings.append((finding, location.occurrence))
 
     def section_clause(node: docutils.nodes.Node) -> str:
         title = _enclosing_section_title(node)
