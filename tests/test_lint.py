@@ -957,6 +957,52 @@ def test_included_homoglyph_anchors_to_its_fragment_word_line(tmp_path: Path) ->
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("source", "line"),
+    [
+        ("\u0410uthor title\n============\n\nText.\n", 1),
+        ("############\n\u0410uthor title\n############\n\nText.\n", 2),
+        ("Top\n===\n\nText.\n\n\u0410uthor sub\n----------\n\nMore.\n", 6),
+    ],
+    ids=["underline-only", "overline", "subsection"],
+)
+def test_section_title_findings_anchor_to_the_title_text(tmp_path: Path, source: str, line: int) -> None:
+    """Docutils records a section title's line as its underline; the word
+    is on the title text line above it, and that is a proven location."""
+    path = tmp_path / "doc.rst"
+    path.write_text(source, encoding="utf-8")
+
+    assert [(f.lineno, f.location_exact) for f in _lint.check_homoglyphs(path)] == [(line, True)]
+
+
+@pytest.mark.integration
+def test_unproven_finding_lines_stay_visible_but_approximate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A field name carries no line or raw source of its own: the finding
+    keeps its best line, never pretends it is exact, and never disappears."""
+    path = tmp_path / "doc.rst"
+    path.write_text("#####\nTitle\n#####\n\n:\u0410uthor: value\n\nSee \u0410gain here.\n", encoding="utf-8")
+
+    assert [(f.lineno, f.location_exact) for f in _lint.check_homoglyphs(path)] == [(5, False), (7, True)]
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "check", str(path)])
+    with pytest.raises(SystemExit):
+        cli.main()
+    lines = capsys.readouterr().out.splitlines()
+    assert any(line.startswith(f"{path}:5: WARNING:") and line.endswith("(approximate line)") for line in lines)
+    assert any(line.startswith(f"{path}:7: WARNING:") and not line.endswith("(approximate line)") for line in lines)
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "check", "--format=json", str(path)])
+    with pytest.raises(SystemExit):
+        cli.main()
+    findings = json.loads(capsys.readouterr().out)["files"][0]["findings"]
+    assert [(f["lineno"], f["location_exact"]) for f in findings] == [(5, False), (7, True)]
+
+
+@pytest.mark.integration
 def test_nested_inline_findings_keep_exact_lines(tmp_path: Path) -> None:
     """Guard for the shared locator: definition bodies and line blocks."""
     path = tmp_path / "doc.rst"

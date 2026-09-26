@@ -187,7 +187,7 @@ def test_json_findings_keep_public_fields_without_internal_code(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Characterization: internal codes must not leak into the JSON schema."""
+    """Internal codes stay out of JSON; location exactness is additive (schema 1)."""
     path = rst_repo / "test.rst"
     path.write_text("####\nTitle\n####\n\n**Opener.** text follows.\n", encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(path)])
@@ -195,4 +195,6 @@ def test_json_findings_keep_public_fields_without_internal_code(
         cli.main()
     findings = json.loads(capsys.readouterr().out)["files"][0]["findings"]
     assert findings
-    assert {tuple(finding) for finding in findings} == {("lineno", "severity", "text", "source", "fixable")}
+    assert {tuple(finding) for finding in findings} == {
+        ("lineno", "severity", "text", "source", "fixable", "location_exact")
+    }

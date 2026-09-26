@@ -1405,6 +1405,20 @@ def test_bare_filename_and_asset_findings_anchor_to_their_mention_lines(tmp_path
 
 
 @pytest.mark.integration
+def test_unproven_mention_line_is_marked_approximate(tmp_path: Path) -> None:
+    env = _build_multi_file_env(
+        tmp_path,
+        {
+            "a": "A\n=\n\n:guide.rst: a field name has no line of its own\n\n.. toctree::\n\n   guide\n",
+            "guide": "Guide\n=====\n",
+        },
+    )
+    findings = _sphinx.check_bare_filenames(env, "a", _document.Document(tmp_path / "a.rst", tmp_path))
+
+    assert [(f.code, f.location_exact) for f in findings] == [("reference.bare-filename", False)]
+
+
+@pytest.mark.integration
 def test_references_anchor_to_their_role_lines(tmp_path: Path) -> None:
     env = _inline_anchor_env(tmp_path)
     roles = [(entry.lineno, entry.target) for entry in _sphinx.find_references(env, "a") if entry.reftype == "doc"]
