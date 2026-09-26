@@ -1358,6 +1358,25 @@ def test_cli_did_you_mean_suggested_for_broken_doc_reference(
 
 
 @pytest.mark.integration
+def test_bare_filenames_attribute_included_mentions_to_their_fragment(tmp_path: Path) -> None:
+    """A mention inside an included fragment belongs to the fragment's
+    coordinates, and two include occurrences are one physical finding."""
+    (tmp_path / "frag.inc").write_text("Intro.\n\nSee guide.rst for details.\n", encoding="utf-8")
+    env = _build_multi_file_env(
+        tmp_path,
+        {
+            "a": "A\n=\n\nRoot.\n\n.. include:: frag.inc\n\n.. include:: frag.inc\n\n.. toctree::\n\n   guide\n",
+            "guide": "Guide\n=====\n",
+        },
+    )
+    doc = _document.Document(tmp_path / "a.rst")
+
+    findings = _sphinx.check_bare_filenames(env, "a", doc)
+
+    assert [(f.source, f.lineno, f.code) for f in findings] == [("frag.inc", 3, "reference.bare-filename")]
+
+
+@pytest.mark.integration
 def test_bare_filenames_flags_mention_matching_known_docname(tmp_path: Path) -> None:
     env = _build_multi_file_env(
         tmp_path,

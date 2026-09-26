@@ -848,6 +848,85 @@ def test_mistyped_directive_warning_anchors_to_comment_marker(tmp_path: Path) ->
     assert findings[0].lineno == 1
 
 
+# Each lint family once, at distinct fragment lines: a homoglyph (1), a
+# mistyped directive nested in a list item (5), a bold opener (9), and
+# nested inline markup (11).
+_LINT_FRAGMENT = (
+    "Frag para with \u0410uthor.\n\n- item\n\n  .. code: bash\n\n     echo hi\n\n"
+    "**Bold opener.** text\n\nSome **bold *em* text** here.\n"
+)
+
+
+def _write_including_root(tmp_path: Path, include_lines: str) -> Path:
+    (tmp_path / "frag.rst").write_text(_LINT_FRAGMENT, encoding="utf-8")
+    root = tmp_path / "main.rst"
+    root.write_text(f"######\nMain\n######\n\nIntro.\n\n{include_lines}\n**Root opener.** text\n", encoding="utf-8")
+    return root
+
+
+@pytest.mark.integration
+def test_included_lint_findings_name_their_owning_source(tmp_path: Path) -> None:
+    """A fragment line printed under the root filename points at the wrong
+    file: every lint family must carry the physical owning source."""
+    root = _write_including_root(tmp_path, ".. include:: frag.rst\n")
+
+    directive = [(f.source, f.lineno, f.code) for f in _lint.check_directives(root, True)]
+    assert directive == [
+        ("frag.rst", 5, "directive.mistyped"),
+        ("frag.rst", 9, "pseudo-heading.bold-opener"),
+        (None, 9, "pseudo-heading.bold-opener"),
+    ]
+    assert [(f.source, f.lineno) for f in _lint.check_homoglyphs(root)] == [("frag.rst", 1)]
+    assert [(f.source, f.lineno) for f in _lint.check_nested_inline_markup(root, True)] == [("frag.rst", 11)]
+
+
+@pytest.mark.integration
+def test_fragment_included_twice_reports_each_physical_finding_once(tmp_path: Path) -> None:
+    """Two include occurrences of one physical construct are one finding,
+    never two indistinguishable lines."""
+    root = _write_including_root(tmp_path, ".. include:: frag.rst\n\n.. include:: frag.rst\n")
+
+    directive = [(f.source, f.lineno, f.code) for f in _lint.check_directives(root, True)]
+    assert directive == [
+        ("frag.rst", 5, "directive.mistyped"),
+        ("frag.rst", 9, "pseudo-heading.bold-opener"),
+        (None, 11, "pseudo-heading.bold-opener"),
+    ]
+    assert len(_lint.check_homoglyphs(root)) == 1
+    assert len(_lint.check_nested_inline_markup(root, True)) == 1
+
+
+@pytest.mark.integration
+def test_cli_text_and_json_agree_on_included_finding_sources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _write_including_root(tmp_path, ".. include:: frag.rst\n\n.. include:: frag.rst\n")
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(root)])
+    with pytest.raises(SystemExit):
+        cli.main()
+    out = capsys.readouterr().out
+    assert out.count("frag.rst:5: WARNING: comment '.. code: …' looks like a mistyped directive") == 1
+    assert out.count("frag.rst:9: WARNING: bold paragraph opener 'Bold opener.'") == 1
+    assert f"{root}:11: WARNING: bold paragraph opener 'Root opener.'" in out
+    assert f"{root}:5: WARNING" not in out
+    assert "0 error(s), 5 warning(s)" in out
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(root)])
+    with pytest.raises(SystemExit):
+        cli.main()
+    findings = json.loads(capsys.readouterr().out)["files"][0]["findings"]
+    assert sorted((f["source"] or "", f["lineno"]) for f in findings) == [
+        ("", 11),
+        ("frag.rst", 1),
+        ("frag.rst", 5),
+        ("frag.rst", 9),
+        ("frag.rst", 11),
+    ]
+
+
 @pytest.mark.integration
 def test_tables_table_directive_wraps_simple_table(tmp_path: Path) -> None:
     """'.. table:: Caption' is docutils' own directive for a captioned
