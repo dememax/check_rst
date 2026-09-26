@@ -1639,8 +1639,9 @@ untouched — normalizing one of these files on purpose remains possible.
 Deferred pending a dedicated round (queued behind the verbosity-level work
 landing the same day). **Update, 2026-07-21:** the motivating pain is resolved
 a different way — an independent session normalized the downstream project's adopted documents
-in full instead of waiting for a permanent exemption (see "Adopting a foreign
-document" in :doc:`guide`).  The feature request itself is not retracted —
+in full instead of waiting for a permanent exemption (see "Adopting and
+re-syncing a foreign document" in :doc:`guide`, and "Adopting foreign documents"
+in :doc:`development`).  The feature request itself is not retracted —
 a genuinely permanent foreign-style exception may still be wanted here or in
 another repo one day — but its urgency here is gone; noted so it does not sit
 prioritized on a stale driver.
