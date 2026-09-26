@@ -35,6 +35,7 @@ from ._lint import check_directives, check_homoglyphs, check_nested_inline_marku
 from ._output import (
     _emit_final_status,
     _emit_report_line,
+    _in_source_order,
     _print_findings,
     _print_outline_entries,
     _report_kind,
@@ -295,6 +296,11 @@ def _run_phase1(
             # construct a fresh Document for the post-fix checks and stats.
             document = Document(path, project_root)
 
+        # Phase 1 collects every checker's findings and prints them once, in
+        # source order (decided 2026-09-26): checker order and Docutils'
+        # table traversal must not decide what a reader sees first.
+        phase1_v: list[Finding] = []
+        adornments_clean = False
         if not args.no_adornments:
             adornment_v = check_adornments(path, whole_file, doc=document)
             hierarchy_v = check_hierarchy(path, doc=document)
@@ -303,12 +309,13 @@ def _run_phase1(
             # single-title check runs in Phase 2 after the environment exists.
             single_top_v = check_single_top_level(path, doc=document) if args.sphinx_src is None else []
             all_v = adornment_v + hierarchy_v + single_top_v
+            adornments_clean = not all_v
             if args.skip_fixable:
                 # Severity and repairability are independent.  Suppress only
                 # findings explicitly owned by the deterministic fixer; a
                 # non-fixable structural ERROR still affects the exit status.
                 fixable_v = [finding for finding in all_v if finding.fixable]
-                visible_v = [finding for finding in all_v if not finding.fixable]
+                phase1_v.extend(finding for finding in all_v if not finding.fixable)
                 state.suppressed_fixable[path] += len(fixable_v)
                 if fixable_v and args.sphinx_src is not None:
                     # Phase 3 may hide a Sphinx title diagnostic only as a
@@ -319,44 +326,32 @@ def _run_phase1(
                         document.text,
                         None if whole_file else document.ranges,
                     )
-                if args.json:
-                    state.json_records[path]["findings"].extend(visible_v)
-                e, w = _print_findings(visible_v, pstr, args.no_warnings, suppress_findings)
-                state.total_errors += e
-                state.total_warnings += w
-                if not all_v and not args.diff and not args.quiet:
-                    print(f"✓ {pstr}: adornments + hierarchy OK")
             else:
-                if args.json:
-                    state.json_records[path]["findings"].extend(all_v)
-                e, w = _print_findings(all_v, pstr, args.no_warnings, suppress_findings)
-                if not all_v and not args.diff and not args.quiet:
-                    print(f"✓ {pstr}: adornments + hierarchy OK")
-                state.total_errors += e
-                state.total_warnings += w
+                phase1_v.extend(all_v)
 
         own = _owned_findings_filter(path, files, project_root)
-        nested_inline_v = own(check_nested_inline_markup(path, whole_file, doc=document))
-        if args.json:
-            state.json_records[path]["findings"].extend(nested_inline_v)
-        _, w = _print_findings(nested_inline_v, pstr, args.no_warnings, suppress_findings)
-        state.total_warnings += w  # WARNING-only: choosing one of two roles is semantic.
-
+        # WARNING-only families: choosing one of two roles, judging a
+        # pseudo-heading, or confirming a script slip is semantic.
+        phase1_v.extend(own(check_nested_inline_markup(path, whole_file, doc=document)))
+        directive_v: list[Finding] | None = None
         if not args.no_directives:
             directive_v = own(check_directives(path, whole_file, args.verbose, doc=document))
-            if args.json:
-                state.json_records[path]["findings"].extend(directive_v)
-            e, w = _print_findings(directive_v, pstr, args.no_warnings, suppress_findings)
-            if not e and not w and not args.quiet:
-                print(f"✓ {pstr}: directives OK")
-            state.total_errors += e  # directive findings are warnings; e stays 0
-            state.total_warnings += w
+            phase1_v.extend(directive_v)
+        phase1_v.extend(own(check_homoglyphs(path, doc=document)))
 
-        homoglyph_v = own(check_homoglyphs(path, doc=document))
+        phase1_v = _in_source_order(phase1_v)
         if args.json:
-            state.json_records[path]["findings"].extend(homoglyph_v)
-        _, w = _print_findings(homoglyph_v, pstr, args.no_warnings, suppress_findings)
-        state.total_warnings += w  # WARNING-only, never affects state.total_errors
+            state.json_records[path]["findings"].extend(phase1_v)
+        e, w = _print_findings(phase1_v, pstr, args.no_warnings, suppress_findings)
+        state.total_errors += e
+        state.total_warnings += w
+        if adornments_clean and not args.diff and not args.quiet:
+            print(f"✓ {pstr}: adornments + hierarchy OK")
+        visible_directives = [
+            finding for finding in directive_v or [] if finding.severity != Severity.WARNING or not args.no_warnings
+        ]
+        if directive_v is not None and not visible_directives and not args.quiet:
+            print(f"✓ {pstr}: directives OK")
 
         if args.skip_fixable and state.suppressed_fixable[path] and not args.quiet:
             print(f"↷ {pstr}: {state.suppressed_fixable[path]} auto-fixable finding(s) suppressed")
@@ -538,21 +533,14 @@ def _run_sphinx_phases(
                         source_root=args.sphinx_src,
                         root_transformed=_source_was_transformed(env, bare_filename_docname),
                     )
+                # Not phase2_v: that name holds Phase 2's own Sphinx build
+                # warnings, which Phase 3 reports.
+                verified_v = _in_source_order([*bare_filename_v, *single_top_v, *multiple_toctree_v])
                 if args.json:
-                    state.json_records[path]["findings"].extend(bare_filename_v)
-                    state.json_records[path]["findings"].extend(multiple_toctree_v)
-                    state.json_records[path]["findings"].extend(single_top_v)
-                _, w = _print_findings(bare_filename_v, str(path), args.no_warnings, suppress_findings)
-                state.total_warnings += w  # WARNING-only, never affects state.total_errors
-                e, _ = _print_findings(single_top_v, str(path), args.no_warnings, suppress_findings)
+                    state.json_records[path]["findings"].extend(verified_v)
+                e, w = _print_findings(verified_v, str(path), args.no_warnings, suppress_findings)
                 state.total_errors += e
-                _, w = _print_findings(
-                    multiple_toctree_v,
-                    str(path),
-                    args.no_warnings,
-                    suppress_findings,
-                )
-                state.total_warnings += w  # WARNING-only, never affects state.total_errors
+                state.total_warnings += w
             if args.outline or args.json:
                 for path in files:
                     # phase2_doc: see the sibling heuristic loop above for
@@ -707,6 +695,17 @@ def _run_sphinx_phases(
             # Findings are frozen/hashable, so preserve first-seen order while
             # counting and printing an identical finding only once.
             sphinx_v = list(dict.fromkeys(sphinx_v))
+            # Source order within Phase 3 too: by input file, then line.  An
+            # unlocated diagnostic (no physical file) follows the located ones.
+            input_order = {selected.resolve(): index for index, selected in enumerate(files)}
+            sphinx_v.sort(
+                key=lambda finding: (
+                    input_order.get(finding.sphinx.path, len(input_order))
+                    if finding.sphinx is not None and finding.sphinx.path is not None
+                    else len(input_order),
+                    finding.lineno,
+                )
+            )
             if args.skip_fixable and state.title_restatements:
                 # Suppress only proven restatements: a path plus a message
                 # class is not proof (dogfooding reports, 2026-09-18 and

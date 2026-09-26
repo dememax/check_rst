@@ -367,6 +367,7 @@ class _DocumentCore:
             self.composition.occurrence(provenance),
             outermost.lineno if outermost is not None else 0,
             exact,
+            self.composition.order_key(provenance),
         )
 
 

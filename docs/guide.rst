@@ -1671,6 +1671,14 @@ severity word, the same shape as the outline's ``levels:``/``blocks:``
 legend lines — metadata about the run, not a location a reader would
 ever jump to.
 
+Within each phase, findings print in source order, whichever checker produced
+them: effective composition order first — included content sits at its
+``include`` directive — then line, then a fixed rule order.  A shared
+rationale prints directly after the first finding it explains, so it can never
+look attached to an unrelated finding above it.  JSON findings follow the same
+order.  A line check_rst could not prove ends with ``(approximate line)`` and
+carries ``location_exact: false`` in JSON; the finding still counts.
+
 ===========================================
 Phase 3: Sphinx integrity and diagnostics
 ===========================================

@@ -1422,6 +1422,16 @@ rather than two identical lines.  The general principle behind these range and
 location repairs is recorded in :doc:`development`, "A modeled coordinate is
 not yet an editable range or an exact report".
 
+Inline findings and references then gained one shared exact locator: each
+inline ancestor and the node itself must have a proven span in its parent's
+raw source, tolerating Sphinx's SmartQuotes rewrites only when newline counts
+agree.  An unproven line stays visible but is marked approximate in text and
+JSON (an additive schema-1 member).  Section titles are located on their text
+line rather than Docutils' underline line.  Within each phase, findings print
+in effective source order — included content at its ``include`` directive —
+with each shared rationale after the first finding it explains; the phase
+sections themselves are unchanged (decided 2026-09-26).
+
 ====================
 Outline enrichment
 ====================

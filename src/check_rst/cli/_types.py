@@ -159,6 +159,9 @@ class Finding:
     code: FindingCode = dataclasses.field(kw_only=True)
     sphinx: SphinxSource | None = dataclasses.field(default=None, kw_only=True)
     location_exact: bool = dataclasses.field(default=True, kw_only=True)
+    # Composition sort key for included content (see CompositionIndex.order_key);
+    # empty for root content.  Not identity: excluded from equality and hash.
+    order: tuple[int, ...] = dataclasses.field(default=(), compare=False, kw_only=True)
 
     def __str__(self) -> str:
         marker = "" if self.location_exact else " (approximate line)"
@@ -187,6 +190,7 @@ class FindingLocation(NamedTuple):
     occurrence: tuple[int, ...]
     scope_line: int
     exact: bool = True
+    order: tuple[int, ...] = ()
 
 
 # (1-based inclusive physical span of a title, title-diagnostic code) pairs

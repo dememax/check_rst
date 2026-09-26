@@ -1217,7 +1217,9 @@ def check_bare_filenames(
         s = str(text_node)
         base_line = _node_line(text_node)
         owner_source = _node_source_path(text_node, doc.path)
-        occurrence = composition.occurrence(composition.located(text_node)[1])
+        owner_provenance = composition.located(text_node)[1]
+        occurrence = composition.occurrence(owner_provenance)
+        order = composition.order_key(owner_provenance)
         for m in _BARE_FILENAME_RE.finditer(s):
             name = m.group(1)
             candidates = sorted(c for c in by_basename.get(name, ()) if c != docname)
@@ -1236,6 +1238,7 @@ def check_bare_filenames(
                         source=_finding_source(owner_source, doc),
                         code=FindingCode.REFERENCE_BARE_FILENAME,
                         location_exact=exact_line is not None,
+                        order=order,
                     ),
                     occurrence,
                 )
@@ -1265,6 +1268,7 @@ def check_bare_filenames(
                         source=_finding_source(owner_source, doc),
                         code=FindingCode.REFERENCE_PLAIN_LOCAL_ASSET,
                         location_exact=exact_line is not None,
+                        order=order,
                     ),
                     occurrence,
                 )

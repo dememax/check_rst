@@ -21,6 +21,7 @@ from ._types import (
     CommentEntry,
     ConditionalEntry,
     Finding,
+    FindingCode,
     IncludeEntry,
     ListEntry,
     MergedEntry,
@@ -419,29 +420,46 @@ def _print_outline_entries(
 # run rather than on every matching line (Max, 2026-07-20: "it repeats...
 # long. Can we inform this as a separate line only once?" — the same
 # "state shared context once, not per entry" principle as the outline's
-# levels: legend).  Keyed by the finding text's distinguishing prefix;
-# _hints_shown tracks which have already printed and is reset at the top
-# of main() — once per RUN, not once per file.
-_FINDING_HINTS: tuple[tuple[str, str], ...] = (
-    (
-        "nested inline markup ",
+# levels: legend).  Keyed by the finding's rule code — message wording may
+# change — with the label printed in front of the rationale; _hints_shown
+# tracks which have already printed and is reset at the top of main() —
+# once per RUN, not once per file.
+_FINDING_HINTS: dict[FindingCode, tuple[str, str]] = {
+    FindingCode.INLINE_NESTED_MARKUP: (
+        "nested inline markup",
         "reStructuredText renders only the outer inline role; choose which one should survive",
     ),
-    (
-        "bold paragraph opener ",
+    FindingCode.PSEUDO_HEADING_BOLD_OPENER: (
+        "bold paragraph opener",
         "AI documents often use this pattern as an informal heading; consider a proper section title",
     ),
-    ("standalone bold line ", "verify it is not substituting a section title (bold is for inline emphasis only)"),
-    (
-        "second effective top-level title ",
+    FindingCode.PSEUDO_HEADING_STANDALONE_BOLD: (
+        "standalone bold line",
+        "verify it is not substituting a section title (bold is for inline emphasis only)",
+    ),
+    FindingCode.HIERARCHY_SECOND_TITLE: (
+        "second effective top-level title",
         "check_rst outline's levels legend reports the next free section char (the first unused char in "
         "canonical order); choose the page title; for one physical source, preview check_rst entitle "
         "NAME FILE; included or transformed titles need manual composition-aware restructuring",
     ),
-)
+}
 
 
-_hints_shown: set[str] = set()
+_hints_shown: set[FindingCode] = set()
+
+_CODE_RANK = {code: rank for rank, code in enumerate(FindingCode)}
+
+
+def _in_source_order(findings: list[Finding]) -> list[Finding]:
+    """Return one phase's findings in effective source order.
+
+    Composition order first — root content by its own line, included content
+    at its include directive (Finding.order) — then physical line, then the
+    rule registry's order, so the result never depends on which checker ran
+    first or on how Docutils traversed a table.
+    """
+    return sorted(findings, key=lambda f: (f.order or (f.lineno,), f.lineno, _CODE_RANK[f.code]))
 
 
 def _print_findings(
@@ -456,37 +474,35 @@ def _print_findings(
     truthiness-compatible with the old (has_errors, has_warnings) shape.
     suppress=True counts without printing (structure-only outline): a display
     filter under the "trims display, never information" contract — the
-    footer and the exit code stay honest.
+    footer and the exit code stay honest.  A shared rationale prints once,
+    directly after the first finding it explains.
     """
     n_errors = 0
     n_warnings = 0
     for f in findings:
         finding_prefix = f.source or prefix
-        visible = f.severity != Severity.WARNING or not no_warnings
-        if not suppress and visible:
-            for key, hint in _FINDING_HINTS:
-                if f.text.startswith(key) and key not in _hints_shown:
-                    _hints_shown.add(key)
-                    print(f"  ({key.strip()}: {hint})")
         if f.severity == Severity.WARNING:
             if no_warnings:
                 continue
             n_warnings += 1
-            if not suppress:
-                # No leading glyph (Max, 2026-07-20: "we break de-facto
-                # compiler alike output... those prefixes are optional, we've
-                # got the text warning or error" — added to the contract, see
-                # docs/guide.rst, "De-facto compiler output").
-                # Bare "{prefix}:{f}" already reads as "path:line: WARNING:
-                # message" via Finding.__str__ — the shape generic tooling
-                # (IDE problem matchers, editor jump-to-error) parses.
-                with _report_kind("WARNING"):
-                    print(f"{finding_prefix}:{f}")
+            report_kind = "WARNING"
         else:
             n_errors += 1
-            if not suppress:
-                with _report_kind("ERROR"):
-                    print(f"{finding_prefix}:{f}")
+            report_kind = "ERROR"
+        if suppress:
+            continue
+        # No leading glyph (Max, 2026-07-20: "we break de-facto compiler alike
+        # output... those prefixes are optional, we've got the text warning or
+        # error" — added to the contract, see docs/guide.rst, "De-facto
+        # compiler output").  Bare "{prefix}:{f}" already reads as
+        # "path:line: WARNING: message" via Finding.__str__ — the shape generic
+        # tooling (IDE problem matchers, editor jump-to-error) parses.
+        with _report_kind(report_kind):
+            print(f"{finding_prefix}:{f}")
+        hint = _FINDING_HINTS.get(f.code)
+        if hint is not None and f.code not in _hints_shown:
+            _hints_shown.add(f.code)
+            print(f"  ({hint[0]}: {hint[1]})")
     return n_errors, n_warnings
 
 

@@ -173,6 +173,7 @@ def check_homoglyphs(path: pathlib.Path, doc: Document | None = None) -> list[Fi
                         source=location.source,
                         code=FindingCode.TEXT_HOMOGLYPH,
                         location_exact=location.exact,
+                        order=location.order,
                     ),
                     location.occurrence,
                 )
@@ -219,6 +220,7 @@ def check_nested_inline_markup(
             source=location.source,
             code=FindingCode.INLINE_NESTED_MARKUP,
             location_exact=location.exact,
+            order=location.order,
         )
         findings.append((finding, location.occurrence))
     return _collapse_include_repeats(findings)
@@ -268,6 +270,7 @@ def check_directives(
                 source=location.source,
                 code=code,
                 location_exact=location.exact,
+                order=location.order,
             )
             findings.append((finding, location.occurrence))
 

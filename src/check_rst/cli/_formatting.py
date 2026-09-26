@@ -12,6 +12,7 @@ import re
 import docutils.nodes
 
 from . import _helpers
+from ._composition import CompositionIndex
 from ._document import (
     Document,
     _resolve_document,
@@ -222,6 +223,7 @@ def check_single_top_level(
             source=entry.provenance.source if entry.provenance is not None else None,
             fixable=False,
             code=FindingCode.HIERARCHY_SECOND_TITLE,
+            order=CompositionIndex.order_key(entry.provenance),
         )
         for entry in top_level[1:]
     ]

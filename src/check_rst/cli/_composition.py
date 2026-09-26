@@ -504,6 +504,20 @@ class CompositionIndex:
         return owner, provenance
 
     @staticmethod
+    def order_key(provenance: SourceProvenance | None) -> tuple[int, ...]:
+        """Place included content in effective composition order.
+
+        The outermost include directive's root line comes first, then every
+        site's doctree order down the chain: content sorts at its include,
+        repeated occurrences stay distinct, and filenames never decide order.
+        Root content returns the empty key and sorts by its own line.
+        """
+        if provenance is None or not provenance.include_chain:
+            return ()
+        chain = provenance.include_chain
+        return (chain[0].lineno, *(site.order for site in chain))
+
+    @staticmethod
     def occurrence(provenance: SourceProvenance | None) -> tuple[int, ...]:
         """Identify the parsed include occurrence that composed this content.
 
