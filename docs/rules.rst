@@ -42,52 +42,13 @@ never skip the pre-fix pass.  When promoting a
 bold line to a section, strip the markers and use the placeholder
 workflow — the judgment is yours, the adornment mechanics still are not.
 
-A bold paragraph opener inside a *list item* used to be silently
-exempt from this WARNING — reversed the same day (Max: "check_rst must
-warn about those bold texts... it's up to the AI - accept or not").
-The five lists the original single-page guide converted to real subsections
-(2026-07-20 — the worked demonstration's commentary, the feedback loop's report
-categories, how-to-treat-the-two-modes, the per-repo config
-conditions, and this project's integration notes) were judged and
-converted *before* the reversal, on ``outline``-visibility grounds
-alone — ``check_rst`` never flagged any of them at the time.  The old
-exemption could not tell a short ``* **term**: definition`` label
-apart from a full ``* **Heading-ish sentence.**  More prose…`` opener
-using tree shape alone — both are "bold first child, more children
-follow" — so it silenced both, and in doing so silenced exactly the
-signal that would have nudged toward restructuring sooner.  Now
-neither shape is exempt: every list-item bold opener gets the same
-WARNING a non-list one would, judged the same way.
-
-The remaining WARNINGs this reversal surfaced — the numbered items in
-what were then :doc:`roadmap`'s "Agreed direction" list and every
-entry in its "Accepted, deferred" and "Declined, with reasons"
-sections — were a deliberate exception to that judgment at the time,
-not an oversight: they were a chronological register, read together
-as a log, not individually navigated the way the five converted
-lists' points were.  Restructuring each into its own subsection would
-have been heading-inflation for entries meant to be skimmed as a
-timeline, costing the register its own shape — step 1 of the loop
-reaching a considered "leave it" is as valid an outcome as "promote
-it".  That balance later tipped the other way once the roadmap grew
-large enough that finding one item in it became its own friction; see
-"Finding one item among many" below for the reversal and the
-roadmap's current section-per-entry shape.
-
-Stated as a general rule, not just this one reversal: **a stricter
-WARNING rule never retroactively reaches into files you have not
-re-checked.**  ``0 error(s), 0 warning(s)`` describes the last time
-that file ran through the loop, under whatever ruleset existed then —
-never "clean under the current rules," and never "reviewed since the
-rules last changed."  Confirmed by real, external evidence the same
-day this exemption reversed: an independent Claude Code session using
-check_rst on a downstream project's documentation watched one file,
-``coding-standards.rst``, jump from 74 to 95 WARNINGs from this
-reversal alone — a silent backlog nobody had looked at yet, in a
-repository not otherwise touched by the change.  After any rule
-tightens, ``--recursive --skip-fixable`` across the repos you care
-about is the manual audit that surfaces it; the tool will not do it
-for you, on its own, after the fact.
+A stricter rule never retroactively reaches into files you have not
+re-checked.  ``0 error(s), 0 warning(s)`` describes the last time a file ran
+through the loop, under the ruleset of that time — never "clean under the
+current rules".  After any rule tightens, ``check --recursive --skip-fixable``
+across the repositories you care about is the audit that surfaces the new
+backlog; the tool does not run it on its own.  The reversal that established
+this is recorded under "Pseudo-headings" in :doc:`development`.
 
 *********************************************************
 Judge structure for cold consumers, not the warm author
@@ -217,7 +178,11 @@ promotion nor makes a pseudo-section harmless.
 Bold pseudo-headings create their own outline failure
 *******************************************************
 
-A WARNING is a request for semantic judgment, not background noise.  Its
+A standalone bold line, a bold paragraph opener, and a ``.. rubric::`` are
+reported as WARNINGs (``pseudo-heading.standalone-bold``,
+``pseudo-heading.bold-opener``, ``pseudo-heading.rubric``): each may be a
+heading in disguise or a deliberate label, and only the author can tell.  They
+never change the exit status and are not auto-fixed.  A WARNING is a request for semantic judgment, not background noise.  Its
 exit status of 0 means that the tool refuses to guess, not that the warning
 has been semantically cleared or that a run containing unreviewed warnings
 is "clean".  A particularly self-reinforcing AI failure starts when that
@@ -235,27 +200,49 @@ distinction is lost:
 #. That fallback hides the structural defect, so the same authoring habit
    survives the next edit and the cycle repeats.
 
-The mismatch is diagnostic evidence about the SOURCE, not proof that the
-outline failed.  Repeated warnings do not become harmless merely because
-neighboring items use the same style; local consistency can mean a
-systematic pseudo-heading convention.  Judge whether each bold opener
-names an independently navigable concept.  If it does, promote it to a
-real section using the placeholder workflow.  If it is genuinely one item
-in a register, definition list, checklist, or other sequence whose meaning
-depends on being read together, retain it deliberately — the
-chronological registers the roadmap once kept were the concrete case, until
-they grew large enough to become sections (see "What the tool deliberately
-leaves to you" above).
+===================================
+Pseudo-headings: what is detected
+===================================
 
-Give every warning in the changed scope an explicit disposition:
+* a paragraph whose only content is one bold span (standalone bold line);
+* a paragraph that begins with a bold span followed by more text (bold
+  paragraph opener) — inside a list item exactly as outside one, because tree
+  shape cannot tell a short ``term:`` label from a heading-like opener;
+* every ``.. rubric::`` directive, which is excluded from the table of contents
+  and cannot be referenced.
+
+``--verbose`` adds the bold or rubric text, a preview of the following prose,
+and the enclosing section.
+
+====================================================
+Pseudo-headings: what is deliberately not detected
+====================================================
+
+* bold inside a title, term, or other non-paragraph element, and bold in the
+  middle of a sentence;
+* a bold span with nested markup, which the more specific nested-inline
+  WARNING owns, because promoting it could not restore the lost role;
+* block quotes and literal blocks: quoted material and captured output are not
+  the author's own structure.  A merely mis-indented paragraph becomes a block
+  quote too, and that exemption is a known, accepted limitation.
+
+===============================
+Pseudo-headings: dispositions
+===============================
+
+The mismatch between a full outline and ``--sections-only`` is diagnostic
+evidence about the source, not proof that the outline failed.  Repeated
+warnings do not become harmless merely because neighboring items use the same
+style; local consistency can mean a systematic pseudo-heading convention.  Give
+every warning in the changed scope an explicit disposition:
 
 * ``promote`` — it names an independently navigable concept, so convert it
   to a real section with a placeholder adornment.
 * ``retain`` — it is a meaningful label, identifier, field name, or one
-  member of a sequence whose meaning depends on remaining a list; record that
-  semantic reason in the project's ``.check_rst-retained.toml`` (see "Retained
-  WARNINGs" in :doc:`guide`), so the reviewed WARNING no longer looks
-  unreviewed.
+  member of a register, definition list, checklist, or other sequence whose
+  meaning depends on being read together; record that semantic reason in the
+  project's ``.check_rst-retained.toml`` (see "Retained WARNINGs" in
+  :doc:`guide`), so the reviewed WARNING no longer looks unreviewed.
 * ``rewrite`` — the emphasis has no structural job; remove it or fold the
   text into ordinary prose instead of preserving a warning that has no
   semantic justification.
@@ -289,83 +276,84 @@ If exact text is ambiguous, choose one of the generated selectors rather than
 guessing.  Do not infer structure by grepping ``^====``, ``^----``,
 ``^\*``, or similar markup.
 
+=======================================
+Pseudo-headings: evidence and history
+=======================================
+
+The list-item exemption that once silenced these warnings, its reversal, and
+the backlog it exposed downstream are recorded under "Pseudo-headings" in
+:doc:`development`.
+
 ******************************************************
 Nested inline markup means one role is silently lost
 ******************************************************
 
-Markdown permits combinations such as bold text containing an inline code
-span.  RST does not nest inline markup in either direction.  For example::
+A bold or emphasis span whose text still contains another inline construct is
+reported as a WARNING (``inline.nested-markup``).  Markdown permits bold text
+around an inline code span; RST does not nest inline markup in either
+direction, so it renders only the outer role and keeps the inner delimiters as
+text::
 
     Use **``XGrabServer()``** to lock the server.
 
 Docutils creates one outer ``strong`` node whose visible text still contains
-the double-backtick characters.  It does not create a literal child.  The
-inverse shape has the same failure::
+the double backticks, and a clean Sphinx build does not reveal it.  The
+finding names the outer kind, a bounded source preview, and the inner kind; it
+never changes the exit status, and it is not auto-fixable, because RST has no
+syntax that preserves both roles over the same characters.  It supersedes the
+pseudo-heading warning for the same bold span, since promoting that span to a
+section could not restore the lost role.
 
-    ``code **bold** code``
+=================================
+Nested markup: what is detected
+=================================
 
-Here docutils creates one outer ``literal`` node and keeps the asterisks as
-literal content.  A successful parse and a clean Sphinx build therefore do not
-prove that both requested styles survived.  An outer inline literal is,
-however, itself an explicit request to render its content as data, so
-``check_rst`` does not report that shape by default: every sampled case — 10 in
-this repository and 35 in Journal — was quoted RST syntax, a code identifier, a
-glob, or a template literal, never a request for two roles (decided
-2026-09-26).
-
-``check_rst`` detects this without copying docutils' delimiter grammar into a
-regular expression.  For every outer strong or emphasis node, it feeds the
-node's leftover text through a fresh
-``docutils.parsers.rst.states.Inliner``.  A successful explicit inline node in
-that second parse shows that the leftover text *can* be parsed as markup
-outside its outer role; it does not by itself prove which role the author
-intended, which is why the finding is a WARNING for you to judge.  The fresh
+``check_rst`` does not copy docutils' delimiter grammar into a regular
+expression.  For every outer strong or emphasis node it feeds the leftover
+text through a fresh ``docutils.parsers.rst.states.Inliner``.  A successful
+explicit inline node in that second parse — an inline literal, emphasis,
+strong, interpreted text, or explicit role — shows that the text *can* be
+parsed as markup outside its outer role; it does not prove which role the
+author intended, which is why the finding is a WARNING to judge.  Leading and
+mid-sentence positions receive the same diagnosis, and block quotes stay in
+scope because quoted or imported markup renders incorrectly too.  The fresh
 probe document is an isolation predicate: discovering a reference or target
 cannot mutate the real doctree used by later checks.
 
-Three results deliberately do not count:
+==================================================
+Nested markup: what is deliberately not detected
+==================================================
 
-* plain ``Text`` means docutils recognized no inner construct, as with the C++
-  spelling ``int** ptr`` or the non-boundary text ``x**y``;
-* ``problematic`` means an incomplete or invalid start string, not a complete
-  inner role;
-* an implicit URL or email ``reference`` contains no nested delimiter or
-  explicit role.  A literal URL is ordinary code-like content, not proof of a
-  link-inside-code request.
+* An outer inline literal.  In ````code **bold** code```` docutils keeps the
+  asterisks as literal content, but the literal is itself an explicit request
+  to render its content as data (decided 2026-09-26).
+* Plain ``Text`` from the second parse: docutils recognized no inner
+  construct, as with the C++ spelling ``int** ptr`` or ``x**y``.
+* A ``problematic`` result: an incomplete or invalid start string, not a
+  complete inner role.
+* An implicit URL or email ``reference``, which contains no nested delimiter
+  or explicit role.
+* Literal blocks, whose contents are captured source, not parsed inline
+  structure.
 
-The WARNING names the outer kind, its bounded source preview, and the inner
-kind.  Its shared explanation is printed once per run::
-
-    (nested inline markup: reStructuredText renders only the outer inline role;
-    choose which one should survive)
-    note.rst:8: WARNING: nested inline markup in bold span
-    '**``XGrabServer()``**' (contains inline literal)
-
-This is not auto-fixable.  RST has no syntax that preserves both roles over the
-same characters, so the author must choose a disposition:
+=============================
+Nested markup: dispositions
+=============================
 
 * keep the inner role and remove the outer markers — the usual repair for a
   Markdown export whose bold merely surrounds code;
 * keep the outer role and remove or escape the inner markers when they were
   unintended syntax;
-* retain the span unchanged when its markers are deliberately shown, such as
-  an example of this very pattern.  Record that semantic reason when reviewing
-  the WARNING.
+* ``retain`` the span unchanged when its markers are deliberately shown, such
+  as an example of this very pattern, with the reason in
+  ``.check_rst-retained.toml``.
 
-The specific warning supersedes the heading-substitute warning for the same
-strong node.  A leading nested span used to be reported as a standalone bold
-line or bold paragraph opener, advice that could send the author toward a
-section promotion without repairing the lost role.  Mid-sentence spans were
-silent.  Both positions now receive the same syntax diagnosis.  Blockquotes
-remain in scope because quoted/imported markup still renders incorrectly;
-literal blocks remain out of scope because their contents are captured source,
-not parsed inline structure.
+=====================================
+Nested markup: evidence and history
+=====================================
 
-The first implemented whole-corpus scan (2026-08-02) found 403 warnings in 109
-files: 355 outer bold spans, 36 outer inline literals, and 12 outer emphasis
-spans.  Outer inline literals have since left the default report (see above).  The original roadmap evidence from 2026-07-26 was 175 occurrences in
-49 files; preserving both numbers distinguishes corpus growth from a detector
-change.
+The corpus scans behind the rule and the classification behind the literal
+policy are recorded under "Nested inline markup" in :doc:`development`.
 
 ***************************************************
 The one WARNING that isn't really a judgment call

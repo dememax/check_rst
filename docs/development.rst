@@ -210,6 +210,47 @@ Dated evidence behind the current rules in :doc:`rules`.  Each subsection
 belongs to one rule; the rule's current predicate, exceptions, dispositions,
 and output contract live in :doc:`rules`, and only the evidence lives here.
 
+=================
+Pseudo-headings
+=================
+
+A bold paragraph opener inside a list item used to be silently exempt; the
+exemption was reversed the same day (Max, 2026-07-20: "check_rst must warn
+about those bold texts... it's up to the AI - accept or not").  Tree shape
+cannot tell a short ``term:`` label from a full heading-like opener — both are
+"bold first child, more children follow" — so the exemption silenced both,
+including the signal that would have nudged toward restructuring sooner.  The
+five lists the original single-page guide converted to subsections that day
+(the worked demonstration's commentary, the feedback loop's report categories,
+how to treat the two modes, the per-repo configuration conditions, and the
+integration notes) had been judged on outline-visibility grounds alone before
+the reversal.
+
+The reversal also surfaced the roadmap's numbered agreed-direction list and
+its accepted, deferred, and declined entries.  They were retained deliberately
+at the time as a chronological register read as a log — a considered "leave
+it" is as valid a disposition as "promote it" — until the roadmap grew large
+enough that finding one item became its own friction and every entry became a
+section.  The same day, an independent session on a downstream project watched
+one file, ``coding-standards.rst``, jump from 74 to 95 WARNINGs from the
+reversal alone: a silent backlog in a repository not otherwise touched, which
+is why a tightened rule calls for a manual recursive audit.
+
+======================
+Nested inline markup
+======================
+
+The original roadmap evidence (2026-07-26) was 175 occurrences in 49 files.
+The first implemented whole-corpus scan (2026-08-02) found 403 warnings in 109
+files: 355 outer bold spans, 36 outer inline literals, and 12 outer emphasis
+spans; preserving both numbers distinguishes corpus growth from a detector
+change.  Before the warning existed, a leading nested span was reported as a
+standalone bold line or bold paragraph opener, advice that could send the
+author toward a section promotion without repairing the lost role, and
+mid-sentence spans were silent.  Outer inline literals left the default report
+on 2026-09-26 after 45 of 45 sampled cases, from this repository and Journal,
+proved to be explicit data (see the roadmap's nested-inline entry).
+
 ====================
 Confusable letters
 ====================
