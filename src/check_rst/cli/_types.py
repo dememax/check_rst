@@ -355,7 +355,11 @@ _NON_PROSE_NODE_TYPES = (
 )
 
 
-_INLINE_CONTAINER_TYPES = (docutils.nodes.strong, docutils.nodes.emphasis, docutils.nodes.literal)
+# Outer roles whose leftover text is probed for nested markup.  An inline
+# literal is deliberately absent (decided 2026-09-26): it explicitly asks for
+# its content to render as data, and 45 of 45 sampled literal-outer findings
+# were quoted syntax or code, not a request for two roles.
+_INLINE_CONTAINER_TYPES = (docutils.nodes.strong, docutils.nodes.emphasis)
 
 
 class SourceOrigin(enum.StrEnum):

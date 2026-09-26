@@ -1062,6 +1062,16 @@ canonical character ordering among other valid ones — but that is a
 policy choice to make explicitly, not something to default into silently.
 Detection is implemented; auto-fix remains deliberately unimplemented.
 
+Outer inline literals left the default report on 2026-09-26 (plan decision
+#4).  A fresh parse of a literal's content shows only that it *could* be
+markup, while the literal itself asks for the content to render as data.
+Before the change, all 10 literal-outer warnings in this repository and all 35
+in a read-only Journal check (1566 files) were classified by hand: quoted RST
+syntax, code identifiers ending in ``_``, ``:literal:`` template strings, and
+shell globs — 45 of 45 explicit data, none a request for two roles.  Strong
+and emphasis outers are still probed.  An opt-in audit of literal content was
+not added, because no sampled case needed it.
+
 ====================================================
 A CLI option for snippet/preview truncation length
 ====================================================

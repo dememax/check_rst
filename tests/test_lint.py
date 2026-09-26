@@ -451,7 +451,8 @@ def test_nested_inline_reparse_is_cached_across_warning_consumers(
     assert len(_lint.check_nested_inline_markup(p, True, doc=document)) == 1
     assert _lint.check_directives(p, True, doc=document) == []
 
-    assert _helpers.CALL_COUNTS["_nested_inline_reparse"] == 2
+    # Only the strong span is probed; the plain inline literal is data.
+    assert _helpers.CALL_COUNTS["_nested_inline_reparse"] == 1
 
 
 @pytest.mark.integration

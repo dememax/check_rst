@@ -304,11 +304,16 @@ inverse shape has the same failure::
 
 Here docutils creates one outer ``literal`` node and keeps the asterisks as
 literal content.  A successful parse and a clean Sphinx build therefore do not
-prove that both requested styles survived.
+prove that both requested styles survived.  An outer inline literal is,
+however, itself an explicit request to render its content as data, so
+``check_rst`` does not report that shape by default: every sampled case — 10 in
+this repository and 35 in Journal — was quoted RST syntax, a code identifier, a
+glob, or a template literal, never a request for two roles (decided
+2026-09-26).
 
 ``check_rst`` detects this without copying docutils' delimiter grammar into a
-regular expression.  For every outer strong, emphasis, or inline-literal node,
-it feeds the node's leftover text through a fresh
+regular expression.  For every outer strong or emphasis node, it feeds the
+node's leftover text through a fresh
 ``docutils.parsers.rst.states.Inliner``.  A successful explicit inline node in
 that second parse shows that the leftover text *can* be parsed as markup
 outside its outer role; it does not by itself prove which role the author
@@ -341,9 +346,9 @@ same characters, so the author must choose a disposition:
   Markdown export whose bold merely surrounds code;
 * keep the outer role and remove or escape the inner markers when they were
   unintended syntax;
-* retain the outer literal span unchanged when its markers are deliberately
-  shown as data, such as an RST example or a glob.  Record that semantic reason
-  when reviewing the WARNING.
+* retain the span unchanged when its markers are deliberately shown, such as
+  an example of this very pattern.  Record that semantic reason when reviewing
+  the WARNING.
 
 The specific warning supersedes the heading-substitute warning for the same
 strong node.  A leading nested span used to be reported as a standalone bold
@@ -356,7 +361,7 @@ not parsed inline structure.
 
 The first implemented whole-corpus scan (2026-08-02) found 403 warnings in 109
 files: 355 outer bold spans, 36 outer inline literals, and 12 outer emphasis
-spans.  The original roadmap evidence from 2026-07-26 was 175 occurrences in
+spans.  Outer inline literals have since left the default report (see above).  The original roadmap evidence from 2026-07-26 was 175 occurrences in
 49 files; preserving both numbers distinguishes corpus growth from a detector
 change.
 
