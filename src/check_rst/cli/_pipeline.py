@@ -22,6 +22,7 @@ from ._composition import CompositionIndex
 from ._document import Document, build_outline
 from ._formatting import (
     _apply_fix_plan,
+    _fix_resolved_title_diagnostics,
     _plan_fix,
     check_adornments,
     check_hierarchy,
@@ -43,7 +44,7 @@ from ._sphinx import (
     _build_sphinx_env_checked,
     _docname_for,
     _findings_from_sphinx_output,
-    _is_sphinx_fixable_duplicate,
+    _is_proven_title_restatement,
     _merge_toctree_clusters,
     _source_was_transformed,
     _toctree_anomalies,
@@ -62,6 +63,7 @@ from ._types import (
     LocalEntry,
     MergedEntry,
     OutlineEntry,
+    ResolvedTitleDiagnostics,
     Severity,
     ToctreeEntry,
     WordStatsUnavailable,
@@ -99,6 +101,8 @@ class _PipelineState:
     fixed_files: set[str] = dataclasses.field(default_factory=set)
     would_change: set[str] = dataclasses.field(default_factory=set)
     suppressed_fixable: collections.Counter[pathlib.Path] = dataclasses.field(default_factory=collections.Counter)
+    # Resolved physical file -> Sphinx title diagnostics fix provably removes.
+    title_restatements: dict[pathlib.Path, ResolvedTitleDiagnostics] = dataclasses.field(default_factory=dict)
     sphinx_findings_json: list[dict[str, Any]] | None = None
     fix_plans: dict[pathlib.Path, FixPlan] = dataclasses.field(default_factory=dict)
 
@@ -278,6 +282,15 @@ def _run_phase1(
                 fixable_v = [finding for finding in all_v if finding.fixable]
                 visible_v = [finding for finding in all_v if not finding.fixable]
                 state.suppressed_fixable[path] += len(fixable_v)
+                if fixable_v and args.sphinx_src is not None:
+                    # Phase 3 may hide a Sphinx title diagnostic only as a
+                    # proven restatement of what fix resolves for this exact
+                    # file and scope; the proof needs this parse and scope.
+                    state.title_restatements[path.resolve()] = _fix_resolved_title_diagnostics(
+                        path,
+                        document.text,
+                        None if whole_file else document.ranges,
+                    )
                 if args.json:
                     state.json_records[path]["findings"].extend(visible_v)
                 e, w = _print_findings(visible_v, pstr, args.no_warnings, suppress_findings)
@@ -663,21 +676,15 @@ def _run_sphinx_phases(
             # Findings are frozen/hashable, so preserve first-seen order while
             # counting and printing an identical finding only once.
             sphinx_v = list(dict.fromkeys(sphinx_v))
-            if args.skip_fixable and state.suppressed_fixable:
-                # Counter[path] += 0 (both call sites above) still inserts a
-                # zero-valued key — dict/Counter __setitem__ always runs, even
-                # for n == 0.  Filter to a positive count here rather than
-                # trusting key presence, so a file that merely passed through
-                # the --skip-fixable code path with nothing actually
-                # suppressed can't make an unrelated, genuinely non-fixable
-                # Sphinx ERROR (e.g. an "Inconsistent title style" level
-                # skip) get dropped as an already-reported-and-fixed
-                # duplicate (dogfooding report, 2026-09-18).
-                suppressed_paths = {path for path, count in state.suppressed_fixable.items() if count > 0}
+            if args.skip_fixable and state.title_restatements:
+                # Suppress only proven restatements: a path plus a message
+                # class is not proof (dogfooding reports, 2026-09-18 and
+                # 2026-09-26) — one fixable width must not hide a surviving
+                # level skip elsewhere in the file, or on the fixed title.
                 sphinx_v = [
                     finding
                     for finding in sphinx_v
-                    if not _is_sphinx_fixable_duplicate(finding, suppressed_paths, project_root)
+                    if not _is_proven_title_restatement(finding, state.title_restatements)
                 ]
             if args.json:
                 state.sphinx_findings_json = [

@@ -349,9 +349,10 @@ def test_skip_fixable_does_not_hide_a_non_fixable_title_level_skip(
     actually fixable to suppress (fixable_v == [], since the adornments
     here are already syntactically valid).  ``Counter[path] += 0`` still
     inserts a zero-valued key (dogfooding report, 2026-09-18); a stale
-    reading of that key's mere presence — rather than its value — must
-    not make _is_sphinx_fixable_duplicate treat this ERROR as an
-    already-reported-and-fixed duplicate."""
+    reading of that key's mere presence — rather than its value — once
+    made the former path-plus-message duplicate filter treat this ERROR
+    as an already-reported-and-fixed duplicate.  Restatements now need
+    a fix-simulation proof, which a file with nothing to fix never has."""
     (tmp_path / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
     doc = tmp_path / "doc.rst"
     doc.write_text(
@@ -538,6 +539,40 @@ def test_skip_fixable_exit_status_matches_check_after_fix(
 
     assert fix_code == 0
     assert skip_fixable_code == after_fix_code, after_fix_out
+
+
+@pytest.mark.unit
+def test_proven_title_restatement_requires_matching_file_code_and_span(tmp_path: Path) -> None:
+    """Fail-closed: a Sphinx title diagnostic is hidden only when its file,
+    code, and line match a proven fix-resolved diagnostic.  Anything else —
+    including one bare docutils never reproduced, which therefore has no
+    proof — stays visible: that conservative over-report is accepted."""
+    doc = (tmp_path / "doc.rst").resolve()
+    code = _types.FindingCode.SPHINX_TITLE_UNDERLINE_TOO_SHORT
+    resolved = {doc: frozenset({((9, 10), code)})}
+
+    def sphinx_finding(
+        lineno: int,
+        finding_code: _types.FindingCode = code,
+        path: Path | None = doc,
+    ) -> _types.Finding:
+        return _types.Finding(
+            lineno,
+            _types.Severity.WARNING,
+            "doc.rst: Title underline too short.",
+            code=finding_code,
+            sphinx=_types.SphinxSource(path, "Title underline too short."),
+        )
+
+    assert _sphinx._is_proven_title_restatement(sphinx_finding(10), resolved)
+    assert not _sphinx._is_proven_title_restatement(sphinx_finding(12), resolved)
+    assert not _sphinx._is_proven_title_restatement(
+        sphinx_finding(10, _types.FindingCode.SPHINX_INCONSISTENT_TITLE_STYLE), resolved
+    )
+    assert not _sphinx._is_proven_title_restatement(sphinx_finding(10, path=tmp_path / "other.rst"), resolved)
+    assert not _sphinx._is_proven_title_restatement(sphinx_finding(10, path=None), resolved)
+    unowned = _types.Finding(10, _types.Severity.WARNING, "doc.rst: Title underline too short.", code=code)
+    assert not _sphinx._is_proven_title_restatement(unowned, resolved)
 
 
 @pytest.mark.integration

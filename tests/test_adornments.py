@@ -2844,6 +2844,46 @@ def test_skip_fixable_mixed_shows_only_warnings(
     assert "WARNING:" in out
 
 
+_SECTION_DOC_PREFIX = "#######\nTitle\n#######\n\n*********\nSection\n*********\n\n"
+
+
+@pytest.mark.integration
+def test_fix_resolved_title_diagnostics_proves_placeholder_restatement(tmp_path: Path) -> None:
+    """A short placeholder underline is a docutils diagnostic fix removes."""
+    text = _SECTION_DOC_PREFIX + "New heading\n=========\n\nText.\n"
+    resolved = _formatting._fix_resolved_title_diagnostics(tmp_path / "doc.rst", text, None)
+    assert resolved == {((9, 10), _types.FindingCode.SPHINX_TITLE_UNDERLINE_TOO_SHORT)}
+
+
+@pytest.mark.integration
+def test_fix_resolved_title_diagnostics_rejects_skip_surviving_on_fixed_title(tmp_path: Path) -> None:
+    """Fixing an underline-only title's geometry does not fix its level."""
+    text = (
+        _SECTION_DOC_PREFIX
+        + "========\nSubsec\n========\n\n---------\nDeepest\n---------\n\nText.\n\n"
+        + "*****\nTwo\n*****\n\nPadded\n------\n\nText.\n"
+    )
+    diagnostics = _helpers._docutils_title_diagnostics(tmp_path / "doc.rst", text)
+    assert (23, _types.FindingCode.SPHINX_INCONSISTENT_TITLE_STYLE) in diagnostics
+    assert _formatting._fix_resolved_title_diagnostics(tmp_path / "doc.rst", text, None) == frozenset()
+
+
+@pytest.mark.unit
+def test_fix_resolved_title_diagnostics_is_empty_when_fix_changes_nothing() -> None:
+    text = _SECTION_DOC_PREFIX + "Text.\n"
+    assert _formatting._fix_resolved_title_diagnostics(Path("doc.rst"), text, None) == frozenset()
+
+
+@pytest.mark.integration
+def test_docutils_title_diagnostics_ignore_included_sources(tmp_path: Path) -> None:
+    """Only the checked file's own coordinate space can prove a restatement."""
+    (tmp_path / "frag.rst").write_text("Included\n=========\n\nText.\n", encoding="utf-8")
+    root = tmp_path / "doc.rst"
+    text = _SECTION_DOC_PREFIX + ".. include:: frag.rst\n"
+    root.write_text(text, encoding="utf-8")
+    assert _helpers._docutils_title_diagnostics(root, text) == []
+
+
 @pytest.mark.integration
 def test_skip_fixable_suppresses_sphinx_structural_duplicate_only(
     tmp_path: Path,

@@ -657,6 +657,51 @@ def analyze_block(block: TitleBlock) -> BlockCorrection:
 _DOCUTILS_MIN_ADORNMENT_LEN = 2
 
 
+# Docutils title diagnostics that can restate a Phase 0/1 adornment defect
+# fix resolves, each with its own rule identity.  Sphinx relays the parser's
+# own text, so this one table classifies both Sphinx console lines and the
+# bare-docutils parse that proves a restatement (_fix_resolved_title_diagnostics).
+_TITLE_MESSAGE_CODES = (
+    ("Title overline too short", FindingCode.SPHINX_TITLE_OVERLINE_TOO_SHORT),
+    ("Title underline too short", FindingCode.SPHINX_TITLE_UNDERLINE_TOO_SHORT),
+    ("Title overline & underline mismatch", FindingCode.SPHINX_TITLE_ADORNMENT_MISMATCH),
+    ("Inconsistent title style", FindingCode.SPHINX_INCONSISTENT_TITLE_STYLE),
+)
+
+
+def _title_message_code(message: str) -> FindingCode | None:
+    """Return the rule identity of a docutils title diagnostic, else None."""
+    return next((code for fragment, code in _TITLE_MESSAGE_CODES if fragment in message), None)
+
+
+def _docutils_title_diagnostics(path: pathlib.Path, text: str) -> list[tuple[int, FindingCode]]:
+    """Return (line, code) for each title diagnostic docutils reports in *text*.
+
+    The same parser Sphinx uses decides title geometry and style levels, so
+    this reproduces Sphinx's title diagnostics without a Sphinx build.
+    Only messages attributed to *path* itself are kept: an included file's
+    lines live in another coordinate space.  Parse errors never halt, and a
+    reporter observer collects each message with its reported line.
+    """
+    CALL_COUNTS["_docutils_title_diagnostics"] += 1
+    settings = docutils.frontend.get_default_settings(docutils.parsers.rst.Parser())
+    settings.halt_level = 5  # never halt on parse errors
+    settings.report_level = 5  # observe messages; never write them to stderr
+    doc = docutils.utils.new_document(str(path), settings)
+    found: list[tuple[int, FindingCode]] = []
+
+    def observe(message: docutils.nodes.system_message) -> None:
+        line = message.get("line")
+        text_nodes = message.children[:1]
+        code = _title_message_code(text_nodes[0].astext()) if text_nodes else None
+        if code is not None and isinstance(line, int) and message.get("source") == str(path):
+            found.append((line, code))
+
+    doc.reporter.attach_observer(observe)
+    docutils.parsers.rst.Parser().parse(text, doc)
+    return found
+
+
 def _parse_rst(
     path: pathlib.Path,
     text: str | None = None,

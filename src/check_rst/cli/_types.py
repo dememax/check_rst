@@ -164,6 +164,12 @@ class Finding:
         return item in str(self)
 
 
+# (1-based inclusive physical span of a title, title-diagnostic code) pairs
+# that the deterministic fixer provably removes; see
+# _formatting._fix_resolved_title_diagnostics.
+type ResolvedTitleDiagnostics = frozenset[tuple[tuple[int, int], FindingCode]]
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class FixCounts:
     """Structured counts for the deterministic mutation stages."""

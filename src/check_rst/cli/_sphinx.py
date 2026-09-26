@@ -60,6 +60,7 @@ from ._types import (
     MergedEntry,
     OutlineEntry,
     ReferenceEntry,
+    ResolvedTitleDiagnostics,
     Severity,
     SourceProvenance,
     SphinxSource,
@@ -85,29 +86,6 @@ _WARNING_RE = re.compile(
 # too (run_sphinx): if sphinx-build's own color detection ever disagrees
 # with ours, the same anchor break would apply there.
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
-
-
-# Docutils/Sphinx title diagnostics that can restate a Phase 0/1 defect
-# --fix resolves, each with its own rule identity.  Any other console
-# diagnostic is classified SPHINX_DIAGNOSTIC: its message is Sphinx's own
-# prose, not a rule check_rst can name more precisely.
-_SPHINX_TITLE_MESSAGE_CODES = (
-    ("Title overline too short", FindingCode.SPHINX_TITLE_OVERLINE_TOO_SHORT),
-    ("Title underline too short", FindingCode.SPHINX_TITLE_UNDERLINE_TOO_SHORT),
-    ("Title overline & underline mismatch", FindingCode.SPHINX_TITLE_ADORNMENT_MISMATCH),
-    ("Inconsistent title style", FindingCode.SPHINX_INCONSISTENT_TITLE_STYLE),
-)
-
-# Under --skip-fixable these are duplicates, not human-review warnings.
-_FIXABLE_SPHINX_MESSAGES = tuple(message for message, _code in _SPHINX_TITLE_MESSAGE_CODES)
-
-
-def _sphinx_message_code(message: str) -> FindingCode:
-    """Classify one Sphinx console message by its rule identity."""
-    return next(
-        (code for fragment, code in _SPHINX_TITLE_MESSAGE_CODES if fragment in message),
-        FindingCode.SPHINX_DIAGNOSTIC,
-    )
 
 
 _INTEGRITY_BUILDER = "html"
@@ -1359,27 +1337,32 @@ def _findings_from_sphinx_output(
                         lineno=int(line) if line is not None else 0,
                         severity=Severity(m.group("level")),
                         text=f"{rel}: {message}",
-                        code=_sphinx_message_code(message),
+                        code=_helpers._title_message_code(message) or FindingCode.SPHINX_DIAGNOSTIC,
                         sphinx=SphinxSource(p, message),
                     )
                 )
     return findings
 
 
-def _is_sphinx_fixable_duplicate(
+def _is_proven_title_restatement(
     finding: Finding,
-    suppressed_paths: set[pathlib.Path],
-    project_root: pathlib.Path,
+    resolved: dict[pathlib.Path, ResolvedTitleDiagnostics],
 ) -> bool:
-    """Return whether Sphinx merely restated a suppressed fixable defect."""
-    if not any(message in finding.text for message in _FIXABLE_SPHINX_MESSAGES):
+    """Return whether Sphinx merely restated a title defect fix resolves.
+
+    Fail-closed: only a Sphinx diagnostic whose physical file, rule code, and
+    line match a title diagnostic proven to disappear after fixing that file
+    qualifies (see _formatting._fix_resolved_title_diagnostics).  Anything
+    else — another file, another code, an unlocated diagnostic, or no proof
+    for this file — stays visible and keeps its effect on exit status.
+    """
+    origin = finding.sphinx
+    if origin is None or origin.path is None:
         return False
-    for path in suppressed_paths:
-        resolved = path.resolve()
-        displayed = _relative_to_root(resolved, project_root) or resolved
-        if finding.text.startswith(f"{displayed}: "):
-            return True
-    return False
+    return any(
+        code == finding.code and start <= finding.lineno <= end
+        for (start, end), code in resolved.get(origin.path, frozenset())
+    )
 
 
 # Matches Sphinx's own two broken-:doc:-target message shapes — note

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import bisect
 import difflib
 import pathlib
 import re
@@ -23,6 +24,7 @@ from ._helpers import (
     _atomic_write_bytes,
     _canonical_title,
     _changed_line_ranges,
+    _docutils_title_diagnostics,
     _in_scope,
     _is_adornment,
     _normalize_source,
@@ -38,6 +40,7 @@ from ._types import (
     FindingCode,
     FixPlan,
     FixResult,
+    ResolvedTitleDiagnostics,
     Severity,
     TextSpaceCounts,
     TitleBlock,
@@ -774,6 +777,65 @@ def _apply_structure_to_text(text: str, ranges: list[tuple[int, int]] | None) ->
     trailing_newline = text.endswith("\n")
     fixed = "\n".join(_compute_structure_fixes(lines, ranges))
     return fixed + ("\n" if trailing_newline else "")
+
+
+def _title_spans(lines: list[str]) -> list[tuple[int, int]]:
+    """Return each title's 1-based inclusive physical span, in document order.
+
+    A block spans overline through underline; an underline-only title spans
+    its text and underline.  These are the same scanners the fixer rewrites
+    through, and fix never adds or removes a title, so the k-th span before
+    and after fixing belong to the same title even when inserted overlines
+    or blank lines shift every line number below it.
+    """
+    spans = [(block.index, block.index + 2) for block in iter_title_blocks(lines)]
+    spans.extend((cand.index, cand.index + 1) for cand in iter_underline_only(lines))
+    return sorted(spans)
+
+
+def _diagnostics_by_title(
+    spans: list[tuple[int, int]],
+    diagnostics: list[tuple[int, FindingCode]],
+) -> set[tuple[int, FindingCode]]:
+    """Map (line, code) diagnostics to (title ordinal, code); drop unowned lines."""
+    starts = [start for start, _end in spans]
+    owned: set[tuple[int, FindingCode]] = set()
+    for line, code in diagnostics:
+        ordinal = bisect.bisect_right(starts, line) - 1
+        if ordinal >= 0 and line <= spans[ordinal][1]:
+            owned.add((ordinal, code))
+    return owned
+
+
+def _fix_resolved_title_diagnostics(
+    path: pathlib.Path,
+    text: str,
+    ranges: list[tuple[int, int]] | None,
+) -> ResolvedTitleDiagnostics:
+    """Return the title diagnostics that fix provably removes from *text*.
+
+    Candidate geometry: every title diagnostic docutils reports inside a
+    title's physical span of the normalized source.  Semantic predicate: the
+    same diagnostic class is absent from that same title after applying the
+    exact structural fix ``fix --fast`` would write for this scope.  A Sphinx
+    title diagnostic is a restatement of a suppressed fixable defect only
+    when it matches one returned (span, code) pair — a same-title link alone
+    is not proof, because a fixed title can still skip a level.
+
+    Fail-closed: an unchanged fix, a different title count after fixing, or
+    a diagnostic bare docutils does not reproduce yields no proof, and the
+    Sphinx diagnostic stays visible.
+    """
+    fixed = _apply_structure_to_text(text, ranges)
+    if fixed == text:
+        return frozenset()
+    before_spans = _title_spans(text.splitlines())
+    after_spans = _title_spans(fixed.splitlines())
+    if len(before_spans) != len(after_spans):
+        return frozenset()
+    before = _diagnostics_by_title(before_spans, _docutils_title_diagnostics(path, text))
+    after = _diagnostics_by_title(after_spans, _docutils_title_diagnostics(path, fixed))
+    return frozenset((before_spans[ordinal], code) for ordinal, code in before - after)
 
 
 def _changed_line_count(before: str, after: str) -> int:
