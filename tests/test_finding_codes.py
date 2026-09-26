@@ -182,19 +182,26 @@ def test_failed_sphinx_build_without_located_error_has_build_code(
 
 
 @pytest.mark.integration
-def test_json_findings_keep_public_fields_without_internal_code(
+def test_json_findings_expose_rule_codes(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Internal codes stay out of JSON; location exactness is additive (schema 1)."""
+    """Decided 2026-09-26 (plan decision #3): rule codes are an additive
+    JSON member under schema_version 1; compiler-style text lines do not
+    render them."""
     path = rst_repo / "test.rst"
     path.write_text("####\nTitle\n####\n\n**Opener.** text follows.\n", encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(path)])
     with pytest.raises(SystemExit):
         cli.main()
     findings = json.loads(capsys.readouterr().out)["files"][0]["findings"]
-    assert findings
-    assert {tuple(finding) for finding in findings} == {
-        ("lineno", "severity", "text", "source", "fixable", "location_exact")
-    }
+    assert [(finding["lineno"], finding["code"]) for finding in findings] == [
+        (2, "adornment.length"),
+        (5, "pseudo-heading.bold-opener"),
+    ]
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(path)])
+    with pytest.raises(SystemExit):
+        cli.main()
+    assert "pseudo-heading.bold-opener" not in capsys.readouterr().out
