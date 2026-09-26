@@ -1399,6 +1399,15 @@ JSON exposes both fields additively.  Inexact extension-transformed or
 configured synthetic structure uses ``source_start: 0`` rather than suggesting
 an editable physical boundary.
 
+Comment ranges were corrected on 2026-09-26 after a multiline comment exposed
+that Docutils locates many comment nodes on the line after the complete block;
+comments nested in containers can have no node location at all.  ``check_rst``
+now recovers the physical marker from the owning source and uses that one
+location for both outline entries and single-colon directive warnings.  A
+shared conformance matrix pins root sibling boundaries, included-source
+coordinates, and nested-container boundaries across sections, code blocks,
+blockquotes, admonitions, comments, lists, tables, includes, and toctrees.
+
 ====================
 Outline enrichment
 ====================
