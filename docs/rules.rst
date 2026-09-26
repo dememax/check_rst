@@ -371,111 +371,114 @@ change.
 The one WARNING that isn't really a judgment call
 ***************************************************
 
-``.. code: bash`` is valid RST.  A single colon after a word docutils
-recognizes as a directive name doesn't produce a directive at all — it
-produces a *comment*, and comments are silently dropped from every
-rendered output.  The intended ``.. code:: bash`` (a genuine directive,
-two colons) never got written; the content between the comment markers
-— the code listing, the note, whatever it was — simply never appears
-anywhere, and nothing in the ordinary write-render-review loop says so:
-docutils doesn't complain (a comment is perfectly legal), the build
-doesn't warn, the rendered page just has a gap where content should be.
+A comment whose first line reads like a known directive written with one colon
+— ``.. code: bash`` instead of ``.. code:: bash`` — is reported as a WARNING
+(``directive.mistyped``).  One colon makes valid RST: a comment, dropped from
+every rendered output, so the intended listing or note never appears and
+neither docutils nor Sphinx says so.  Unlike a bold pseudo-heading this is not
+genuine ambiguity; it is a WARNING only because the comment is syntactically
+valid, and review is closer to a formality than a judgment.  It never changes
+the exit status and is not auto-fixed.  The line is the comment's recovered
+physical marker, inside table cells too.
 
-This is a different kind of WARNING from bold-as-heading or
-``.. rubric::``: those are genuine ambiguity — a bold line opening a
-paragraph might be a heading in disguise, or a deliberate label, and
-reasonable authors disagree.  A single missing colon is not ambiguous
-in the same way; there is essentially no legitimate reason to *want*
-this pattern.  It is WARNING severity because a comment is syntactically
-valid RST, not because the call is close — review here is closer to a
-formality than a judgment.
+=======================================
+Mistyped directives: what is detected
+=======================================
 
-The check: a comment whose first line matches ``word:`` (single colon,
-not ``word::``) where ``word`` is a directive name docutils itself
-knows (its own English directive-name registry, plus a small curated
-Sphinx supplement — ``toctree``, ``code-block``, ``seealso``, and
-similar) is flagged.  ``todo`` is deliberately excluded from that
-supplement: ``.. TODO: fix this`` is too common a genuine-comment idiom
-on its own to flag without drowning the real signal in noise.
+A comment is flagged when its first line matches ``word:`` — one colon, not
+``word::`` — and ``word`` is a directive name docutils itself knows (its
+English directive-name registry) or one of a small curated Sphinx supplement
+such as ``toctree``, ``code-block``, and ``seealso``.
 
-The real catch this shipped for: a Journal calendar note (2025-11-13) contained
-exactly ``.. code: bash`` — a C++ listing that had been silently
-invisible in the rendered HTML for eight months before this lint's
-first whole-corpus run found it, the one true positive, zero false
-ones.
+========================================================
+Mistyped directives: what is deliberately not detected
+========================================================
 
-This WARNING is a net, not a guarantee (Max, 2026-07-22: "we cannot
-cover all cases... they could be more complex cases") — it only fires
-for a name in ``outline``'s own known-directive registry, matched on
-the comment's first line.  A typo of a name outside that registry, or
-one buried past the first line, produces no WARNING at all and stays
-just as silently dropped as before.  That is why every comment, not
-only the ones this heuristic recognizes, is its own entry kind in
-``outline`` (see "Block previews" in :doc:`guide`):
-``comment "code: bash …"
-[suspicious — looks like a mistyped directive]`` when the heuristic
-matches — the preview carries the hidden body, so the dropped listing itself is
-visible — and a plain ``comment "..."`` preview when it doesn't — general
-visibility closes the blind spot the regex alone cannot, without
-pretending the regex is exhaustive.
+* ``todo``, excluded from the supplement: ``.. TODO: fix this`` is too common
+  a genuine-comment idiom to flag without drowning the real signal.
+* A name outside that registry, or a typo past the comment's first line.  The
+  WARNING is a net, not a guarantee.  That is why every comment is its own
+  ``outline`` entry (see "Block previews" in :doc:`guide`): ``comment "code:
+  bash …" [suspicious — looks like a mistyped directive]`` when the heuristic
+  matches, a plain ``comment "..."`` preview otherwise, and the preview carries
+  the hidden body either way, so general visibility closes the blind spot the
+  heuristic alone cannot.
+
+===================================
+Mistyped directives: dispositions
+===================================
+
+Add the missing colon when a directive was intended (``rewrite``).  An
+ordinary comment whose text merely begins with a directive name can be
+``retain``\ ed with its reason in ``.check_rst-retained.toml``.
+
+===========================================
+Mistyped directives: evidence and history
+===========================================
+
+The lint shipped for one real catch, a listing invisible for eight months; see
+"Mistyped directives" under "Rule evidence and history" in :doc:`development`.
 
 *********************************************************
 A second top-level title is legal RST and a real defect
 *********************************************************
 
-A document may have only one level-1 title — it is the document's own
-title, the thing search results and browser tabs show, the thing a
-toctree entry links to as a single unit.  A second top-level section
-is completely valid RST; docutils and Sphinx accept it without
-complaint, at any verbosity — confirmed live, 2026-07-26: a real
-``sphinx-build -vv -n`` (maximum verbosity, nitpicky mode) on a file
-with two full ``#`` sections said nothing about it at all.
+A second effective top-level section is reported as a non-fixable ERROR
+(``hierarchy.second-title``).  A document may have only one level-1 title — the
+page's own title, the thing search results, browser tabs, and a toctree entry
+treat as one unit.  A second top-level section is valid RST that docutils and
+Sphinx accept silently, but neither section is then promoted to the document's
+title, so a referring toctree lists both as separate top-level entries: a real
+structural defect visible only on another page.  Severity and repairability
+answer different questions.  The effective structure is proven invalid, so the
+finding affects the exit status; choosing the page title is an author judgment,
+so ``fix`` never chooses one and ``--skip-fixable`` keeps the ERROR visible.
 
-What actually happens instead: neither section gets promoted to the
-document's own ``<title>`` — docutils only promotes a top-level
-section to that role when it is the SOLE one.  The consequence is
-visible one level up, not in the file itself: built a real HTML page
-from such a file and inspected the *referring* document's toctree, and
-the entry that should have linked to one section title instead listed
-both sections as separate top-level entries in the navigation tree — a
-real, silent structural defect, discovered only by looking at a
-different page than the one with the problem.
+=================================
+Second titles: what is detected
+=================================
 
-This is a non-fixable ERROR.  Severity and repairability answer different
-questions: the effective document structure is proven invalid, so the finding
-affects exit status; deciding the page title remains an author judgment, so
-``fix`` must not choose one.  ``--skip-fixable`` suppresses only findings
-explicitly owned by deterministic mutation and therefore retains this ERROR.
+The rule reads the parsed, composed section tree.  Standard ``include``
+content counts at its effective depth, and the diagnostic points at the
+included physical source.  Verified mode uses the Sphinx parse, including
+extension ``source-read``/``include-read`` changes, synthetic ``rst_prolog``
+and ``rst_epilog`` content, and the ``only``/``ifconfig`` branches active for
+the HTML builder Phase 3 uses.  Inexact transformed or synthetic sources stay
+visible at line 0 rather than receiving a fabricated editable location.
 
-The diagnostic gives a bounded repair *shape*, not a semantic answer.  First
-run ``check_rst outline --sections-only FILE`` and inspect the entry sources as
+==================================================
+Second titles: what is deliberately not detected
+==================================================
+
+The rule does not guess from the root file's first adornment character: a
+character is style, not structure.  Branches that are inactive for the HTML
+builder do not count.
+
+=======================
+Second titles: repair
+=======================
+
+The diagnostic gives a bounded repair *shape*, not a semantic answer.  Run
+``check_rst outline --sections-only FILE`` and inspect the entry sources as
 well as the ``levels:`` legend.  When the competing titles belong to one
 self-contained physical source, choose the page title and preview
 ``check_rst entitle NAME FILE``; apply it only after reviewing the complete
 diff.  ``entitle`` inserts a genuinely unused style before that file's body and
-uses ``fix``'s existing machinery to materialize the canonical geometry and
-hierarchy.
+lets ``fix``'s machinery materialize the canonical geometry and hierarchy.
+That local repair is intentionally not universal: a top-level ``include`` makes
+``entitle`` fail closed without following it, emitting a diff, or writing
+bytes.  If the effective titles come from included sources or Sphinx
+transformations, restructure the host, the fragments, or the transformation at
+the composition level and rerun ``outline``; the legend's free character then
+proves only that the style is unassigned, not which physical source should own
+the new parent.
 
-That local repair is intentionally not universal.  A top-level ``include``
-directive makes ``entitle`` fail closed without following it, emitting a diff,
-or writing bytes.  If the effective titles come from included sources or from
-Sphinx transformations, restructure the host, fragments, or transformation at
-the composition level and re-run ``outline``.  In that case the legend's free
-character proves only that the style is unassigned; it cannot identify which
-physical source should own the new parent.
+=====================================
+Second titles: evidence and history
+=====================================
 
-The rule consumes the parsed section tree rather than guessing from the root
-file's first adornment character.  Standard ``include`` content therefore
-counts at its effective depth and a diagnostic points to the included physical
-source.  Verified mode uses the Sphinx parse, including extension
-``source-read``/``include-read`` changes, synthetic ``rst_prolog`` and
-``rst_epilog`` content, and the ``only``/``ifconfig`` branches active for the
-same HTML builder used by Phase 3.  Inexact transformed or synthetic sources
-remain visible at line 0 instead of receiving a fabricated editable location.
-
-A corpus-wide run against Journal's full calendar (1415 files) found zero
-instances when the original source-only WARNING shipped; that absence remains
-recorded honestly rather than replaced with an invented catch.
+See "Second top-level titles" under "Rule evidence and history" in
+:doc:`development` for the silent-build confirmation and the corpus result.
 
 *****************************************************************************
 A relocated subtree's old character can silently land it at the wrong depth

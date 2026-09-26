@@ -234,6 +234,32 @@ Sphinx warning log quoting a past lexer-name typo (Cyrillic ``с`` where
 ``.cpp`` needed a Latin ``c``) stayed silent, correctly, because it sits in a
 literal block: a historical record, not fresh prose.
 
+=====================
+Mistyped directives
+=====================
+
+A Journal calendar note (2025-11-13) contained exactly ``.. code: bash``: a C++
+listing that had been invisible in the rendered HTML for eight months before
+the lint's first whole-corpus run found it — the one true positive, with zero
+false ones (also listed under "Real catches").  The known-name restriction was
+accepted knowingly (Max, 2026-07-22: "we cannot cover all cases... they could
+be more complex cases"), which is why every comment became its own outline
+entry instead of the heuristic claiming completeness.
+
+=========================
+Second top-level titles
+=========================
+
+A real ``sphinx-build -vv -n`` — maximum verbosity, nitpicky mode — on a file
+with two full ``#`` sections said nothing at all (2026-07-26).  The defect
+appeared only one level up: a real HTML build of the *referring* page showed
+the toctree listing both sections as separate top-level entries instead of one
+link to the page title.  A corpus-wide run against Journal's full calendar
+(1415 files) found zero instances when the original source-only WARNING
+shipped; that absence stays recorded honestly rather than replaced with an
+invented catch.  The rule has since become the parsed, composition-aware,
+non-fixable ERROR described in :doc:`rules`.
+
 ****************************************************
 Cross-review diagnostics: the output-boundary case
 ****************************************************
