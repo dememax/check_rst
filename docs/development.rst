@@ -251,6 +251,34 @@ mid-sentence spans were silent.  Outer inline literals left the default report
 on 2026-09-26 after 45 of 45 sampled cases, from this repository and Journal,
 proved to be explicit data (see the roadmap's nested-inline entry).
 
+===================
+Filename mentions
+===================
+
+The rule came from downstream evidence (Max, 2026-07-23): a project's
+``docs/product-gui/client-interface.rst`` said "documented in
+``coding-standards.rst`` under *VanJS Reactive Model*" as plain text, and its
+``testing.rst`` said "the guarantee stated in coding-standards.rst..." with no
+markup at all — neither a live link.  A direct probe confirmed basename
+matching: the docname Sphinx resolved was ``product-gui/coding-standards``,
+which neither mention spelled out.  Both mentions are flagged live by the
+shipped checker.  The five-document cutoff was confirmed by Journal, whose
+corpus has 1072 files named ``Notes.rst``: dumping every candidate for a
+naming-convention mention would be exactly the noise the project avoids.  A
+corpus-wide run against Journal's aggregation pages found one more mention, of
+a header template marked ``:orphan:`` because it is copied into other files
+rather than navigated to — evidence that WARNING severity is right, since the
+tool reports the mechanical fact and the author decides whether a link belongs.
+
+==============
+Local assets
+==============
+
+The 2026-08-12 evidence was a roadmap calling a local Markdown task brief
+"required reading" while spelling its path inside an inline literal: the
+rendered page offered no way to retrieve it, and an ordinary hyperlink would
+have produced a deployed 404.
+
 ====================
 Confusable letters
 ====================

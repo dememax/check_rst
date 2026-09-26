@@ -591,79 +591,106 @@ in :doc:`development`.
 A missing reference is the mirror image of a broken one
 *********************************************************
 
-"Did you mean" (documented in :doc:`guide`) fixes a cross-reference that exists but points
-nowhere.  ``check_bare_filenames`` catches the opposite case: prose
-mentions a real project document by its bare filename — plain text or
-wrapped in double backticks as the author's own emphasis — and never
-turns it into an actual ``:doc:``/``:ref:`` at all (Max, 2026-07-23,
-evidence from a downstream project: ``docs/product-gui/client-interface.rst`` says
-"documented in ``coding-standards.rst`` under *VanJS Reactive Model*"
-as plain text, and ``testing.rst`` says "the guarantee stated in
-coding-standards.rst..." with no markup at all — neither is a live
-link).
+Prose that mentions a real project document by its bare filename — as plain
+text or inside an inline literal — without turning it into an actual
+``:doc:``/``:ref:`` link is reported as a WARNING (``reference.bare-filename``)
+that names up to five candidate targets.  It is the mirror image of a broken
+reference, which "did you mean" (see :doc:`guide`) helps repair.  It needs the
+live Sphinx environment, so it runs in verified mode only; it never changes the
+exit status and is not auto-fixed, because choosing the role and target syntax
+is a content decision.
 
-Matched by basename, not full path — confirmed by direct probe against
-that downstream project: the docname Sphinx actually resolves is
-``product-gui/coding-standards``, but neither real prose mention
-spells out that path, only the filename.  Needs the live Sphinx
-environment (``env.found_docs``), same as ``refs`` and "did you
-mean" — verified mode only.
+=====================================
+Filename mentions: what is detected
+=====================================
 
-Silence has to be as deliberate as the WARNING itself, or the feature
-is just noise:
+A mention matches a known document by basename, not full path: prose usually
+spells ``coding-standards.rst`` even when Sphinx resolves
+``product-gui/coding-standards``.  The check scans the same author-facing
+prose Text nodes as the homoglyph rule, inline literals included, because a
+filename in double backticks is how authors typeset one; the line points at
+the mention itself.
+
+======================================================
+Filename mentions: what is deliberately not detected
+======================================================
+
+Silence has to be as deliberate as the WARNING itself:
 
 * **No known doc shares the basename** — nothing confident to
   suggest, stay silent rather than guess.
 * **The only match is the mentioning document's own docname** —
   mentioning your own filename is not a missing cross-reference.
 * **More than 5 documents share the basename** — confirmed by real
-  evidence: Journal's corpus has 1072 files named
-  ``Notes.rst``.  A bare "Notes.rst" mention (Journal talks about
-  its own file-naming convention constantly) is not a specific,
-  actionable target; dumping all 1072 candidates would be exactly the
-  kind of noise this whole project exists to avoid.  The threshold is
-  not tuned per corpus — 5 is a deliberately generous cutoff, not a
-  guess calibrated to this one number.
+  evidence: a name shared that widely is a naming convention, not a specific,
+  actionable target.  The cutoff is deliberately generous and not tuned per
+  corpus.
 
-Scans the same author-facing prose Text nodes as ``check_homoglyphs``
-— deliberately including inline literal spans (unlike a
-``literal_block``): the real evidence is a filename wrapped in double
-backticks precisely because that is how the author chose to typeset
-it, not captured code output.  WARNING, not ERROR: converting to a
-real cross-reference is a content decision (which role, which target
-syntax) no deterministic pass can make.
+Mentions inside real references or roles, and literal blocks, are not checked.
 
-The real catch: both downstream-project mentions above are flagged live,
-unchanged, by the shipped checker.  A corpus-wide run against Journal's
-own aggregation pages (``projects/``, ``techs/``, ``organs/``) found one
-more, verbatim (a literal block, so this very
-illustration is not itself mistaken for a fresh mention — the same
-reasoning as the homoglyph section above)::
+=================================
+Filename mentions: dispositions
+=================================
 
-    projects/journal/std.rst:125: WARNING: header.rst mentioned as
-    plain text — did you mean a :doc:/:ref: cross-reference? possible
-    target(s): '.journal/header'
+Convert the mention into a ``:doc:`` or ``:ref:`` link (``rewrite``).  When the
+filename is discussed as a file rather than offered as a destination — or the
+match is a template snippet deliberately marked ``:orphan:`` — ``retain`` it
+with that reason in ``.check_rst-retained.toml``.
 
-Genuinely ambiguous in a different way than the threshold catches: the
-matching document uses ``:orphan:`` specifically because it is a
-template snippet copied into other files, not a page anyone navigates
-to — left as evidence that WARNING severity is doing its job, the tool
-reports the mechanical fact, the AI decides whether a link actually
-belongs there.
+=========================================
+Filename mentions: evidence and history
+=========================================
 
-===========================================================
+The downstream mentions that motivated the rule and its corpus results are
+recorded under "Filename mentions" in :doc:`development`.
+
+***********************************************************
 Local assets need Sphinx integration, not only a filename
-===========================================================
+***********************************************************
 
-A non-RST file can have the same missing-integration defect without being a
-Sphinx document.  The real 2026-08-12 evidence was a roadmap calling a local
-Markdown task brief "required reading" while spelling its path inside an
-inline literal.  The rendered page offered no way to retrieve it.
+A plain-text mention of a real local non-RST file is reported as a WARNING
+(``reference.plain-local-asset``): the rendered page offers the reader no way
+to retrieve the file.  An ordinary RST hyperlink does not reliably solve that:
+Sphinx emits the relative URL but does not copy an arbitrary source asset into
+the HTML output, so the deployed link can return 404.  Verified mode only; it
+never changes the exit status and is not auto-fixed, because the checker cannot
+choose what the file means to the reader.
 
-An ordinary RST hyperlink does not solve that case reliably.  Sphinx emits the
-relative URL but does not copy an arbitrary source asset into the HTML output;
-the resulting deployed link can therefore return 404.  Choose the mechanism
-that states what the file means to the reader:
+================================
+Local assets: what is detected
+================================
+
+The exact mentioned path must resolve — relative to its physical RST owner,
+the Sphinx source root, or the configured project root — to a regular file
+still inside the Sphinx source tree, with a supported suffix.  The
+text/document protocol is ``.cfg``, ``.conf``, ``.csv``, ``.diff``, ``.ini``,
+``.json``, ``.jsonl``, ``.log``, ``.markdown``, ``.md``, ``.patch``, ``.toml``,
+``.tsv``, ``.txt``, ``.xml``, ``.yaml``, and ``.yml``; the image protocol is
+``.gif``, ``.jpeg``, ``.jpg``, ``.png``, ``.svg``, and ``.webp``.  These sets
+are explicit compatibility policy, not an attempt to recognize every
+filename-shaped token.  Inert prose, inline literals included, is diagnosed.
+
+=================================================
+Local assets: what is deliberately not detected
+=================================================
+
+* An existing ordinary hyperlink's deployment.  Proving that its target is
+  copied through ``html_extra_path``, a static path, or an extension is a
+  separate builder-delivery check, not a reason to guess here.
+* Project-wide basename matches, which would turn common source and build-file
+  discussion into noise, and a configured Sphinx source suffix, which names a
+  document, not an asset.
+* Unknown, missing, unsupported, outside-source, and merely same-basename
+  files, and assets already integrated by a download, include, or image.
+* A name marked with ``:file:``, and files that exist beside the documentation
+  but are never mentioned — a separate orphan-asset question.
+
+============================
+Local assets: dispositions
+============================
+
+Choose the mechanism that states what the file means to the reader
+(``rewrite``):
 
 * ``:download:`` copies an artifact and links to the generated copy.
 * ``include`` or ``literalinclude`` incorporates text or source content.
@@ -671,28 +698,14 @@ that states what the file means to the reader:
 * ``:file:`` deliberately marks a filename when reader access is unnecessary;
   it is semantic text, not a download.
 
-This rule diagnoses inert prose, including an inline literal; it does not yet
-audit an existing ordinary hyperlink's deployment.  Proving that such a target
-is copied through ``html_extra_path``, a static path, or an extension is a
-separate builder-delivery check rather than a reason to guess here.
+``retain`` a mention whose inertness is deliberate, with the reason in
+``.check_rst-retained.toml``.
 
-The checker cannot choose among those meanings, so this remains a non-fixable
-WARNING.  Its confidence boundary is intentionally narrower than the document
-rule: the exact mentioned path must resolve, relative to its physical RST owner,
-the Sphinx source root, or the configured project root, to a regular file still
-inside the Sphinx source tree.  A project-wide basename match would turn common
-source and build-file discussion into noise.  A configured Sphinx source suffix
-is also excluded because that path names a document, not an asset.
+====================================
+Local assets: evidence and history
+====================================
 
-The supported text/document protocol is ``.cfg``, ``.conf``, ``.csv``,
-``.diff``, ``.ini``, ``.json``, ``.jsonl``, ``.log``, ``.markdown``, ``.md``,
-``.patch``, ``.toml``, ``.tsv``, ``.txt``, ``.xml``, ``.yaml``, and ``.yml``.
-The image protocol is ``.gif``, ``.jpeg``, ``.jpg``, ``.png``, ``.svg``, and
-``.webp``.  These sets are explicit compatibility policy, not an attempt to
-recognize every filename-shaped token.  Unknown, missing, unsupported,
-outside-source, and merely same-basename files stay silent.  Files that happen
-to exist beside documentation but are never mentioned are a separate orphan-
-asset question and are outside this rule.
+See "Local assets" under "Rule evidence and history" in :doc:`development`.
 
 **********************************************************
 Finding one item among many: the two-level list contract
