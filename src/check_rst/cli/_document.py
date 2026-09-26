@@ -52,6 +52,9 @@ if TYPE_CHECKING:
     import pathlib
 
 
+_COMMENT_MARKER_RE = re.compile(r"^[ \t]*\.\.(?:[ \t]+(.*))?$")
+
+
 class _DocumentCore:
     """The read/parse foundation every Document domain builds on: the
     Phase 0-normalized text, its lines, the git diff ranges, and the
@@ -126,6 +129,75 @@ class _DocumentCore:
         lineno = self.composition.physical_line(node, logical)
         lines = self.composition.source_lines(provenance, self.path, self.lines)
         return lineno, lines, provenance
+
+    @functools.cached_property
+    def _comment_source_contexts(
+        self,
+    ) -> dict[int, tuple[int, list[str], SourceProvenance | None]]:
+        """Recover comment starts from source instead of Docutils' end hint.
+
+        Docutils assigns a comment node the line after its complete block when
+        another block follows. Nested comments can have no source location at
+        all. Match each node, in document order, to a physical comment marker
+        in its owning source; the parser's line remains useful for selecting
+        the candidate whose extent ends immediately before that hint.
+        """
+        contexts: dict[int, tuple[int, list[str], SourceProvenance | None]] = {}
+        cursors: dict[tuple[str, tuple[int, ...]], int] = {}
+
+        for node in self.doctree.findall(docutils.nodes.comment):
+            if is_include_marker(node):
+                continue
+
+            owner: docutils.nodes.Node | None = node
+            provenance = self.composition.provenance(node)
+            while owner is not None and provenance is None and getattr(owner, "source", None) is None:
+                owner = owner.parent
+                if owner is not None:
+                    provenance = self.composition.provenance(owner)
+
+            lines = self.composition.source_lines(provenance, self.path, self.lines)
+            if not lines:
+                contexts[id(node)] = self.source_context(node)
+                continue
+
+            key = (
+                provenance.source if provenance is not None else str(self.path),
+                tuple(site.order for site in provenance.include_chain) if provenance is not None else (),
+            )
+            after = cursors.get(key, 0)
+            first = node.astext().split("\n", 1)[0]
+            candidates: list[tuple[int, int]] = []
+            for lineno in range(after + 1, len(lines) + 1):
+                match = _COMMENT_MARKER_RE.match(lines[lineno - 1])
+                if match is None:
+                    continue
+                marker_text = match.group(1)
+                if marker_text is not None and marker_text.strip() != first:
+                    continue
+                candidates.append((lineno, _indented_extent(lines, lineno)))
+
+            logical = _node_line(node)
+            hint = self.composition.physical_line(owner or node, logical)
+            adjacent = [candidate for candidate in candidates if candidate[1] in {hint - 1, hint}]
+            selected = adjacent[-1] if adjacent else (candidates[0] if candidates else None)
+            if selected is None:
+                contexts[id(node)] = self.source_context(node)
+                continue
+
+            start, _end = selected
+            cursors[key] = start
+            contexts[id(node)] = (start, lines, provenance)
+
+        return contexts
+
+    def comment_source_context(
+        self,
+        node: docutils.nodes.Node,
+    ) -> tuple[int, list[str], SourceProvenance | None]:
+        """Return the recovered physical source context for a comment."""
+        context = self._comment_source_contexts.get(id(node))
+        return self.source_context(node) if context is None else context
 
 
 class _DocumentInlineMixin(_DocumentCore):
@@ -581,7 +653,7 @@ def find_comments(path: pathlib.Path, doc: Document | None = None) -> list[Comme
         suspicious = bool(m and m.group(1).lower() in _KNOWN_DIRECTIVE_NAMES)
 
         preview = _outline_preview(text)
-        start, lines, provenance = document.source_context(node)
+        start, lines, provenance = document.comment_source_context(node)
         entries.append(CommentEntry(start, depth, preview, suspicious, _indented_extent(lines, start), provenance))
     return entries
 

@@ -236,8 +236,9 @@ def check_directives(
     # styling that docutils discarded.
     nested_strong_ids = set(document.nested_inline_by_node)
 
-    def warn(node: docutils.nodes.Node, text: str) -> None:
-        lineno = _node_line(node)
+    def warn(node: docutils.nodes.Node, text: str, *, lineno: int | None = None) -> None:
+        if lineno is None:
+            lineno = _node_line(node)
         if _in_scope(ranges, lineno, lineno):
             findings.append(Finding(lineno=lineno, severity=Severity.WARNING, text=text))
 
@@ -295,6 +296,7 @@ def check_directives(
                     f"comment '.. {name}: …' looks like a mistyped directive — "
                     "a single colon makes it a comment that silently hides "
                     f"its content; did you mean '.. {name}::'?",
+                    lineno=document.comment_source_context(node)[0],
                 )
             raise docutils.nodes.SkipNode
 
