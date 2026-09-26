@@ -1501,6 +1501,54 @@ def test_comments_found_with_preview_and_depth(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("source", "expected_end"),
+    [
+        (".. one line\n\nAfter.\n", 1),
+        (".. first\n   second\n   third\n\nAfter.\n", 3),
+        (".. code: bash\n\n   echo hi\n   echo two\n\nAfter.\n", 4),
+        ("..\n   body\n   two\n\nAfter.\n", 3),
+        ("..\n", 1),
+    ],
+)
+def test_comments_report_their_exact_physical_extent(
+    tmp_path: Path,
+    source: str,
+    expected_end: int,
+) -> None:
+    p = _rst(tmp_path, source)
+
+    entry = _document.find_comments(p)[0]
+
+    assert (entry.lineno, entry.end) == (1, expected_end)
+
+
+@pytest.mark.integration
+def test_consecutive_comments_keep_distinct_source_lines(tmp_path: Path) -> None:
+    p = _rst(tmp_path, ".. first\n\n.. second\n\nAfter.\n")
+
+    entries = _document.find_comments(p)
+
+    assert [(entry.lineno, entry.end, entry.preview) for entry in entries] == [
+        (1, 1, "first"),
+        (3, 3, "second"),
+    ]
+
+
+@pytest.mark.integration
+def test_included_comment_keeps_fragment_source_range(tmp_path: Path) -> None:
+    root = tmp_path / "index.rst"
+    root.write_text("Index\n=====\n\n.. include:: fragment.rst\n", encoding="utf-8")
+    (tmp_path / "fragment.rst").write_text(".. first\n   second\n\nTail.\n", encoding="utf-8")
+
+    entry = _document.Document(root, tmp_path).comments[0]
+
+    assert (entry.lineno, entry.end) == (1, 2)
+    assert entry.provenance is not None
+    assert entry.provenance.source == "fragment.rst"
+
+
+@pytest.mark.integration
 def test_comments_no_preceding_heading_is_depth_1(tmp_path: Path) -> None:
     """Same top-level convention as
     test_heuristic_code_blocks_no_preceding_heading_is_depth_1 and
@@ -1962,6 +2010,7 @@ def test_comments_depth_accounts_for_enclosing_list_item(tmp_path: Path) -> None
     )
     e = _document.find_comments(p)[0]
     assert e.depth == 4  # Title=1, bullet list=2, item=3, comment=4
+    assert (e.lineno, e.end) == (6, 6)
 
 
 @pytest.mark.integration

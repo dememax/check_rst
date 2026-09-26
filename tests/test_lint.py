@@ -839,6 +839,16 @@ def test_comments_suspicious_flag_true_for_known_directive_typo(tmp_path: Path) 
 
 
 @pytest.mark.integration
+def test_mistyped_directive_warning_anchors_to_comment_marker(tmp_path: Path) -> None:
+    p = _rst(tmp_path, ".. code: bash\n\n   echo hidden\n\nAfter.\n")
+
+    findings = _lint.check_directives(p, True)
+
+    assert len(findings) == 1
+    assert findings[0].lineno == 1
+
+
+@pytest.mark.integration
 def test_tables_table_directive_wraps_simple_table(tmp_path: Path) -> None:
     """'.. table:: Caption' is docutils' own directive for a captioned
     grid/simple table — distinct from Sphinx's list-table/csv-table."""
