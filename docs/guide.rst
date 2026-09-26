@@ -475,6 +475,41 @@ and verifies convergence — a clean pass is a machine-checked guarantee, not an
 impression.  The fixed ``--build-dir`` keeps repeat runs cheap: Sphinx
 recompiles only changed pages.
 
+==================================================
+Retained WARNINGs: recording a reviewed decision
+==================================================
+
+Step 1's semantic review gives every WARNING a disposition (see
+:doc:`rules`); a ``retain`` decision is stored in a committed
+``.check_rst-retained.toml`` beside the project's ``.check_rst.toml``, so a
+reviewed WARNING stops looking unreviewed without touching the source —
+adopted or generated files cannot carry inline annotations::
+
+    version = 1
+
+    [[retain]]
+    path = "docs/rules.rst"
+    code = "pseudo-heading.bold-opener"
+    source-sha256 = "…"
+    reason = "One item in a compact, co-equal register."
+
+The identity is the project-relative owning source path (an included
+fragment's own path), the rule ``code``, and ``source-sha256``, the SHA-256 of
+the finding's whitespace-normalized source line.  ``check --format=json``
+prints the ``code`` and ``source_sha256`` of every retainable WARNING, which
+are the values to copy.  The line number is not identity, so edits elsewhere
+keep the decision; neither is the message wording.  ``reason`` is mandatory.
+``reviewer`` and ``date`` are optional metadata, never matched.
+
+Only exactly located WARNINGs can be retained; an ERROR is never hidden.  A
+retained WARNING leaves the text report but stays counted — a per-file
+``↷ … retained WARNING(s)`` line and a summary total, each reason under
+``--verbose`` — and stays in JSON with ``retained: {reason}``.  When a
+whole-file check finds no WARNING for an entry, because the construct changed
+or was removed, the entry is reported as a stale WARNING to update or delete; a
+hunk-scoped run does not judge staleness.  Malformed entries fail loudly, and
+``--no-config`` ignores the file like any project configuration.
+
 ===============================
 What ``fix`` computes for you
 ===============================

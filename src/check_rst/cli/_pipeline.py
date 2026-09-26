@@ -30,7 +30,7 @@ from ._formatting import (
     check_single_top_level,
     diff_fixes,
 )
-from ._helpers import _JSON_SCHEMA_VERSION
+from ._helpers import _JSON_SCHEMA_VERSION, _read_normalized, _relative_to_root
 from ._lint import check_directives, check_homoglyphs, check_nested_inline_markup
 from ._output import (
     _emit_final_status,
@@ -41,6 +41,7 @@ from ._output import (
     _report_kind,
 )
 from ._reports import _docname_id, _format_runtime, _json_file_model
+from ._retained import RETAINED_FILE, RetainedSet, Retention, annotate_retention
 from ._sphinx import (
     _attach_did_you_mean,
     _build_sphinx_env_checked,
@@ -109,6 +110,14 @@ class _PipelineState:
     suppressed_restatements: int = 0
     # Resolved physical file -> Sphinx title diagnostics fix provably removes.
     title_restatements: dict[pathlib.Path, ResolvedTitleDiagnostics] = dataclasses.field(default_factory=dict)
+    # Retained-WARNING sidecar state: the loaded decisions, how many WARNINGs
+    # they hid, which sources a whole-file check judged for staleness, cached
+    # owning-source lines for included findings, and the stale entries.
+    retained: RetainedSet | None = None
+    retained_count: int = 0
+    judged_paths: set[str] = dataclasses.field(default_factory=set)
+    owner_lines: dict[str, list[str] | None] = dataclasses.field(default_factory=dict)
+    stale_retentions: list[Retention] = dataclasses.field(default_factory=list)
     sphinx_findings_json: list[dict[str, Any]] | None = None
     fix_plans: dict[pathlib.Path, FixPlan] = dataclasses.field(default_factory=dict)
 
@@ -151,6 +160,64 @@ def _plan_normal_fixes(
             f"check_rst: {len(files)} file(s) selected, {state.total_errors} input error(s), 0 file(s) fixed"
         )
         raise SystemExit(1)
+
+
+def _apply_retentions(
+    state: _PipelineState,
+    path: pathlib.Path,
+    document: Document,
+    findings: list[Finding],
+    project_root: pathlib.Path,
+) -> list[Finding]:
+    """Annotate retainable WARNINGs with their span digest and retention.
+
+    Identity paths are project-relative: the checked file's own path for root
+    content, the composition's physical source for included content.
+    """
+    root = project_root.resolve()
+    own = _relative_to_root(path.resolve(), root)
+
+    def owning_path(finding: Finding) -> str | None:
+        if finding.source is None:
+            return own.as_posix() if own is not None else None
+        source = pathlib.PurePath(finding.source)
+        return None if source.is_absolute() else source.as_posix()
+
+    def owning_line(finding: Finding) -> str | None:
+        if finding.source is None:
+            lines: list[str] | None = document.lines
+        else:
+            if finding.source not in state.owner_lines:
+                try:
+                    state.owner_lines[finding.source] = _read_normalized(root / finding.source).splitlines()
+                except OSError, UnicodeError:
+                    state.owner_lines[finding.source] = None
+            lines = state.owner_lines[finding.source]
+        return lines[finding.lineno - 1] if lines is not None and finding.lineno <= len(lines) else None
+
+    return annotate_retention(findings, state.retained, owning_path, owning_line)
+
+
+def _report_retained(
+    args: argparse.Namespace,
+    path: pathlib.Path,
+    retained_v: list[Finding],
+    project_root: pathlib.Path,
+) -> None:
+    """Name retained WARNINGs without reporting them as open findings.
+
+    The per-file line uses the checked path like every per-file line; each
+    verbose reason line names the retention's identity path, the value an
+    author finds in the sidecar.
+    """
+    if not retained_v or args.quiet:
+        return
+    print(f"↷ {path}: {len(retained_v)} retained WARNING(s)")
+    if args.verbose:
+        own = _relative_to_root(path.resolve(), project_root.resolve())
+        for finding in retained_v:
+            location = finding.source or (own.as_posix() if own is not None else str(path))
+            print(f"  retained {location}:{finding.lineno} [{finding.code}]: {finding.retained}")
 
 
 def _hidden_warnings(args: argparse.Namespace, findings: list[Finding]) -> int:
@@ -348,19 +415,30 @@ def _run_phase1(
             phase1_v.extend(directive_v)
         phase1_v.extend(own(check_homoglyphs(path, doc=document)))
 
-        phase1_v = _in_source_order(phase1_v)
+        phase1_v = _apply_retentions(state, path, document, _in_source_order(phase1_v), project_root)
+        open_v = [finding for finding in phase1_v if finding.retained is None]
+        retained_v = [finding for finding in phase1_v if finding.retained is not None]
+        if whole_file:
+            # Only a whole-file check can prove that an entry no longer
+            # matches anything; a hunk-scoped run never judges staleness.
+            own_path = _relative_to_root(path.resolve(), project_root.resolve())
+            if own_path is not None:
+                state.judged_paths.add(own_path.as_posix())
+            state.judged_paths.update(include.resolved for include in document.includes)
         if args.json:
             state.json_records[path]["findings"].extend(phase1_v)
-        e, w = _print_findings(phase1_v, pstr, args.no_warnings, suppress_findings)
+        e, w = _print_findings(open_v, pstr, args.no_warnings, suppress_findings)
         state.total_errors += e
         state.total_warnings += w
-        state.suppressed_warnings += _hidden_warnings(args, phase1_v)
+        state.suppressed_warnings += _hidden_warnings(args, open_v)
+        state.retained_count += len(retained_v)
         if adornments_clean and not args.diff and not args.quiet:
             print(f"✓ {pstr}: adornments + hierarchy OK")
         # A success line states that the family found nothing, never merely
         # that a filter hid what it found.
         if directive_v == [] and not args.quiet:
             print(f"✓ {pstr}: directives OK")
+        _report_retained(args, path, retained_v, project_root)
 
         if args.skip_fixable and state.suppressed_fixable[path] and not args.quiet:
             print(f"↷ {pstr}: {state.suppressed_fixable[path]} auto-fixable finding(s) suppressed")
@@ -547,13 +625,23 @@ def _run_sphinx_phases(
                     )
                 # Not phase2_v: that name holds Phase 2's own Sphinx build
                 # warnings, which Phase 3 reports.
-                verified_v = _in_source_order([*bare_filename_v, *single_top_v, *multiple_toctree_v])
+                verified_v = _apply_retentions(
+                    state,
+                    path,
+                    bare_filename_doc,
+                    _in_source_order([*bare_filename_v, *single_top_v, *multiple_toctree_v]),
+                    project_root,
+                )
+                verified_open_v = [finding for finding in verified_v if finding.retained is None]
+                verified_retained_v = [finding for finding in verified_v if finding.retained is not None]
                 if args.json:
                     state.json_records[path]["findings"].extend(verified_v)
-                e, w = _print_findings(verified_v, str(path), args.no_warnings, suppress_findings)
+                e, w = _print_findings(verified_open_v, str(path), args.no_warnings, suppress_findings)
                 state.total_errors += e
                 state.total_warnings += w
-                state.suppressed_warnings += _hidden_warnings(args, verified_v)
+                state.suppressed_warnings += _hidden_warnings(args, verified_open_v)
+                state.retained_count += len(verified_retained_v)
+                _report_retained(args, path, verified_retained_v, project_root)
             if args.outline or args.json:
                 for path in files:
                     # phase2_doc: see the sibling heuristic loop above for
@@ -758,6 +846,28 @@ def _run_sphinx_phases(
                 shutil.rmtree(build_dir, ignore_errors=True)
 
 
+def _report_stale_retentions(args: argparse.Namespace, suppress_findings: bool, state: _PipelineState) -> None:
+    """Report sidecar entries a whole-file check no longer matches.
+
+    A changed or deleted construct leaves its entry behind as a reviewable
+    WARNING instead of silently accumulating dead policy.
+    """
+    if state.retained is None:
+        return
+    state.stale_retentions = state.retained.stale(state.judged_paths)
+    for retention in state.stale_retentions:
+        if args.no_warnings:
+            state.suppressed_warnings += 1
+            continue
+        state.total_warnings += 1
+        if not suppress_findings:
+            _emit_report_line(
+                f"{RETAINED_FILE}: WARNING: retain entry {retention.entry} ({retention.path}, {retention.code}) "
+                "matches no current WARNING — update or remove it",
+                "WARNING",
+            )
+
+
 def _finding_record(finding: Finding) -> dict[str, Any]:
     """Serialize one finding's public JSON fields, in schema order.
 
@@ -766,7 +876,7 @@ def _finding_record(finding: Finding) -> dict[str, Any]:
     stay out.  location_exact and code are additive schema-1 members
     (decided 2026-09-26); text output does not render codes.
     """
-    return {
+    record: dict[str, Any] = {
         "lineno": finding.lineno,
         "severity": finding.severity,
         "text": finding.text,
@@ -775,6 +885,13 @@ def _finding_record(finding: Finding) -> dict[str, Any]:
         "location_exact": finding.location_exact,
         "code": finding.code,
     }
+    # Additive retained-WARNING members: the digest an author copies into
+    # .check_rst-retained.toml, and the reviewed reason when one applies.
+    if finding.source_sha256 is not None:
+        record["source_sha256"] = finding.source_sha256
+    if finding.retained is not None:
+        record["retained"] = {"reason": finding.retained}
+    return record
 
 
 def _emit_json_result(
@@ -820,6 +937,7 @@ def _emit_json_result(
                 "fixable": sum(state.suppressed_fixable.values()),
                 "restatements": state.suppressed_restatements,
             },
+            "retained": state.retained_count,
             "lines": state.total_lines,
             "empty_lines": state.empty_lines,
             "chars": state.total_chars,
@@ -828,6 +946,10 @@ def _emit_json_result(
     }
     if state.sphinx_findings_json is not None:
         data["sphinx_findings"] = state.sphinx_findings_json
+    data["stale_retentions"] = [
+        {"entry": retention.entry, "path": retention.path, "code": retention.code}
+        for retention in state.stale_retentions
+    ]
     payload = json.dumps(data, ensure_ascii=False, indent=2)
     # Human reports and unified diffs preserve Unix filename bytes through
     # stdout's surrogateescape policy.  JSON instead promises a UTF-8 text:
@@ -890,6 +1012,8 @@ def _emit_text_summary(
     suppressed_fixable = sum(state.suppressed_fixable.values())
     if suppressed_fixable:
         parts.append(f"{suppressed_fixable} auto-fixable finding(s) suppressed")
+    if state.retained_count:
+        parts.append(f"{state.retained_count} retained WARNING(s)")
     if args.fix:
         parts.append(f"{len(state.fixed_files)} file(s) fixed")
     if args.diff:
@@ -1014,6 +1138,7 @@ def _run_check_pipeline(
     config_source: str,
     config_applied: list[str],
     config_inactive: list[str],
+    retained: RetainedSet | None = None,
 ) -> NoReturn:
     """The check/fix/diff Phase 1-3 pipeline shared by all three verbs
     (they're one algorithm parameterized by args.fix/args.diff/args.json/
@@ -1033,7 +1158,7 @@ def _run_check_pipeline(
     if not args.quiet:
         print(_format_runtime(runtime_metadata))
 
-    state = _PipelineState()
+    state = _PipelineState(retained=retained)
 
     if args.fix:
         _plan_normal_fixes(args, files, whole_file, project_root, state)
@@ -1041,6 +1166,7 @@ def _run_check_pipeline(
     _run_phase1(args, files, whole_file, project_root, word_samples, suppress_findings, state)
     with _sphinx._sphinx_build_lock(args.build_dir if args.sphinx_src is not None else None):
         _run_sphinx_phases(args, files, project_root, word_samples, suppress_findings, state)
+    _report_stale_retentions(args, suppress_findings, state)
     if args.json:
         _emit_json_result(
             args,

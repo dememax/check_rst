@@ -46,6 +46,7 @@ from ._reports import (
     _run_context_query,
     _runtime_metadata,
 )
+from ._retained import load_retained
 from ._sphinx import (
     _build_sphinx_env_checked,
     _docname_for,
@@ -1684,6 +1685,9 @@ def _main() -> None:
         config_source,
         config_applied,
         config_inactive,
+        # The sidecar is project configuration: discovered beside the selected
+        # config, and skipped by --no-config like the config itself.
+        None if args.no_config else load_retained(loaded_config.root),
     )
 
 

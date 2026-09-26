@@ -79,7 +79,7 @@ def test_retained_warning_is_hidden_counted_and_kept_in_json(
     assert code == 0
     assert "bold paragraph opener 'Register item.'" not in out
     assert f"{doc}:7: WARNING: bold paragraph opener 'Heading-ish opener.'" in out
-    assert "↷ doc.rst: 1 retained WARNING(s)" in out
+    assert f"↷ {doc}: 1 retained WARNING(s)" in out
     assert "0 error(s), 1 warning(s), 1 retained WARNING(s)" in out
 
     _code, json_out = _run(monkeypatch, capsys, "check", "--format=json", str(doc))

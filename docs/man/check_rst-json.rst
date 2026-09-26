@@ -38,7 +38,10 @@ counts, and verified reports may include ``sphinx_findings``.  Each finding
 records its ``<domain>.<condition>`` rule ``code`` and ``location_exact``;
 ``summary.suppressed`` counts WARNINGs hidden by
 ``--no-warnings``, findings hidden by ``--skip-fixable``, and proven fixable
-Sphinx restatements, kept apart from the visible totals.
+Sphinx restatements, kept apart from the visible totals.  A retainable WARNING
+records ``source_sha256``; one hidden by a ``.check_rst-retained.toml`` entry
+also records ``retained`` with its reason, ``summary.retained`` counts them,
+and ``stale_retentions`` lists entries a whole-file check no longer matched.
 
 **************
 FILE RECORDS

@@ -162,6 +162,11 @@ class Finding:
     # Composition sort key for included content (see CompositionIndex.order_key);
     # empty for root content.  Not identity: excluded from equality and hash.
     order: tuple[int, ...] = dataclasses.field(default=(), compare=False, kw_only=True)
+    # Retained-WARNING identity and disposition (see _retained): the span
+    # digest an author copies into the sidecar, and the matching entry's
+    # reason when a reviewed retention hides this WARNING from the report.
+    source_sha256: str | None = dataclasses.field(default=None, compare=False, kw_only=True)
+    retained: str | None = dataclasses.field(default=None, kw_only=True)
 
     def __str__(self) -> str:
         marker = "" if self.location_exact else " (approximate line)"

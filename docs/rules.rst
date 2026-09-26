@@ -252,8 +252,10 @@ Give every warning in the changed scope an explicit disposition:
 * ``promote`` — it names an independently navigable concept, so convert it
   to a real section with a placeholder adornment.
 * ``retain`` — it is a meaningful label, identifier, field name, or one
-  member of a sequence whose meaning depends on remaining a list; state that
-  semantic reason even though the WARNING remains.
+  member of a sequence whose meaning depends on remaining a list; record that
+  semantic reason in the project's ``.check_rst-retained.toml`` (see "Retained
+  WARNINGs" in :doc:`guide`), so the reviewed WARNING no longer looks
+  unreviewed.
 * ``rewrite`` — the emphasis has no structural job; remove it or fold the
   text into ordinary prose instead of preserving a warning that has no
   semantic justification.
