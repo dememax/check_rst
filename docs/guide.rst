@@ -71,9 +71,10 @@ entire guide in terminal output.
    --fast`` (bare form when the whole dirty RST set is yours) →
    ``check_rst check`` (confirm clean).  In a shared dirty worktree, add the
    same ``--git-scope path/to/owned.rst`` allowlist to all three commands.
-   Reading, run ``check_rst outline <file>`` before editing
-   anything you have not already read this session.  Everything below
-   is why those two habits are enough.
+   Reading, run ``check_rst context <entry> <file>`` for a known entry, or
+   ``check_rst outline <file>`` otherwise, before editing; having read the
+   file earlier changes nothing.  Everything below is why those two habits
+   are enough.
 
 *******************
 Documentation set
@@ -97,8 +98,9 @@ The contract: delegate syntax, keep semantics
 ***********************************************
 
 An LLM processes text as tokens, not characters.  Exact character
-counting is therefore statistically plausible rather than reliable — and the
-source Journal corpus contains many Cyrillic titles, where tokenization is even
+counting is therefore statistically plausible rather than reliable — and
+Journal, the multilingual notes corpus check_rst was extracted from (see
+:doc:`integration`), contains many Cyrillic titles, where tokenization is even
 less related to character count (``Конфигурация`` is a handful of tokens
 whose boundaries say nothing about its 12 characters).  Display-width
 rules (CJK counts 2 columns, combining accents 0) make hand-computation
@@ -119,7 +121,7 @@ The task split follows directly:
      - AI (semantic)
    * - Choosing which inline role survives when RST cannot nest two roles
      - AI (semantic)
-   * - Synthesizing calendar notes into aggregation pages
+   * - Synthesizing notes into summary or aggregation pages
      - AI (semantic)
    * - Computing adornment widths, characters, and required title separators
      - ``check_rst fix`` (deterministic)
@@ -581,11 +583,11 @@ untried ranges.
 The proof establishes *where* a change lands; it cannot establish the author's
 stylistic intent.  For example, a paragraph timestamp such as ``Max  20 h 01``
 is eligible prose and will become ``Max 20 h 01`` when the prose policy is
-explicitly selected.  This Journal also contains an established two-space
-sentence-separator style: evaluation found 466 such runs in the ``check_rst``
-documentation alone.  Across the tracked corpus, 13,227 internal repeated-space
-runs included 7,598 table-shaped and 4,050 indented occurrences, while only 22
-runs were in section titles.  Those facts are why the options are named,
+explicitly selected.  Established two-space sentence separators are also
+common: evaluation found 466 such runs in the ``check_rst`` documentation
+alone.  Across the Journal corpus, 13,227 internal repeated-space runs included
+7,598 table-shaped and 4,050 indented occurrences, while only 22 runs were in
+section titles.  Those facts are why the options are named,
 separate, whole-document, and never part of default ``fix``.  Preview the
 selected files and choose the style deliberately.
 
@@ -636,8 +638,8 @@ turn a document-wide style request into a hunk-local one.
 
 Passing a filename (or ``--recursive``) makes adornment geometry
 whole-file too — including pre-existing, deliberately non-standard
-adornments in historical ``calendar/`` entries that must not be
-renormalized.  Fix a specific file in full only when the user explicitly
+adornments in historical files that must not be renormalized, such as
+Journal's archived ``calendar/`` notes.  Fix a specific file in full only when the user explicitly
 confirms that file should be normalized.
 
 ``--git-scope`` is the safe exception to that explicit-file rule.  Its
@@ -738,7 +740,7 @@ correction, hierarchy remap, BOM/CRLF/trailing-whitespace normalization) at
 once, asserting every prose line's semantic content survives, in order.  If you want the
 same confidence the hard way: ``check_rst diff`` before trusting any
 normalize, same as "Fixing foreign content needs one extra caution"
-above already recommends — this section is why that recommendation is
+below recommends — this section is why that recommendation is
 safe to act on, not just cautious phrasing.
 
 Byte hygiene runs before anything parses the file, and specifically
@@ -1050,15 +1052,51 @@ does not change those facts.  Run ``context`` when the entry is known; run
 ``outline`` when it is not; use ``targets --exact`` when a label is known but
 its file is not.  Only then read the reported physical range.
 
+=============================================
+What a reader command's exit status answers
+=============================================
+
+``outline`` is the validation pipeline with a structure view; the other reader
+commands answer a query.  Their exit statuses therefore mean different things:
+
+.. list-table:: Reader-command exit status
+   :header-rows: 1
+   :widths: 16 40 44
+
+   * - Command
+     - Exit 0
+     - Exit 1
+   * - ``outline``
+     - Validation found no ERROR
+     - Validation found an ERROR, even when the structure-only view hides it;
+       the report then names the hidden count and ``--with-findings``
+   * - ``context``
+     - The query resolved to exactly one entry, even when its briefing lists an
+       ERROR
+     - No entry matched, or several did (candidates are printed)
+   * - ``targets``
+     - The listing was produced, including zero matches
+     - ``--exact`` found no target, or verified mode is missing
+   * - ``refs``
+     - The reference report was produced
+     - The file or ``--target`` label is not part of the project, or verified
+       mode is missing
+   * - ``hierarchy``
+     - Always
+     - Never
+
+Every command returns 2 for a command-line usage error.
+
 ====================================
 ``outline``: the structural oracle
 ====================================
 
 ::
 
-    check_rst --sphinx-src . --build-dir /tmp/repo-sphinx-build outline --with-findings <file>
+    check_rst outline <file>
 
-prints a ``levels:`` legend — each depth with its adornment character
+run where the project's ``.check_rst.toml`` declares ``sphinx-src`` (or with an
+explicit ``--sphinx-src DIR`` before the command), prints a ``levels:`` legend — each depth with its adornment character
 and section count, plus the document's total section count and the first
 free character chosen in check_rst's canonical order (or an explicit
 ``no free section char`` when all valid characters are present), stated
@@ -1109,8 +1147,9 @@ object (findings included, stable section ids, every entry's own
 preview/kind/dims fields) — and for the human-readable pure structure
 query use bare ``outline``: structure-only by default, implying
 ``--quiet`` and suppressing the finding lines — a display filter, so
-the footer still counts findings and the exit code stays honest; pass
-``--with-findings`` to layer today's finding lines back on top.
+the footer still counts findings and the exit code stays honest, and a hidden
+ERROR count is named with the option that shows it; pass ``--with-findings``
+to restore the complete validation report.
 ``--outline-depth N`` bounds the view under
 one contract: **the depth limit trims entries, never information** —
 the ``levels:``/``blocks:`` legend always describes the whole document,
@@ -1287,8 +1326,9 @@ weight its placement implies, or is it filler (``admonition
 found live to be completely invisible to ``outline`` before this
 entry kind existed, even though docutils parsed it fine all along);
 and is this comment really just a comment, or a directive that lost
-its second colon (``comment "code: bash" [suspicious — looks like a
-mistyped directive]``).  All five kinds share one contract —
+its second colon (``comment "code: bash echo hi" [suspicious — looks like a
+mistyped directive]`` — the preview carries the hidden body too).  All five
+kinds share one contract —
 whitespace-collapsed, 74-character-bounded, ``...``-truncated — so
 scanning an outline for "what's really here" never means learning a
 second format per entry kind.  The generic ``.. admonition:: Title``
@@ -1301,7 +1341,7 @@ quotation, and the preview is what lets you confirm that exemption is
 doing the right thing on a specific quote, not just trust it in the
 abstract.
 
-The practical payoff: a month-scale ``outline --recursive`` audit
+The practical payoff: a large ``outline --recursive`` audit
 becomes skimmable.  Where a corpus-wide grep for a suspicious code
 snippet or a mis-captioned table used to mean opening candidate files
 one by one, the preview usually answers the question from the outline
@@ -1360,7 +1400,8 @@ detailed lines.
 
 ``--word-samples N`` is the ladder's one deliberate escape hatch: it
 promotes top/rare prose words at *any* level, ``--quiet`` included,
-independent of ``--verbose`` — the single line-4 exception, because a
+independent of ``--verbose`` — the only footer lines the verbosity level does
+not decide, because a
 targeted typo-scan is sometimes exactly what a quiet run is for.
 Omit it and the level decides (10 under ``--verbose``, hidden
 otherwise); ``--word-samples 0`` disables the lines even under
@@ -1470,7 +1511,7 @@ information is either irrelevant to that question or explicitly counted.
        count
      - Leaf kinds and/or entries below the requested depth
    * - Navigation expansion
-     - ``--no-toctree`` on ``check``, ``outline``, or ``context``
+     - ``--no-toctree`` on ``outline``, ``context``, or ``check --format=json``
      - The selected source document's own structure and includes
      - Structure reached only by following its toctree edges
    * - One known entry
@@ -1564,13 +1605,6 @@ defined rather than accidental.
   ``--max-output-lines`` above.  A piped line-count guess that happens not
   to lose anything today is luck, not a guarantee for the next file.
 
-``--no-warnings`` is different
-  This is a destructive finding-class filter, not a non-destructive
-  verbosity control.  It removes WARNING diagnostics and currently makes
-  the summary report zero warnings without a separate suppressed count.
-  Use it only when an errors-only answer is explicitly wanted, never as a
-  generic way to shorten an ordinary validation report.
-
 ``grep`` to recover one thing from a noisier whole
   Two different temptations, two different existing answers.  Findings
   buried in progress noise: ``--quiet`` already strips everything but
@@ -1581,6 +1615,13 @@ defined rather than accidental.
   (see above) resolves it exactly, with its full sibling/parent/
   reference context attached — something no grep over raw markup can
   reconstruct.
+
+``--no-warnings`` is not an answer to either reflex.  It is a destructive
+finding-class filter, not a non-destructive verbosity control: it removes
+WARNING diagnostics and currently makes the summary report zero warnings
+without a separate suppressed count.  Use it only when an errors-only answer is
+explicitly wanted, never as a generic way to shorten an ordinary validation
+report.
 
 Neither rule is absolute.  A deliberately targeted pipeline over a separately
 retained, complete report — ``grep`` for one known, stable substring while the
@@ -1630,7 +1671,7 @@ ever jump to.
 Phase 3: Sphinx integrity and diagnostics
 ===========================================
 
-After adding ``:doc:``/``:ref:`` links (the daily business of
+After adding ``:doc:``/``:ref:`` links (the daily business of summary and
 aggregation pages), the check with ``--sphinx-src`` runs a real
 ``sphinx-build`` and reports broken references in the checked files.
 An LLM writes links confidently; this is the stage that catches the
@@ -1656,9 +1697,9 @@ or child implicated in it.  The graph check survives incremental-cache
 reuse; retaining the configured build directory remains the normal,
 fast path.
 
-A broken reference's own WARNING now names its likely fix: ``unknown
-document: 'calendar/2026/07/2026-07-1/Notes' [ref.doc] — did you mean:
-'calendar/2026/07/2026-07-17/Notes'?``.  The suggestion comes from the
+A broken reference's own WARNING names its likely fix, as in this Journal
+example: ``unknown document: 'calendar/2026/07/2026-07-1/Notes' [ref.doc] —
+did you mean: 'calendar/2026/07/2026-07-17/Notes'?``.  The suggestion comes from the
 SAME live Sphinx environment Phase 2 already built for this run —
 ``env.found_docs`` for a broken ``:doc:``, ``env.domaindata['std']
 ['anonlabels']`` for a broken ``:ref:`` — matched with
@@ -1680,11 +1721,10 @@ refs: who this file points at, who points at it
 ``:doc:``/``:ref:``/``:term:`` target and resolved toctree child *FILE*
 itself writes (``outgoing:``), and every OTHER file whose role or
 toctree edge resolves to *FILE* (``incoming:``).  Toctree globs are
-shown as the actual child documents Sphinx expanded them into.  For this
-Journal, the incoming half answers the question aggregation-page
-maintenance keeps asking: "which aggregation pages already point at
-this calendar note" — before, that meant a corpus-wide grep and manual
-cross-checking; now it is one command.  A self-contained mode, same
+shown as the actual child documents Sphinx expanded them into.  The incoming
+half answers the question summary-page maintenance keeps asking — in Journal,
+"which aggregation pages already point at this calendar note" — which otherwise
+means a corpus-wide grep and manual cross-checking; here it is one command.  A self-contained mode, same
 family as ``compare --snapshots``: incompatible flags or extra file arguments
 are rejected, never silently ignored.
 
@@ -1698,7 +1738,7 @@ come from each node's Sphinx-resolved ``includefiles`` list — explicit
 entries and glob expansions, but not external URLs.  Incoming is that
 combined scan run once per document across the whole project, kept to
 whatever resolves to *FILE*'s own docname — measured at ~2.6 seconds
-across this Journal's full 1444 documents, fine for an on-demand
+across Journal's 1444 documents, fine for an on-demand
 command, not something to pay on every default run.  A role target that
 doesn't resolve prints ``BROKEN`` in the outgoing list — Phase 3 already
 reports why (and, since the previous section, suggests the fix); this
@@ -2060,9 +2100,10 @@ not the config directory.
 Applied values are echoed
 ===========================
 
-Every non-quiet run starts with ``config: .check_rst.toml —
-sphinx-src=., build-dir=…`` for automatic discovery, or the selected
-config's absolute path for ``--config``.  The ``--format=json`` model carries
+Every non-quiet run starts with a line such as ``config: .check_rst.toml —
+sphinx-src=docs, build-dir=/tmp/check-rst-sphinx-build`` for automatic
+discovery (this repository's own echo), or the selected config's absolute path
+for ``--config``.  The ``--format=json`` model carries
 the same ``config`` object saying which file supplied which values.
 You always know why a run is in verified mode.  It also carries a schema
 version and structured runtime metadata; normal verified output prints the
@@ -2113,7 +2154,7 @@ verified too, and its facts travel with its history.
 Auditing a scope
 ******************
 
-For a calendar month, a project's docs tree, or an external repository::
+For a directory of notes, a project's docs tree, or an external repository::
 
     check_rst check --recursive <dir> --skip-fixable        # non-fixable findings
     check_rst diff --fast --recursive <dir>                 # fast mechanical preview
@@ -2129,10 +2170,15 @@ openers, rubrics); (2) the AI turns the ones that are genuine sections
 into real placeholder headings; (3) ``fix`` normalizes the result;
 (4) a bare confirm run verifies convergence; only once every document
 in scope has been through 1–4 does (5) cross-document reasoning
-(``refs``, ``compare``, an aggregation-page pass) run against
+(``refs``, ``compare``, a summary or aggregation page) run against
 verified structure instead of raw markup.  Skipping straight to step 5
 on a scope that never passed 1–4 means every cross-document answer
 inherits whatever the unverified documents got wrong.
+
+Before any ``fix`` across an audited scope, check the target repository for
+uncommitted changes and preview with ``diff``.  A normalization pass must never
+mix with somebody else's in-progress edits; when such edits exist, protect them
+with ``--git-scope`` or wait until they are committed.
 
 ``--recursive`` discovers ``*.rst`` natively (no shell, so spaced
 filenames are safe) and always checks in full — which is exactly why an
@@ -2153,9 +2199,8 @@ alongside ``--format=json``; and ``check --format=json`` cannot fix
 files.  ``--no-warnings``, when
 explicitly chosen for a query, filters warnings consistently from per-file
 findings, Sphinx findings, word-statistics diagnostics, and the summary.
-The semantic-rules guide documents scope decisions, the dirty-file check that
-must precede any fix outside the live-edit workflow, and the per-rule
-rationale.
+:doc:`rules` documents each semantic rule's rationale and its allowed
+dispositions.
 
 ******************************************************************
 Standalone documents and foreign projects: the two Phase 2 modes
@@ -2187,10 +2232,11 @@ The location is **never auto-detected**, even when a ``conf.py`` is
 sitting right there in the working directory.  This is deliberate: a
 tool that sometimes guesses your Sphinx configuration and sometimes
 doesn't, with no way to suppress the guess, is worse than one that is
-always explicit.  For this Journal the location is a stated project
-fact (the repo root); for any other repository it must be *confirmed* —
-ask the user when genuinely unknown — and each repo should get its own
-``--build-dir`` (e.g. ``/tmp/<repo>-sphinx-build``).
+always explicit.  A configured project states the location as a fact in its
+``.check_rst.toml`` (this repository declares ``docs``); for any other
+repository it must be *confirmed* — ask the user when genuinely unknown — and
+each repo should get its own ``--build-dir`` (e.g.
+``/tmp/<repo>-sphinx-build``).
 
 ``--build-dir`` itself is optional even in verified mode: omit it and a
 unique temporary directory is created for the run and removed again
