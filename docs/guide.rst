@@ -1124,79 +1124,116 @@ Every command returns 2 for a command-line usage error.
 
     check_rst outline <file>
 
-run where the project's ``.check_rst.toml`` declares ``sphinx-src`` (or with an
-explicit ``--sphinx-src DIR`` before the command), prints a ``levels:`` legend — each depth with its adornment character
-and section count, plus the document's total section count and the first
-free character chosen in check_rst's canonical order (or an explicit
-``no free section char`` when all valid characters are present), stated
-once since the mapping is constant within a document.  That final field
-answers which character is currently unassigned without manually subtracting
-the observed set.  It can establish a new outer level when inserted before a
-self-contained document's existing sections; it does not identify the
-character for an existing sibling depth, and it is not by itself a repair for
-included or transformed top-level titles.  The outline then prints a
-``blocks:`` line totalling code-blocks, blockquotes, and tables
-document-wide (omitted when the document has none of them) — then
-every heading as a line **range** and title, indented 4 spaces per
-level, with a bracketed count of its direct subsections *and* every
-code-block/blockquote/table anywhere in that section's range (its whole
-subtree, not just the section's own text) — plus every real code-block
-with its language, unquoted (``code-block (python)``, not
-``code-block ('python')``) and a preview of its content; every
-blockquote with the same preview contract over its quoted text; and
-every table with its syntax kind (``grid``/``simple``/``table``/
-``list``/``csv``), its row-x-column dimensions, its caption when it has
-one, and a preview chaining every row's cells in document order — each
-entry with its own range.  Every preview — code-block, blockquote,
-table alike — is whitespace-collapsed (no leading/trailing or doubled
-internal spaces) and bounded at 74 characters, ``...``-truncated when
-it doesn't fit: a quick identity for the entry, never its full content.
-The range is the entry's full physical extent, starting at a title overline
-when one exists: feed it straight to a targeted source read with no
-arithmetic — where check_rst
-informs about a line number, it informs about the range instead,
-wherever a range applies (findings keep single-line anchors: they
-point *at* a defect, not over a span) — quote zones are exempt
-from the heading-substitute warnings, so seeing them in the outline
-explains absent findings and shows composition — in document order.
-Read it **before editing when the target or its surrounding structure is not
-already known from a current model query, and again after any edit that could
-have moved things** — having read a file once does not make a remembered line
-number trustworthy after your own inserts shift everything below it; a fresh
-``outline`` run is authoritative regardless of how many times you
-have already read the file this session, a stale mental line map never
-is.  It answers "where does my new section attach, and at what level"
-as data instead of interpretation, and it is a compressed
-representation (a hundred headings instead of thousands of lines) when
-the full text would not fit comfortably in context.  Consulting it
-first — and again after editing — is cheaper on both budgets at once:
-less context spent, fewer structural mistakes made.  For machine
-consumption use ``check --format=json`` — the same model as one JSON
-object (findings included, stable section ids, every entry's own
-preview/kind/dims fields) — and for the human-readable pure structure
-query use bare ``outline``: structure-only by default, implying
-``--quiet`` and suppressing the finding lines — a display filter, so
-the footer still counts findings and the exit code stays honest, and a hidden
-ERROR count is named with the option that shows it; pass ``--with-findings``
-to restore the complete validation report.
-``--outline-depth N`` bounds the view under
-one contract: **the depth limit trims entries, never information** —
-the ``levels:``/``blocks:`` legend always describes the whole document,
-a section's bracketed counts always reflect its full subtree regardless
-of what the depth limit hides below it, and a hidden-entries note
-counts what was trimmed.  ``--sections-only`` is the orthogonal filter
-— by KIND instead of depth: every leaf entry (code-block, blockquote,
-table, admonition, comment, list) disappears from the tree regardless
-of how shallow it sits, for a pure table-of-contents view; the same
+Run where the project's ``.check_rst.toml`` declares ``sphinx-src`` (or with an
+explicit ``--sphinx-src DIR`` before the command), ``outline`` prints the
+document's structure as data: a compressed representation — a hundred headings
+instead of thousands of lines — that answers "where does my new section attach,
+and at what level" without interpretation.  Read it **before editing when the
+target or its surrounding structure is not already known from a current model
+query, and again after any edit that could have moved things**.  Having read a
+file once does not make a remembered line number trustworthy after your own
+inserts shift everything below it; a fresh ``outline`` run is authoritative, a
+stale mental line map never is.  Consulting it first and again after editing is
+cheaper on both budgets at once: less context spent, fewer structural mistakes.
+
+------------------------------------
+Outline legends: levels and blocks
+------------------------------------
+
+The ``levels:`` legend lists each depth with its adornment character and
+section count, the document's total section count, and the first free
+character in check_rst's canonical order (or an explicit ``no free section
+char`` when every valid character is present), stated once because the mapping
+is constant within a document.  The free character answers which character is
+currently unassigned without subtracting the observed set by hand.  It can
+establish a new outer level when inserted before a self-contained document's
+existing sections; it does not identify the character for an existing sibling
+depth, and by itself it is no repair for included or transformed top-level
+titles.  A ``blocks:`` line then totals code blocks, block quotes, and tables
+document-wide, and is omitted when the document has none.
+
+------------------------------
+Outline entries and previews
+------------------------------
+
+Entries follow in document order, each indented four spaces per level:
+
+.. list-table:: Outline entry kinds
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Entry
+     - What it shows
+   * - Section
+     - Its range and title, and a bracketed count of direct subsections and of
+       every block anywhere in its subtree
+   * - Code block
+     - Its language unquoted (``code-block (python)``) and a content preview
+   * - Block quote
+     - A preview of the quoted text; quote zones are exempt from the
+       pseudo-heading warnings, so seeing them explains absent findings
+   * - Table
+     - Its syntax kind (``grid``, ``simple``, ``table``, ``list``, ``csv``),
+       row-by-column dimensions, caption when present, and a preview chaining
+       every row's cells
+   * - Admonition, comment, list
+     - Their own previews; see "Block previews" below, including the
+       two-level list contract and the suspicious-comment marker
+   * - Include, conditional, toctree
+     - Composition entries; see "Parsed composition" below
+
+Every preview is whitespace-collapsed and bounded at 74 characters,
+``...``-truncated when it does not fit: a quick identity for the entry, never
+its full content.
+
+----------------
+Outline ranges
+----------------
+
+Each entry reports its full physical extent, starting at a title overline when
+one exists, so the range feeds a targeted source read with no arithmetic.
+Wherever check_rst informs about a line number it reports the range instead,
+wherever a range applies; findings keep single-line anchors because they point
+*at* a defect, not over a span.
+
+---------------------------------
+Outline filters: depth and kind
+---------------------------------
+
+``--outline-depth N`` bounds the view under one contract: **the depth limit
+trims entries, never information**.  The ``levels:``/``blocks:`` legend always
+describes the whole document, a section's bracketed counts always reflect its
+full subtree, and a hidden-entries note counts what was trimmed.
+``--sections-only`` is the orthogonal filter by kind instead of depth: every
+leaf entry — code block, block quote, table, admonition, comment, list —
+disappears regardless of depth, for a pure table-of-contents view.  The same
 "trims display, never information" contract applies, and the two flags
-compose.  With ``--sphinx-src`` the section/code-block
-structure comes from a real Sphinx environment; without it, from a
-clearly-labeled heuristic — trust the label.  Tables are the one entry
-kind exempt from that split: a real Sphinx build adds no trace of which
-RST syntax produced a table (confirmed directly — a grid table, a
-simple table, and the table/list-table/csv-table directives all produce
-the identical doctree shape), so ``kind`` always comes from the raw
-source text, verified mode or not.
+compose.
+
+---------------------------------
+Outline output modes and status
+---------------------------------
+
+Bare ``outline`` is structure-only: it implies ``--quiet`` and suppresses
+finding lines as a display filter, so the footer still counts findings, the
+exit status stays honest, and a hidden ERROR count is named with the option
+that shows it.  ``--with-findings`` restores the complete validation report.
+For machine consumption use ``check --format=json``: the same model as one JSON
+object, with findings, stable section ids, and every entry's preview, kind, and
+dimension fields.  The exit-status contract is summarized under "What a reader
+command's exit status answers" above.
+
+-----------------------------------------
+Outline sources: verified and heuristic
+-----------------------------------------
+
+With ``--sphinx-src`` the section and code-block structure comes from a real
+Sphinx environment; without it, from a clearly labeled heuristic — trust the
+label.  Tables are the one kind exempt from that split: a Sphinx build keeps no
+trace of which RST syntax produced a table (a grid table, a simple table, and
+the table, list-table, and csv-table directives all produce the identical
+doctree shape), so ``kind`` always comes from the raw source text, verified
+mode or not.
 
 =======================================================
 Parsed composition: includes, origins, and conditions
