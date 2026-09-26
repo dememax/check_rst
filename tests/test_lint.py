@@ -928,6 +928,82 @@ def test_cli_text_and_json_agree_on_included_finding_sources(
 
 
 @pytest.mark.integration
+def test_git_scope_never_selects_fragment_lines_through_root_hunks(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Root hunks are root coordinates.  Changing root line 5 must not
+    select the unchanged fragment's own line 5 through an unchanged include."""
+    root = _write_including_root(rst_repo, ".. include:: frag.rst\n")
+    _git(rst_repo, "add", "main.rst", "frag.rst")
+    _git(rst_repo, "commit", "-m", "baseline")
+    root.write_text(root.read_text(encoding="utf-8").replace("Intro.", "Intro, changed."), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--git-scope", str(root)])
+
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    out = capsys.readouterr().out
+    assert "mistyped directive" not in out
+    assert "bold paragraph opener" not in out
+
+
+@pytest.mark.integration
+def test_git_scope_selects_fragment_findings_through_a_changed_include(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A newly added include directive is a changed root line: the content
+    it composes enters this document's scope."""
+    root = _write_including_root(rst_repo, "")
+    _git(rst_repo, "add", "main.rst", "frag.rst")
+    _git(rst_repo, "commit", "-m", "baseline")
+    root.write_text(
+        root.read_text(encoding="utf-8").replace("Intro.\n\n", "Intro.\n\n.. include:: frag.rst\n\n"),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--git-scope", str(root)])
+
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    out = capsys.readouterr().out
+    assert "frag.rst:5: WARNING: comment '.. code: …' looks like a mistyped directive" in out
+    assert "frag.rst:9: WARNING: bold paragraph opener 'Bold opener.'" in out
+    assert "Root opener" not in out
+
+
+@pytest.mark.integration
+def test_selected_fragment_reports_its_findings_in_its_own_run_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When the fragment is itself an input, its run owns its findings;
+    every including root repeating them would print identical lines."""
+    root = _write_including_root(tmp_path, ".. include:: frag.rst\n")
+    fragment = tmp_path / "frag.rst"
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(root), str(fragment)])
+    with pytest.raises(SystemExit):
+        cli.main()
+    out = capsys.readouterr().out
+    assert out.count("bold paragraph opener 'Bold opener.'") == 1
+    assert f"{fragment}:9: WARNING: bold paragraph opener 'Bold opener.'" in out
+    assert out.count("looks like a mistyped directive") == 1
+    assert "0 error(s), 5 warning(s)" in out
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", str(root), str(fragment)])
+    with pytest.raises(SystemExit):
+        cli.main()
+    files = {record["path"]: record["findings"] for record in json.loads(capsys.readouterr().out)["files"]}
+    assert [finding["lineno"] for finding in files[str(root)]] == [9]
+    assert sorted(finding["lineno"] for finding in files[str(fragment)]) == [1, 5, 9, 11]
+
+
+@pytest.mark.integration
 def test_tables_table_directive_wraps_simple_table(tmp_path: Path) -> None:
     """'.. table:: Caption' is docutils' own directive for a captioned
     grid/simple table — distinct from Sphinx's list-table/csv-table."""
