@@ -16,6 +16,8 @@ import docutils.parsers.rst.languages
 import docutils.parsers.rst.languages.en
 import docutils.parsers.rst.states
 import docutils.utils
+from docutils.parsers.rst import tableparser
+from docutils.statemachine import StringList
 
 from . import _helpers
 from ._composition import CompositionIndex, is_include_marker
@@ -54,6 +56,44 @@ if TYPE_CHECKING:
 
 
 _COMMENT_MARKER_RE = re.compile(r"^[ \t]*\.\.(?:[ \t]+(.*))?$")
+_SIMPLE_TABLE_BORDER_RE = re.compile(r"^=+(?: +=+)*$")
+
+
+def _nearest_ancestor[NodeT: docutils.nodes.Node](node: docutils.nodes.Node, node_type: type[NodeT]) -> NodeT | None:
+    current = node.parent
+    while current is not None and not isinstance(current, node_type):
+        current = current.parent
+    return current
+
+
+def _table_block(lines: list[str], top: int) -> tuple[list[str], int] | None:
+    """Return the dedented physical table block starting at 1-based *top*.
+
+    A grid table is the contiguous run of border and row lines at the top
+    border's indentation.  A simple table ends at the first later border line
+    followed by a blank line or end of input, which is Docutils' own end rule.
+    Returns the block and its indentation, or None when *top* is neither.
+    """
+    if not 1 <= top <= len(lines):
+        return None
+    border = lines[top - 1]
+    indent = len(border) - len(border.lstrip(" "))
+    first = border.strip()
+    block: list[str] = []
+    if first.startswith("+"):
+        for line in lines[top - 1 :]:
+            if line[:indent].strip() or not line[indent:].startswith(("+", "|")):
+                break
+            block.append(line[indent:])
+        return block, indent
+    if _SIMPLE_TABLE_BORDER_RE.match(first):
+        for index in range(top - 1, len(lines)):
+            content = lines[index][indent:]
+            block.append(content)
+            at_end = index + 1 == len(lines) or not lines[index + 1].strip()
+            if index > top - 1 and at_end and _SIMPLE_TABLE_BORDER_RE.match(content.strip()):
+                return block, indent
+    return None
 
 
 class _DocumentCore:
@@ -131,6 +171,64 @@ class _DocumentCore:
         lines = self.composition.source_lines(provenance, self.path, self.lines)
         return lineno, lines, provenance
 
+    def _table_cell_view(
+        self,
+        node: docutils.nodes.Node,
+        owner: docutils.nodes.Node | None,
+        lines: list[str],
+    ) -> tuple[list[str], range, tuple[int, int, int]] | None:
+        """Return a physical-coordinate view of the table cell holding *node*.
+
+        Docutils locates neither a cell's entry nor a comment inside it, so the
+        nearest located owner is the table and its line is the top border.
+        Re-running Docutils' own grid or simple table parser over the table's
+        physical block yields each cell's first content line and its
+        border-stripped lines.  The view is a copy of *lines* in which only
+        that cell's content lines are replaced by the cell text at the table's
+        indentation: line numbers stay physical, the comment marker becomes
+        matchable, and the next border line still ends an extent.  Returns the
+        view, the cell's physical content lines, and a per-cell cursor key, or
+        None when the table cannot be re-parsed from its physical source.
+        """
+        entry = _nearest_ancestor(node, docutils.nodes.entry)
+        table = _nearest_ancestor(entry, docutils.nodes.table) if entry is not None else None
+        row = entry.parent if entry is not None else None
+        if entry is None or row is None or table is None or table is not owner or not isinstance(table.line, int):
+            return None
+        top = self.composition.physical_line(table, table.line)
+        located = _table_block(lines, top)
+        if located is None:
+            return None
+        block, indent = located
+        parser = tableparser.GridTableParser() if block[0].startswith("+") else tableparser.SimpleTableParser()
+        try:
+            _colspecs, head_rows, body_rows = parser.parse(StringList(block))
+        except tableparser.TableMarkupError:
+            return None
+        rows = [
+            candidate
+            for candidate in table.findall(docutils.nodes.row)
+            if _nearest_ancestor(candidate, docutils.nodes.table) is table
+        ]
+        parsed = [*head_rows, *body_rows]
+        row_index = next((index for index, candidate in enumerate(rows) if candidate is row), None)
+        if row_index is None or row_index >= len(parsed):
+            return None
+        # Spanned positions are None in the parsed row; Docutils builds one
+        # entry per remaining cell, in order, exactly as enumerated here.
+        cells = [cell for cell in parsed[row_index] if cell is not None]
+        cell_index = row.index(entry)
+        if cell_index >= len(cells):
+            return None
+        _morerows, _morecols, offset, cell_lines = cells[cell_index]
+        first = top + offset
+        if first + len(cell_lines) - 1 > len(lines):
+            return None
+        view = list(lines)
+        for index, text in enumerate(cell_lines):
+            view[first - 1 + index] = f"{' ' * indent}{text}" if text.strip() else ""
+        return view, range(first, first + len(cell_lines)), (id(table), row_index, cell_index)
+
     @functools.cached_property
     def _comment_source_contexts(
         self,
@@ -145,6 +243,7 @@ class _DocumentCore:
         """
         contexts: dict[int, tuple[int, list[str], SourceProvenance | None]] = {}
         cursors: dict[tuple[str, tuple[int, ...]], int] = {}
+        cell_cursors: dict[tuple[int, int, int], int] = {}
 
         for node in self.doctree.findall(docutils.nodes.comment):
             if is_include_marker(node):
@@ -162,12 +261,25 @@ class _DocumentCore:
                 contexts[id(node)] = self.source_context(node)
                 continue
 
+            first = node.astext().split("\n", 1)[0]
+            cell = self._table_cell_view(node, owner, lines)
+            if cell is not None:
+                view, cell_lines, cell_key = cell
+                after = cell_cursors.get(cell_key, cell_lines.start - 1)
+                for lineno in range(after + 1, cell_lines.stop):
+                    match = _COMMENT_MARKER_RE.match(view[lineno - 1])
+                    if match is not None and (match.group(1) is None or match.group(1).strip() == first):
+                        cell_cursors[cell_key] = lineno
+                        contexts[id(node)] = (lineno, view, provenance)
+                        break
+                if id(node) in contexts:
+                    continue
+
             key = (
                 provenance.source if provenance is not None else str(self.path),
                 tuple(site.order for site in provenance.include_chain) if provenance is not None else (),
             )
             after = cursors.get(key, 0)
-            first = node.astext().split("\n", 1)[0]
             candidates: list[tuple[int, int]] = []
             for lineno in range(after + 1, len(lines) + 1):
                 match = _COMMENT_MARKER_RE.match(lines[lineno - 1])

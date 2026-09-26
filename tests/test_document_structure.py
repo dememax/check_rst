@@ -1564,6 +1564,10 @@ _GRID_CELL_COMMENTS = textwrap.dedent("""\
     |                  |       |
     |                  |  body |
     +------------------+-------+
+    | .. d: spanning both      |
+    +------------------+-------+
+    | row4             | .. e: |
+    +------------------+-------+
 
     After.
     """)
@@ -1576,7 +1580,7 @@ def test_grid_table_cell_comments_report_their_content_lines(tmp_path: Path) -> 
     report the physical lines of its own cell content instead."""
     document = _document.Document(_rst(tmp_path, _GRID_CELL_COMMENTS), tmp_path)
 
-    assert [(entry.lineno, entry.end) for entry in document.comments] == [(8, 8), (12, 14)]
+    assert [(entry.lineno, entry.end) for entry in document.comments] == [(8, 8), (12, 14), (16, 16), (18, 18)]
 
 
 @pytest.mark.integration
