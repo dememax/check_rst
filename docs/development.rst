@@ -172,8 +172,8 @@ unrelated entries below.
   input is confirmed a regular file before any phase starts, so an
   invalid selection is rejected once, immediately, not discovered by a
   phase that had nothing left to check.
-* **``--refs`` blind to a toctree-only reference** (calendar note,
-  2026-07-24) — ``check_rst --refs organs/index.rst`` reported empty
+* **A references query blind to a toctree-only reference** (Journal calendar
+  note, 2026-07-24) — ``check_rst --refs organs/index.rst`` reported empty
   outgoing and incoming lists for a file that is in fact both an
   aggregation hub (five ``toctree`` children) and itself included in
   the root index's own ``toctree`` — real edges ``find_references``
