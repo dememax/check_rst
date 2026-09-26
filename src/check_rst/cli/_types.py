@@ -63,6 +63,57 @@ class Severity(enum.StrEnum):
     WARNING = "WARNING"
 
 
+class FindingCode(enum.StrEnum):
+    """Stable internal rule identity of a Finding: ``<domain>.<condition>``.
+
+    Message text may be reworded at any time, so it cannot identify a rule.
+    A code names the detected rule instead: duplicate proof, shared
+    explanations, and retained-WARNING matching can key on it without
+    parsing prose.  Codes are internal until a public-output decision;
+    neither text nor JSON output renders them yet.  A StrEnum, like
+    Severity, so every code compares equal to its literal dotted-kebab
+    string and a mistyped member name is a type error.
+    """
+
+    # Phase 0: byte-level normalization, exactly resolved by fix.
+    HYGIENE_BOM = "hygiene.bom"
+    HYGIENE_CRLF = "hygiene.crlf"
+    HYGIENE_LONE_CR = "hygiene.lone-cr"
+    HYGIENE_LINE_SEPARATOR = "hygiene.line-separator"
+    HYGIENE_CONTROL_WHITESPACE = "hygiene.control-whitespace"
+    HYGIENE_TRAILING_WHITESPACE = "hygiene.trailing-whitespace"
+    # Phase 1: title adornment geometry, exactly resolved by fix.
+    ADORNMENT_UNDERLINE_ONLY = "adornment.underline-only"
+    ADORNMENT_CHAR_MISMATCH = "adornment.char-mismatch"
+    ADORNMENT_LENGTH = "adornment.length"
+    ADORNMENT_TITLE_SPACES = "adornment.title-spaces"
+    ADORNMENT_BLANK_BEFORE = "adornment.blank-before"
+    ADORNMENT_BLANK_AFTER = "adornment.blank-after"
+    # Document-level section hierarchy.
+    HIERARCHY_ORDER = "hierarchy.order"
+    HIERARCHY_NONPREFERRED_CHAR = "hierarchy.nonpreferred-char"
+    HIERARCHY_SECOND_TITLE = "hierarchy.second-title"
+    # Semantic lint left to author judgment.
+    TEXT_HOMOGLYPH = "text.homoglyph"
+    INLINE_NESTED_MARKUP = "inline.nested-markup"
+    PSEUDO_HEADING_BOLD_OPENER = "pseudo-heading.bold-opener"
+    PSEUDO_HEADING_STANDALONE_BOLD = "pseudo-heading.standalone-bold"
+    PSEUDO_HEADING_RUBRIC = "pseudo-heading.rubric"
+    DIRECTIVE_MISTYPED = "directive.mistyped"
+    # Verified Sphinx project checks.
+    REFERENCE_BARE_FILENAME = "reference.bare-filename"
+    REFERENCE_PLAIN_LOCAL_ASSET = "reference.plain-local-asset"
+    TOCTREE_MULTIPLE_PARENTS = "toctree.multiple-parents"
+    # Sphinx's own console diagnostics.  The four title classes can restate
+    # a Phase 1 adornment defect; everything else is one opaque class.
+    SPHINX_TITLE_OVERLINE_TOO_SHORT = "sphinx.title-overline-too-short"
+    SPHINX_TITLE_UNDERLINE_TOO_SHORT = "sphinx.title-underline-too-short"
+    SPHINX_TITLE_ADORNMENT_MISMATCH = "sphinx.title-adornment-mismatch"
+    SPHINX_INCONSISTENT_TITLE_STYLE = "sphinx.inconsistent-title-style"
+    SPHINX_DIAGNOSTIC = "sphinx.diagnostic"
+    SPHINX_BUILD_FAILED = "sphinx.build-failed"
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class Finding:
     """A lint finding with independent severity and repairability.
@@ -71,6 +122,8 @@ class Finding:
     belongs to a source other than the selected root document.  ``fixable`` is
     an explicit capability fact: ERROR means the structure is invalid, while
     this flag alone decides whether ``--skip-fixable`` may suppress it.
+    ``code`` is the required internal rule identity (see FindingCode):
+    keyword-only and without a default, so no construction site can omit it.
     """
 
     lineno: int
@@ -78,6 +131,7 @@ class Finding:
     text: str
     source: str | None = None
     fixable: bool = False
+    code: FindingCode = dataclasses.field(kw_only=True)
 
     def __str__(self) -> str:
         return f"{self.lineno}: {self.severity}: {self.text}"

@@ -957,6 +957,7 @@ def test_cli_verified_mode_deduplicates_same_phase2_and_phase3_finding(
         lineno=5,
         severity=_types.Severity.WARNING,
         text="test.rst: repeated Sphinx diagnostic [review.test]",
+        code=_types.FindingCode.SPHINX_DIAGNOSTIC,
     )
     monkeypatch.setattr(
         _sphinx,
@@ -992,7 +993,12 @@ def test_attach_did_you_mean_unknown_document_suggests_close_docname(
     build_sphinx_env: BuildSphinxEnv,
 ) -> None:
     env, _docname = build_sphinx_env("Title\n=====\n")
-    finding = _types.Finding(4, _types.Severity.WARNING, "unknown document: 'idnex' [ref.doc]")
+    finding = _types.Finding(
+        4,
+        _types.Severity.WARNING,
+        "unknown document: 'idnex' [ref.doc]",
+        code=_types.FindingCode.SPHINX_DIAGNOSTIC,
+    )
     result = _sphinx._attach_did_you_mean(finding, env)
     assert "did you mean" in result.text
     assert "'index'" in result.text
@@ -1009,6 +1015,7 @@ def test_attach_did_you_mean_toctree_nonexisting_document(
         4,
         _types.Severity.WARNING,
         "toctree contains reference to nonexisting document 'idnex' [toc.not_readable]",
+        code=_types.FindingCode.SPHINX_DIAGNOSTIC,
     )
     result = _sphinx._attach_did_you_mean(finding, env)
     assert "did you mean" in result.text
@@ -1020,7 +1027,12 @@ def test_attach_did_you_mean_undefined_label_suggests_close_label(
     build_sphinx_env: BuildSphinxEnv,
 ) -> None:
     env, _docname = build_sphinx_env("Title\n=====\n\n.. _real-label:\n\nSection\n-------\n")
-    finding = _types.Finding(4, _types.Severity.WARNING, "undefined label: 'real-labl' [ref.ref]")
+    finding = _types.Finding(
+        4,
+        _types.Severity.WARNING,
+        "undefined label: 'real-labl' [ref.ref]",
+        code=_types.FindingCode.SPHINX_DIAGNOSTIC,
+    )
     result = _sphinx._attach_did_you_mean(finding, env)
     assert "did you mean" in result.text
     assert "'real-label'" in result.text
@@ -1035,6 +1047,7 @@ def test_attach_did_you_mean_no_suggestion_when_nothing_close(
         4,
         _types.Severity.WARNING,
         "unknown document: 'zzz-nothing-alike-qqq' [ref.doc]",
+        code=_types.FindingCode.SPHINX_DIAGNOSTIC,
     )
     result = _sphinx._attach_did_you_mean(finding, env)
     assert result.text == finding.text
@@ -1049,6 +1062,7 @@ def test_attach_did_you_mean_leaves_unrelated_findings_unchanged(
         4,
         _types.Severity.WARNING,
         "Inconsistent title style: skip from level 2 to 4.",
+        code=_types.FindingCode.SPHINX_INCONSISTENT_TITLE_STYLE,
     )
     result = _sphinx._attach_did_you_mean(finding, env)
     assert result.text == finding.text

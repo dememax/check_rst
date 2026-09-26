@@ -54,6 +54,7 @@ from ._types import (
     CodeBlockEntry,
     ConditionalEntry,
     Finding,
+    FindingCode,
     IncludeEntry,
     LocalEntry,
     MergedEntry,
@@ -85,14 +86,28 @@ _WARNING_RE = re.compile(
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
-# Docutils/Sphinx restatements of Phase 0/1 defects that --fix resolves.
-# Under --skip-fixable these are duplicates, not human-review warnings.
-_FIXABLE_SPHINX_MESSAGES = (
-    "Title overline too short",
-    "Title underline too short",
-    "Title overline & underline mismatch",
-    "Inconsistent title style",
+# Docutils/Sphinx title diagnostics that can restate a Phase 0/1 defect
+# --fix resolves, each with its own rule identity.  Any other console
+# diagnostic is classified SPHINX_DIAGNOSTIC: its message is Sphinx's own
+# prose, not a rule check_rst can name more precisely.
+_SPHINX_TITLE_MESSAGE_CODES = (
+    ("Title overline too short", FindingCode.SPHINX_TITLE_OVERLINE_TOO_SHORT),
+    ("Title underline too short", FindingCode.SPHINX_TITLE_UNDERLINE_TOO_SHORT),
+    ("Title overline & underline mismatch", FindingCode.SPHINX_TITLE_ADORNMENT_MISMATCH),
+    ("Inconsistent title style", FindingCode.SPHINX_INCONSISTENT_TITLE_STYLE),
 )
+
+# Under --skip-fixable these are duplicates, not human-review warnings.
+_FIXABLE_SPHINX_MESSAGES = tuple(message for message, _code in _SPHINX_TITLE_MESSAGE_CODES)
+
+
+def _sphinx_message_code(message: str) -> FindingCode:
+    """Classify one Sphinx console message by its rule identity."""
+    return next(
+        (code for fragment, code in _SPHINX_TITLE_MESSAGE_CODES if fragment in message),
+        FindingCode.SPHINX_DIAGNOSTIC,
+    )
+
 
 _INTEGRITY_BUILDER = "html"
 
@@ -576,6 +591,7 @@ def check_multiple_toctree_parents(
                     lineno,
                     Severity.WARNING,
                     f"document {child!r} is referenced by multiple toctree entries: {parent_list}",
+                    code=FindingCode.TOCTREE_MULTIPLE_PARENTS,
                 )
             )
     return findings
@@ -1222,6 +1238,7 @@ def check_bare_filenames(
                     Severity.WARNING,
                     f"{name}.rst mentioned as plain text — did you mean a "
                     f":doc:/:ref: cross-reference? possible target(s): {targets}",
+                    code=FindingCode.REFERENCE_BARE_FILENAME,
                 )
             )
         if _is_inside_file_role(text_node):
@@ -1246,6 +1263,7 @@ def check_bare_filenames(
                     "use :download:, include/literalinclude, image/figure, or :file: when "
                     f"reader access is intentionally unnecessary; resolved target: {resolved_target!r}",
                     source=_finding_source(owner_source, doc),
+                    code=FindingCode.REFERENCE_PLAIN_LOCAL_ASSET,
                 )
             )
     return findings
@@ -1339,6 +1357,7 @@ def _findings_from_sphinx_output(
                         lineno=int(line) if line is not None else 0,
                         severity=Severity(m.group("level")),
                         text=f"{rel}: {m.group('msg')}",
+                        code=_sphinx_message_code(m.group("msg")),
                     )
                 )
     return findings
@@ -1438,6 +1457,7 @@ def run_sphinx(
                     f"sphinx-build exited {result.returncode} "
                     "(failure may be outside the checked files — run without file filter)"
                 ),
+                code=FindingCode.SPHINX_BUILD_FAILED,
             )
         )
     return findings

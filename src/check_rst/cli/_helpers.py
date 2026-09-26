@@ -29,6 +29,7 @@ from ._types import (
     _NON_PROSE_NODE_TYPES,
     BlockCorrection,
     Finding,
+    FindingCode,
     FixCounts,
     Severity,
     TitleBlock,
@@ -470,17 +471,18 @@ def _normalize_source_detailed(
     control_whitespace = 0
     trailing_whitespace = 0
 
-    def err(lineno: int, msg: str) -> None:
-        findings.append(Finding(lineno=lineno, severity=Severity.ERROR, text=msg, fixable=True))
+    def err(code: FindingCode, lineno: int, msg: str) -> None:
+        findings.append(Finding(lineno=lineno, severity=Severity.ERROR, text=msg, fixable=True, code=code))
 
     if text.startswith("\ufeff"):
         text = text[1:]
         bom = 1
-        err(1, "UTF-8 BOM at start of file — policy: no BOM (--fix removes it)")
+        err(FindingCode.HYGIENE_BOM, 1, "UTF-8 BOM at start of file — policy: no BOM (--fix removes it)")
 
     crlf = text.count("\r\n")
     if crlf:
         err(
+            FindingCode.HYGIENE_CRLF,
             text.count("\n", 0, text.find("\r\n")) + 1,
             f"CRLF (Windows) line ending on {crlf} line(s), first here — policy: Unix LF only (--fix converts to LF)",
         )
@@ -488,6 +490,7 @@ def _normalize_source_detailed(
     lone_cr = text.count("\r")
     if lone_cr:
         err(
+            FindingCode.HYGIENE_LONE_CR,
             text.count("\n", 0, text.find("\r")) + 1,
             f"lone CR line break ({lone_cr} occurrence(s), first here) — "
             "a line break to Python/docutils "
@@ -501,6 +504,7 @@ def _normalize_source_detailed(
         if n:
             line_separators += n
             err(
+                FindingCode.HYGIENE_LINE_SEPARATOR,
                 text.count("\n", 0, text.find(ch)) + 1,
                 f"line separator {_char_label(ch)} ({n} occurrence(s), first "
                 "here) — splits lines for "
@@ -513,6 +517,7 @@ def _normalize_source_detailed(
         if n:
             control_whitespace += n
             err(
+                FindingCode.HYGIENE_CONTROL_WHITESPACE,
                 text.count("\n", 0, text.find(ch)) + 1,
                 f"control whitespace {_char_label(ch)} ({n} occurrence(s), first "
                 "here) — docutils "
@@ -536,7 +541,7 @@ def _normalize_source_detailed(
                     "trailing whitespace — docutils strips it before parsing, "
                     "so it has no RST meaning (--fix strips it from the source)"
                 )
-            err(i + 1, message)
+            err(FindingCode.HYGIENE_TRAILING_WHITESPACE, i + 1, message)
             lines[i] = stripped
 
     counts = FixCounts(

@@ -35,6 +35,7 @@ from ._helpers import (
 )
 from ._types import (
     Finding,
+    FindingCode,
     FixPlan,
     FixResult,
     Severity,
@@ -217,6 +218,7 @@ def check_single_top_level(
             ),
             source=entry.provenance.source if entry.provenance is not None else None,
             fixable=False,
+            code=FindingCode.HIERARCHY_SECOND_TITLE,
         )
         for entry in top_level[1:]
     ]
@@ -237,8 +239,8 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
     lines = doc.lines
     ranges: list[tuple[int, int]] | None = None if whole_file else doc.ranges
 
-    def err(lineno: int, text: str) -> Finding:
-        return Finding(lineno=lineno, severity=Severity.ERROR, text=text, fixable=True)
+    def err(code: FindingCode, lineno: int, text: str) -> Finding:
+        return Finding(lineno=lineno, severity=Severity.ERROR, text=text, fixable=True, code=code)
 
     findings: list[Finding] = []
 
@@ -248,6 +250,7 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
         if _in_scope(ranges, cand.index, cand.index + 1):
             findings.append(
                 err(
+                    FindingCode.ADORNMENT_UNDERLINE_ONLY,
                     cand.index + 1,
                     "underline-only title — add matching overline (project rule: overline + underline required)",
                 )
@@ -266,6 +269,7 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
         if c.char_mismatch:
             findings.append(
                 err(
+                    FindingCode.ADORNMENT_CHAR_MISMATCH,
                     lineno,
                     f"overline char '{block.over[0]}' differs from underline char '{block.under[0]}'",
                 )
@@ -275,17 +279,22 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
         if c.wrong_length:
             findings.append(
                 err(
+                    FindingCode.ADORNMENT_LENGTH,
                     lineno,
                     f"adornment must be {c.expected} chars for title "
                     f"{c.title!r} (over={len(block.over)}, under={len(block.under)})",
                 )
             )
         if c.title_spaces:
-            findings.append(err(lineno, "title has leading or trailing spaces"))
+            findings.append(err(FindingCode.ADORNMENT_TITLE_SPACES, lineno, "title has leading or trailing spaces"))
         if i >= 2 and lines[i - 2] != "":
-            findings.append(err(lineno - 1, "empty separator line required before the overline"))
+            findings.append(
+                err(FindingCode.ADORNMENT_BLANK_BEFORE, lineno - 1, "empty separator line required before the overline")
+            )
         if i + 2 < len(lines) and lines[i + 2] != "":
-            findings.append(err(lineno + 2, "empty separator line required after the underline"))
+            findings.append(
+                err(FindingCode.ADORNMENT_BLANK_AFTER, lineno + 2, "empty separator line required after the underline")
+            )
 
     return findings
 
@@ -410,6 +419,7 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
                     lineno,
                     Severity.WARNING,
                     f"adornment {char!r} is valid but outside the tool's preferred hierarchy {PREFERRED_HIERARCHY!r}",
+                    code=FindingCode.HIERARCHY_NONPREFERRED_CHAR,
                 )
             )
         if char in remap:
@@ -422,6 +432,7 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
                     f"nesting depth must follow the hierarchy from '#' down "
                     f"(--fix remaps {char!r} to {remap[char]!r})",
                     fixable=True,
+                    code=FindingCode.HIERARCHY_ORDER,
                 )
             )
     return findings

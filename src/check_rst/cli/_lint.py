@@ -33,6 +33,7 @@ from ._helpers import (
 from ._types import (
     _INLINE_CONTAINER_TYPES,
     Finding,
+    FindingCode,
     Severity,
 )
 
@@ -164,6 +165,7 @@ def check_homoglyphs(path: pathlib.Path, doc: Document | None = None) -> list[Fi
                     f"{word!r} mixes Cyrillic and Latin letters that look "
                     "identical — probably a keyboard-layout slip, not "
                     "intentional",
+                    code=FindingCode.TEXT_HOMOGLYPH,
                 )
             )
     return findings
@@ -201,6 +203,7 @@ def check_nested_inline_markup(
                 lineno=lineno,
                 severity=Severity.WARNING,
                 text=(f"nested inline markup in {_inline_kind(outer)} span {source!r} (contains {inner_kinds})"),
+                code=FindingCode.INLINE_NESTED_MARKUP,
             )
         )
     return findings
@@ -236,11 +239,11 @@ def check_directives(
     # styling that docutils discarded.
     nested_strong_ids = set(document.nested_inline_by_node)
 
-    def warn(node: docutils.nodes.Node, text: str, *, lineno: int | None = None) -> None:
+    def warn(node: docutils.nodes.Node, code: FindingCode, text: str, *, lineno: int | None = None) -> None:
         if lineno is None:
             lineno = _node_line(node)
         if _in_scope(ranges, lineno, lineno):
-            findings.append(Finding(lineno=lineno, severity=Severity.WARNING, text=text))
+            findings.append(Finding(lineno=lineno, severity=Severity.WARNING, text=text, code=code))
 
     def section_clause(node: docutils.nodes.Node) -> str:
         title = _enclosing_section_title(node)
@@ -293,6 +296,7 @@ def check_directives(
                 name = m.group(1)
                 warn(
                     node,
+                    FindingCode.DIRECTIVE_MISTYPED,
                     f"comment '.. {name}: …' looks like a mistyped directive — "
                     "a single colon makes it a comment that silently hides "
                     f"its content; did you mean '.. {name}::'?",
@@ -304,6 +308,7 @@ def check_directives(
             if verbose:
                 warn(
                     node,
+                    FindingCode.PSEUDO_HEADING_RUBRIC,
                     f"'.. rubric:: {node.astext()}' detected {section_clause(node)} — "
                     "verify it is not substituting a section title (rubric is "
                     "excluded from the ToC and cannot be :ref:-ed)",
@@ -311,6 +316,7 @@ def check_directives(
             else:
                 warn(
                     node,
+                    FindingCode.PSEUDO_HEADING_RUBRIC,
                     "'.. rubric::' detected — verify it is not substituting a section "
                     "title (rubric is excluded from the ToC and cannot be :ref:-ed)",
                 )
@@ -353,9 +359,13 @@ def check_directives(
             # see _FINDING_HINTS.
             if len(parent.children) == 1:
                 if verbose:
-                    warn(node, f"standalone bold line {text!r} {section_clause(node)}")
+                    warn(
+                        node,
+                        FindingCode.PSEUDO_HEADING_STANDALONE_BOLD,
+                        f"standalone bold line {text!r} {section_clause(node)}",
+                    )
                 else:
-                    warn(node, f"standalone bold line {text!r}")
+                    warn(node, FindingCode.PSEUDO_HEADING_STANDALONE_BOLD, f"standalone bold line {text!r}")
             elif parent.children[0] is node:
                 if verbose:
                     rest = "".join(c.astext() for c in parent.children[1:]).strip()
@@ -363,10 +373,11 @@ def check_directives(
                         rest = rest[:_BOLD_PREVIEW_LEN] + "…"
                     warn(
                         node,
+                        FindingCode.PSEUDO_HEADING_BOLD_OPENER,
                         f"bold paragraph opener {text!r} followed by {rest!r} {section_clause(node)}",
                     )
                 else:
-                    warn(node, f"bold paragraph opener {text!r}")
+                    warn(node, FindingCode.PSEUDO_HEADING_BOLD_OPENER, f"bold paragraph opener {text!r}")
 
     doc_tree.walkabout(_Visitor(doc_tree))
     return findings

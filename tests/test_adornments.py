@@ -2862,11 +2862,17 @@ def test_skip_fixable_suppresses_sphinx_structural_duplicate_only(
         _sphinx,
         "run_sphinx",
         lambda *_args: [
-            _types.Finding(1, _types.Severity.WARNING, "index.rst: Title overline too short."),
+            _types.Finding(
+                1,
+                _types.Severity.WARNING,
+                "index.rst: Title overline too short.",
+                code=_types.FindingCode.SPHINX_TITLE_OVERLINE_TOO_SHORT,
+            ),
             _types.Finding(
                 5,
                 _types.Severity.WARNING,
                 "index.rst: toctree contains reference to nonexisting document 'missing'",
+                code=_types.FindingCode.SPHINX_DIAGNOSTIC,
             ),
         ],
     )

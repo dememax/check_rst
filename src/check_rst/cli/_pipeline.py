@@ -681,7 +681,7 @@ def _run_sphinx_phases(
                 ]
             if args.json:
                 state.sphinx_findings_json = [
-                    dataclasses.asdict(f) for f in sphinx_v if not args.no_warnings or f.severity != Severity.WARNING
+                    _finding_record(f) for f in sphinx_v if not args.no_warnings or f.severity != Severity.WARNING
                 ]
             e, w = _print_findings(sphinx_v, "sphinx", args.no_warnings, suppress_findings)
             if not e and not w and not args.quiet:
@@ -691,6 +691,22 @@ def _run_sphinx_phases(
         finally:
             if not keep_build:
                 shutil.rmtree(build_dir, ignore_errors=True)
+
+
+def _finding_record(finding: Finding) -> dict[str, Any]:
+    """Serialize one finding's public JSON fields, in schema order.
+
+    Explicit rather than dataclasses.asdict: Finding.code is an internal rule
+    identity until a public-output decision, so adding it to the dataclass
+    must not change the JSON schema.
+    """
+    return {
+        "lineno": finding.lineno,
+        "severity": finding.severity,
+        "text": finding.text,
+        "source": finding.source,
+        "fixable": finding.fixable,
+    }
 
 
 def _emit_json_result(
@@ -707,7 +723,7 @@ def _emit_json_result(
     # was printed (quiet implied, findings suppressed and captured).
     for rec in state.json_records.values():
         rec["findings"] = [
-            dataclasses.asdict(f)
+            _finding_record(f)
             for f in rec.get("findings", [])
             if not args.no_warnings or f.severity != Severity.WARNING
         ]

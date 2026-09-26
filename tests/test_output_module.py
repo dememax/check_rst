@@ -78,6 +78,7 @@ def test_second_top_level_title_hint_distinguishes_local_and_composed_repairs(
         2,
         _types.Severity.ERROR,
         "second effective top-level title 'Second'",
+        code=_types.FindingCode.HIERARCHY_SECOND_TITLE,
     )
 
     assert _output._print_findings([finding], "doc.rst", no_warnings=False) == (1, 0)
@@ -97,6 +98,7 @@ def test_suppressed_warning_does_not_leak_its_shared_hint(
         1,
         _types.Severity.WARNING,
         "nested inline markup in strong span",
+        code=_types.FindingCode.INLINE_NESTED_MARKUP,
     )
 
     assert _output._print_findings([finding], "doc.rst", no_warnings=True) == (0, 0)
