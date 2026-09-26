@@ -21,7 +21,7 @@ from docutils.parsers.rst import directives as docutils_directives
 from docutils.parsers.rst.directives.misc import Include as DocutilsInclude
 
 from check_rst import cli
-from check_rst.cli import _composition, _document, _formatting, _helpers, _reports, _sphinx, _types
+from check_rst.cli import _composition, _document, _formatting, _helpers, _lint, _reports, _sphinx, _types
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -528,6 +528,130 @@ def test_findings_from_sphinx_output_strips_ansi_color_codes() -> None:
     assert findings[0].severity == "ERROR"
     assert "Inconsistent title style" in findings[0].text
     assert "\x1b" not in findings[0].text
+
+
+@pytest.mark.integration
+def test_sphinx_findings_carry_structured_physical_origin(tmp_path: Path) -> None:
+    """A Sphinx diagnostic's owning file is data, not a text prefix.
+
+    Duplicate proof must compare physical files, so the parser records the
+    resolved file Sphinx named, its own message, and its line.  The pseudo
+    filename ``sphinx`` and the path-prefixed text remain presentation only.
+    """
+    target = tmp_path / "docs" / "doc.rst"
+    target.parent.mkdir()
+    target.write_text("Doc\n", encoding="utf-8")
+    link = tmp_path / "link.rst"
+    link.symlink_to(target)
+    raw = (
+        f"{target}:24: ERROR: Inconsistent title style: skip from level 2 to 4.\n"
+        f"{target}: WARNING: document isn't included in any toctree [toc.not_included]\n"
+    )
+
+    findings = _sphinx._findings_from_sphinx_output(raw, [link], tmp_path)
+
+    assert [finding.sphinx for finding in findings] == [
+        _types.SphinxSource(target.resolve(), "Inconsistent title style: skip from level 2 to 4."),
+        _types.SphinxSource(target.resolve(), "document isn't included in any toctree [toc.not_included]"),
+    ]
+    assert [finding.lineno for finding in findings] == [24, 0]
+    assert [finding.source for finding in findings] == [None, None]
+    assert findings[0].text == "docs/doc.rst: Inconsistent title style: skip from level 2 to 4."
+
+
+@pytest.mark.integration
+def test_unlocated_sphinx_build_failure_keeps_sphinx_origin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failed_build(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args=[], returncode=2, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", failed_build)
+    [finding] = _sphinx.run_sphinx([tmp_path / "doc.rst"], tmp_path / "_build", tmp_path, tmp_path)
+    assert finding.sphinx == _types.SphinxSource(None, finding.text)
+
+
+@pytest.mark.integration
+def test_check_rst_findings_have_no_sphinx_origin(tmp_path: Path) -> None:
+    path = tmp_path / "doc.rst"
+    path.write_text("####\nTitle\n####\n\n**Opener.** text.\n", encoding="utf-8")
+    findings = [*_formatting.check_adornments(path, whole_file=True), *_lint.check_directives(path, True)]
+    assert findings
+    assert [finding.sphinx for finding in findings] == [None] * len(findings)
+
+
+# Valid geometry and hierarchy for check_rst, but "Skipped" reuses the
+# already-established depth-4 character directly under a depth-2 section:
+# docutils reports a genuine level skip at line 24 that fix cannot resolve.
+_LEVEL_SKIP_DOC = textwrap.dedent("""\
+    #######
+    Title
+    #######
+
+    *********
+    Section
+    *********
+
+    ========
+    Subsec
+    ========
+
+    ---------
+    Deepest
+    ---------
+
+    Text.
+
+    *****
+    Two
+    *****
+
+    ---------
+    Skipped
+    ---------
+
+    Text.
+    """)
+
+
+@pytest.mark.integration
+def test_verified_sphinx_findings_keep_legacy_presentation(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Characterization: structured origins do not change text or JSON output.
+
+    Rendering Sphinx diagnostics at their physical location is a separate,
+    explicitly decided output-contract change.
+    """
+    (rst_repo / "conf.py").write_text('project = "test"\nextensions = []\nroot_doc = "doc"\n', encoding="utf-8")
+    doc = rst_repo / "doc.rst"
+    doc.write_text(
+        _LEVEL_SKIP_DOC,
+        encoding="utf-8",
+    )
+    argv = ["check_rst.py", "--sphinx-src", str(rst_repo), "--build-dir", str(rst_repo / "_build"), "check"]
+
+    monkeypatch.setattr("sys.argv", [*argv, str(doc)])
+    with pytest.raises(SystemExit):
+        cli.main()
+    assert "sphinx:24: ERROR: doc.rst: Inconsistent title style: skip from level 2 to 4." in capsys.readouterr().out
+
+    monkeypatch.setattr("sys.argv", [*argv, "--format=json", str(doc)])
+    with pytest.raises(SystemExit):
+        cli.main()
+    records = json.loads(capsys.readouterr().out)["sphinx_findings"]
+    assert records == [
+        {
+            "lineno": 24,
+            "severity": "ERROR",
+            "text": "doc.rst: Inconsistent title style: skip from level 2 to 4.",
+            "source": None,
+            "fixable": False,
+        }
+    ]
 
 
 @pytest.mark.unit
