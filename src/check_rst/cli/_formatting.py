@@ -433,7 +433,7 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
                     f"adornment {char!r} is this document's level {depth}, but "
                     f"hierarchy level {depth} is {remap[char]!r} — established "
                     f"nesting depth must follow the hierarchy from '#' down "
-                    f"(--fix remaps {char!r} to {remap[char]!r})",
+                    f"(fix remaps {char!r} to {remap[char]!r})",
                     fixable=True,
                     code=FindingCode.HIERARCHY_ORDER,
                 )

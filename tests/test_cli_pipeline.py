@@ -301,7 +301,7 @@ def test_cli_help_is_terminal_native_plain_text(
     [
         ("fix", "unresolved Git merge entry"),
         ("check", "Phase 0 byte hygiene remains enabled"),
-        ("outline", "never affects the exit code"),
+        ("outline", "validation ERRORs still make outline exit 1"),
         ("list-table", "gated by whole-file tree equality"),
         ("entitle", "demoting its existing top-level content"),
     ],

@@ -46,7 +46,10 @@ IMPORTANT OPTIONS
 ``--no-adornments``, ``--no-directives``
    Disable the corresponding checks.  ``--no-adornments`` includes title
    geometry, hierarchy, and effective single-title enforcement.  Phase 0
-   remains enabled.
+   remains enabled.  ``--no-directives`` skips the pseudo-heading warnings
+   (standalone bold, bold paragraph openers, rubric) and the
+   mistyped-directive warning, from display and counts; nested-markup and
+   homoglyph warnings stay.
 
 ``--no-toctree``
    Do not recurse through ``toctree`` directives in verified mode.  Requires

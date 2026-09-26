@@ -435,7 +435,7 @@ def test_hierarchy_full_reverse_order_flagged(tmp_path: Path) -> None:
     )
     violations = _formatting.check_hierarchy(p)
     assert len(violations) == 6
-    assert all("--fix remaps" in v for v in violations)
+    assert all("fix remaps" in v for v in violations)
 
 
 @pytest.mark.integration
@@ -477,7 +477,7 @@ def test_hierarchy_inconsistent_order_flagged(tmp_path: Path) -> None:
     )
     violations = _formatting.check_hierarchy(p)
     assert len(violations) == 2
-    assert all("--fix remaps" in v for v in violations)
+    assert all("fix remaps" in v for v in violations)
 
 
 @pytest.mark.integration
@@ -2761,7 +2761,7 @@ def test_skip_fixable_suppresses_hierarchy_error(
         cli.main()
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    assert "--fix remaps" not in out
+    assert "fix remaps" not in out
 
 
 @pytest.mark.integration

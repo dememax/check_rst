@@ -153,7 +153,8 @@ def test_outline_help_states_findings_and_exit_status(
     assert "--with-findings restores the complete validation report" in compact
     assert "validation ERRORs still make outline exit 1" in compact
     assert "every finding, the phase banners, and runtime provenance" in compact
-    assert "bold/rubric" not in compact
+    assert "layers bold/rubric WARNINGs" not in compact
+    assert "layer bold/rubric WARNING findings" not in compact
 
 
 @pytest.mark.integration

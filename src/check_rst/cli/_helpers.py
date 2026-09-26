@@ -498,14 +498,14 @@ def _normalize_source_detailed(
     if text.startswith("\ufeff"):
         text = text[1:]
         bom = 1
-        err(FindingCode.HYGIENE_BOM, 1, "UTF-8 BOM at start of file — policy: no BOM (--fix removes it)")
+        err(FindingCode.HYGIENE_BOM, 1, "UTF-8 BOM at start of file — policy: no BOM (fix removes it)")
 
     crlf = text.count("\r\n")
     if crlf:
         err(
             FindingCode.HYGIENE_CRLF,
             text.count("\n", 0, text.find("\r\n")) + 1,
-            f"CRLF (Windows) line ending on {crlf} line(s), first here — policy: Unix LF only (--fix converts to LF)",
+            f"CRLF (Windows) line ending on {crlf} line(s), first here — policy: Unix LF only (fix converts to LF)",
         )
         text = text.replace("\r\n", "\n")
     lone_cr = text.count("\r")
@@ -516,7 +516,7 @@ def _normalize_source_detailed(
             f"lone CR line break ({lone_cr} occurrence(s), first here) — "
             "a line break to Python/docutils "
             "but not to git, desynchronizing line numbers "
-            "(--fix converts to LF)",
+            "(fix converts to LF)",
         )
         text = text.replace("\r", "\n")
 
@@ -530,7 +530,7 @@ def _normalize_source_detailed(
                 f"line separator {_char_label(ch)} ({n} occurrence(s), first "
                 "here) — splits lines for "
                 "Python/docutils but not for git, desynchronizing line "
-                "numbers (--fix converts to LF)",
+                "numbers (fix converts to LF)",
             )
             text = text.replace(ch, "\n")
     for ch in _SEPARATORS_TO_SPACE:
@@ -542,7 +542,7 @@ def _normalize_source_detailed(
                 text.count("\n", 0, text.find(ch)) + 1,
                 f"control whitespace {_char_label(ch)} ({n} occurrence(s), first "
                 "here) — docutils "
-                "treats it as a space (--fix converts to space)",
+                "treats it as a space (fix converts to space)",
             )
             text = text.replace(ch, " ")
 
@@ -555,12 +555,12 @@ def _normalize_source_detailed(
                 message = (
                     "trailing whitespace on adornment line — docutils ignores it "
                     "but it hides the adornment from structure checks "
-                    "(--fix strips it)"
+                    "(fix strips it)"
                 )
             else:
                 message = (
                     "trailing whitespace — docutils strips it before parsing, "
-                    "so it has no RST meaning (--fix strips it from the source)"
+                    "so it has no RST meaning (fix strips it from the source)"
                 )
             err(FindingCode.HYGIENE_TRAILING_WHITESPACE, i + 1, message)
             lines[i] = stripped

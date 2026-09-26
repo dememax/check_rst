@@ -65,7 +65,8 @@ OPTIONS
 *********
 
 ``--with-findings``
-   Add bold/rubric WARNING lines to the structure view.  Findings are counted
+   Restore the complete validation report — every finding, the phase banners,
+   and runtime provenance — with the structure view.  Findings are counted
    whether displayed here or not.
 
 ``--outline-depth N``
@@ -87,7 +88,9 @@ EXIT STATUS
 Structure itself never produces status ``1``.  ERROR findings from the
 underlying check pipeline still do, as does an incompatible option
 combination; ``2`` is reserved for an argparse-level syntax error (see
-:manpage:`check_rst(1)`, EXIT STATUS).
+:manpage:`check_rst(1)`, EXIT STATUS).  When the structure-only view hides
+ERRORs, the line before the final status says how many and that
+``--with-findings`` shows them.
 
 **********
 SEE ALSO

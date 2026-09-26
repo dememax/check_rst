@@ -481,7 +481,7 @@ def _run_sphinx_phases(
                             args.sections_only,
                         )
         elif not args.quiet:
-            print("  (nothing to check — pass --outline to see the resolved structure)")
+            print("  (nothing to check — run outline to see the resolved structure)")
 
         if not args.quiet:
             print()
@@ -688,7 +688,7 @@ def _run_sphinx_phases(
                                 args.sections_only,
                             )
             elif not args.quiet:
-                print("  (nothing to check — pass --outline to see the resolved structure)")
+                print("  (nothing to check — run outline to see the resolved structure)")
 
             if not args.quiet:
                 print()
@@ -835,6 +835,11 @@ def _emit_text_summary(
     # exit-code-probe post-processing observed across five AI sessions).
     if not args.quiet:
         print()
+
+    if suppress_findings and state.total_errors:
+        # A structure-only outline hides findings while its exit status
+        # still reflects ERRORs: name the one option that shows them.
+        print(f"  ({state.total_errors} error(s) not shown — rerun with --with-findings to see them)")
 
     # Line 1 — run facts and character totals.  Symbols (code points) vs
     # bytes: two numbers when they differ (non-ASCII content), one with a

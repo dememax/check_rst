@@ -64,17 +64,18 @@ Check .rst files against reStructuredText and Sphinx project rules.
 
 A required command selects one action: check and diff serve the
 reviewer/auditor role; fix, list-table, and entitle serve the modifier role;
-outline, context, refs, and targets serve the reader role. Phase 0 checks byte
-hygiene, Phase 1 checks RST formatting and directives, Phase 2 resolves
-Sphinx-aware structure, and Phase 3 runs a real Sphinx build.
+outline, context, refs, targets, and hierarchy serve the reader role; compare
+serves the reader/reviewer role. Phase 0 checks byte hygiene, Phase 1 checks
+RST formatting and directives, Phase 2 resolves Sphinx-aware structure, and
+Phase 3 runs a real Sphinx build.
 
 Global options must precede the command. The working directory is the
 project root unless --config selects another project; --no-config skips
 configuration discovery; --sphinx-src enables verified Phase 2 and 3.
 
 check, fix, and outline also accept --max-output-lines to cap report length
-without affecting exit status; diff rejects it because a truncated patch could look complete or applicable.
-See each command's own --help.
+without affecting exit status; diff rejects it because a truncated patch
+could look complete or applicable. See each command's own --help.
 
 Exit status: 0 no ERROR; 1 one or more ERRORs. Preview commands diff and
 list-table also return 1 when files would change. 2 command-line usage error.
@@ -510,7 +511,10 @@ def _add_report_filters(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--no-directives",
         action="store_true",
-        help="skip directive warnings (rubric, bold patterns)",
+        help=(
+            "skip pseudo-heading warnings (standalone bold, bold paragraph openers, rubric) and the "
+            "mistyped-directive warning, from display and counts; nested-markup and homoglyph warnings stay"
+        ),
     )
 
 
@@ -762,15 +766,19 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help="print each file's section structure (structure-only by default)",
         description=(
             "Reader role: this file's section tree and complete physical ranges, navigable without a linear read. "
-            "Structure-only by default; --with-findings layers bold/rubric WARNINGs on top. "
-            "Structure is always whole-document and never affects the exit code."
+            "Structure-only by default; --with-findings restores the complete validation report. "
+            "Structure is always whole-document and the structure view never changes the exit status, "
+            "but validation ERRORs still make outline exit 1; the report then says how to show them."
         ),
         epilog=_DOCUMENTATION_EPILOG,
     )
     outline_p.add_argument(
         "--with-findings",
         action="store_true",
-        help="layer bold/rubric WARNING findings on the structure view; a display choice, always counted either way",
+        help=(
+            "show the complete validation report — every finding, the phase banners, and runtime "
+            "provenance — with the structure; findings are counted either way"
+        ),
     )
     outline_p.add_argument(
         "--outline-depth",
@@ -886,7 +894,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         description=(
             "Modifier role: insert NAME as this document's new depth-1 title, demoting its "
             "existing top-level content into NAME's own children, then renormalize the whole "
-            "document with the same hierarchy/adornment fixer --fix already uses. Fully "
+            "document with the same hierarchy/adornment fixer that fix already uses. Fully "
             "self-contained: one explicit file, no project or Sphinx settings apply."
         ),
         epilog=_DOCUMENTATION_EPILOG,
@@ -938,9 +946,9 @@ def _validate_context_args(args: argparse.Namespace) -> None:
     accepts ENTRY and FILE on its own parser.
     """
     if not args.context.strip():
-        _cli_fail("--context ENTRY must not be empty")
+        _cli_fail("context ENTRY must not be empty")
     if args.files[0].suffix != ".rst":
-        _cli_fail("--context requires exactly one positional .rst file")
+        _cli_fail("context requires exactly one positional .rst file")
 
 
 def _validate_outline_args(args: argparse.Namespace) -> None:
@@ -1235,7 +1243,7 @@ def _run_refs(args: argparse.Namespace, runtime_metadata: dict[str, Any]) -> NoR
     of _main() alongside the snapshot comparison — same rationale, a clean,
     already fully self-contained branch."""
     if args.sphinx_src is None:
-        _require_verified_sphinx("--refs")
+        _require_verified_sphinx("refs")
     if (args.refs is None) == (args.target is None):
         _cli_fail("refs requires exactly one of FILE or --target LABEL")
     if args.target is not None and not args.target.strip():

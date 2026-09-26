@@ -821,7 +821,7 @@ def _format_context_candidates(
     matches: list[ContextMatch],
 ) -> str:
     lines = [
-        f"check_rst: {path}: --context {query!r} is ambiguous: {len(matches)} exact matches",
+        f"check_rst: {path}: context {query!r} is ambiguous: {len(matches)} exact matches",
         "candidates:",
     ]
     candidate_limit = 20
