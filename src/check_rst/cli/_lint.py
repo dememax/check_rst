@@ -29,6 +29,7 @@ from ._helpers import (
     _has_non_prose_ancestor,
     _in_scope,
     _inline_node_line,
+    _inline_source_line,
     _node_line,
 )
 from ._types import (
@@ -158,7 +159,9 @@ def check_homoglyphs(path: pathlib.Path, doc: Document | None = None) -> list[Fi
         s = str(text_node)
         base_line = _node_line(text_node)
         for start, _end, word in _homoglyph_words_in(s):
-            location = document.finding_location(text_node, base_line + s[:start].count("\n"))
+            exact_line = _inline_source_line(text_node, start)
+            parser_line = base_line + s[:start].count("\n") if exact_line is None else exact_line
+            location = document.finding_location(text_node, parser_line)
             findings.append(
                 (
                     Finding(
@@ -196,7 +199,8 @@ def check_nested_inline_markup(
         nested = document.nested_inline_by_node.get(id(outer), ())
         if not nested:
             continue
-        location = document.finding_location(outer, _inline_node_line(outer))
+        exact_line = _inline_source_line(outer)
+        location = document.finding_location(outer, _inline_node_line(outer) if exact_line is None else exact_line)
         if not _in_scope(ranges, location.scope_line, location.scope_line):
             continue
         source = " ".join(str(outer.rawsource).split())

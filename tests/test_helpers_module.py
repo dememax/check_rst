@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import docutils.nodes
 import docutils.utils
@@ -16,9 +16,6 @@ from _support import _rst
 
 from check_rst import cli
 from check_rst.cli import _helpers, _lint, _types
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 @pytest.mark.unit
@@ -438,3 +435,31 @@ def test_collapse_include_repeats_merges_occurrences_not_constructs() -> None:
         mention(12),
         mention(12),
     ]
+
+
+def _first_paragraph(text: str) -> docutils.nodes.paragraph:
+    doctree = _helpers._parse_rst(Path("doc.rst"), text)
+    return next(doctree.findall(docutils.nodes.paragraph))
+
+
+@pytest.mark.unit
+def test_inline_source_line_keeps_escaped_and_hyperlinked_offsets() -> None:
+    """Backslash escapes and a named hyperlink's embedded target occupy the
+    raw source exactly once, so later tokens keep their physical lines."""
+    paragraph = _first_paragraph("Head \\*not bold\\* and a `link\nlabel <https://x.y>`_\nthen word.\n")
+    last = paragraph.children[-1]
+    assert isinstance(last, docutils.nodes.Text)
+
+    assert _helpers._inline_source_line(last, str(last).index("word")) == 3
+
+
+@pytest.mark.unit
+def test_inline_source_line_fails_closed_without_raw_evidence() -> None:
+    """Generated text or a node outside any located block has no proven line."""
+    assert _helpers._inline_source_line(docutils.nodes.Text("orphan")) is None
+
+    paragraph = _first_paragraph("Plain text.\n")
+    paragraph += docutils.nodes.Text(" generated")
+    generated = paragraph.children[-1]
+
+    assert _helpers._inline_source_line(generated) is None

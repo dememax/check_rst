@@ -792,6 +792,112 @@ def _inline_node_line(node: docutils.nodes.Node) -> int:
     return _node_line(node)
 
 
+def _is_located_text_block(node: docutils.nodes.Node) -> bool:
+    """A non-inline text block carrying both its first line and raw source."""
+    return (
+        isinstance(node, docutils.nodes.TextElement)
+        and not isinstance(node, docutils.nodes.Inline)
+        and isinstance(node.line, int)
+        and isinstance(node.rawsource, str)
+        and bool(node.rawsource)
+    )
+
+
+def _raw_text(node: docutils.nodes.Node) -> str:
+    """Return *node*'s source text as it appears in its parent's raw source.
+
+    Docutils stores a backslash escape as NUL inside Text data; restoring the
+    backslash keeps every character offset aligned with the raw source.
+    """
+    if isinstance(node, docutils.nodes.Text):
+        return str(node).replace("\x00", "\\")
+    raw = node.rawsource if isinstance(node, docutils.nodes.Element) else None
+    return raw if isinstance(raw, str) and raw else node.astext()
+
+
+def _child_raw_spans(parent: docutils.nodes.Node, parent_raw: str) -> list[tuple[int, int]] | None:
+    """Return each child's [start, end) span in *parent_raw*, in order, or None.
+
+    Element children are placed by their raw source, searched in order with a
+    cursor past each preceding span, so repeated identical spans map in
+    document order.  A named hyperlink's target repeats text embedded in its
+    preceding reference and occupies no new source.  A Text child that does
+    not match exactly — Sphinx's SmartQuotes rewrites quotes, dashes, and
+    ellipses — occupies the gap up to the next placed element; that gap is
+    accepted only when it is non-empty for non-empty text and its newline
+    count equals the Text's own, which SmartQuotes never changes.  Anything
+    else yields None.
+    """
+    spans: list[tuple[int, int]] = []
+    pending: list[int] = []
+    cursor = previous_start = 0
+    for index, child in enumerate(parent.children):
+        raw = _raw_text(child)
+        where = parent_raw.find(raw, cursor)
+        if isinstance(child, docutils.nodes.Text) and where != cursor:
+            spans.append((cursor, cursor))
+            pending.append(index)
+            continue
+        if where < 0:
+            where = parent_raw.find(raw, previous_start, cursor)
+            if where < 0:
+                return None
+            spans.append((where, where + len(raw)))
+            continue
+        for gap in pending:
+            spans[gap] = (spans[gap][0], where)
+        pending.clear()
+        spans.append((where, where + len(raw)))
+        previous_start, cursor = where, where + len(raw)
+    for gap in pending:
+        spans[gap] = (spans[gap][0], len(parent_raw))
+    for (begin, finish), child in zip(spans, parent.children, strict=True):
+        if not isinstance(child, docutils.nodes.Text):
+            continue
+        # A rewrite maps non-empty source to non-empty text: text without any
+        # raw span (generated content) is unproven, as is a newline mismatch.
+        text = str(child)
+        if (text and finish == begin) or parent_raw[begin:finish].count("\n") != text.count("\n"):
+            return None
+    return spans
+
+
+def _inline_source_line(node: docutils.nodes.Node, offset: int = 0) -> int | None:
+    """Return the parser-coordinate line of *offset* within *node*, or None.
+
+    Candidate geometry: the nearest enclosing non-inline text block — a
+    paragraph, line, term, or title — that carries its first line and raw
+    source.  Semantic predicate: every inline ancestor on the way down, and
+    *node* itself, has a proven span in its parent's raw source (see
+    _child_raw_spans); the line is the block's first line plus the raw
+    newlines before that span plus the newlines inside *node*'s own text
+    before *offset*.  Lines, not columns, are the contract, so delimiters and
+    SmartQuotes rewrites inside a span cannot move it.  Anything unproven
+    returns None, and a caller's fallback line is not proven exact.
+    """
+    path: list[docutils.nodes.Node] = []
+    block = node
+    while not _is_located_text_block(block):
+        path.append(block)
+        if block.parent is None:
+            return None
+        block = block.parent
+    located = cast("docutils.nodes.TextElement", block)
+    position = 0
+    parent: docutils.nodes.Node = located
+    parent_raw = located.rawsource
+    for child in reversed(path):
+        spans = _child_raw_spans(parent, parent_raw)
+        if spans is None:
+            return None
+        position += spans[parent.children.index(child)][0]
+        parent, parent_raw = child, _raw_text(child)
+    own_text = str(node) if isinstance(node, docutils.nodes.Text) else parent_raw
+    if not 0 <= offset <= len(own_text):
+        return None
+    return cast("int", located.line) + located.rawsource[:position].count("\n") + own_text[:offset].count("\n")
+
+
 def _enclosing_section_title(node: docutils.nodes.Node) -> str | None:
     """Return the title text of the nearest ancestor section, if any."""
     n = node.parent

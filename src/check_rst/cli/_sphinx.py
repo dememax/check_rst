@@ -450,7 +450,9 @@ def find_references(env: sphinx.environment.BuildEnvironment, docname: str) -> l
             reftype = node.get("reftype", "")
             target = node.get("reftarget", "")
             resolved = _resolve_xref_target(env, docname, reftype, target)
-            entries.append(ReferenceEntry(docname, _node_line(node), reftype, target, resolved))
+            exact_line = _helpers._inline_source_line(node)
+            lineno = _node_line(node) if exact_line is None else exact_line
+            entries.append(ReferenceEntry(docname, lineno, reftype, target, resolved))
         elif isinstance(node, toctree):
             # Explicit cast: the empty-tuple .get() fallback alone leaves
             # mypy unable to infer the generator's element type (same root
@@ -1221,7 +1223,8 @@ def check_bare_filenames(
             candidates = sorted(c for c in by_basename.get(name, ()) if c != docname)
             if not candidates or len(candidates) > _MAX_BARE_FILENAME_CANDIDATES:
                 continue
-            lineno = base_line + s[: m.start()].count("\n")
+            exact_line = _helpers._inline_source_line(text_node, m.start())
+            lineno = base_line + s[: m.start()].count("\n") if exact_line is None else exact_line
             targets = ", ".join(repr(c) for c in candidates)
             findings.append(
                 (
@@ -1243,7 +1246,8 @@ def check_bare_filenames(
             asset = _resolve_local_asset(env, doc, owner_source, target)
             if asset is None or asset in integrated_assets:
                 continue
-            lineno = base_line + s[: match.start()].count("\n")
+            exact_line = _helpers._inline_source_line(text_node, match.start())
+            lineno = base_line + s[: match.start()].count("\n") if exact_line is None else exact_line
             # asset is already resolved (by _resolve_local_asset) — same
             # disjoint-project-root fallback as _finding_source, just for
             # the asset's own path rather than its owning source's.
