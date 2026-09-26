@@ -472,21 +472,13 @@ See "Second top-level titles" under "Rule evidence and history" in
 A relocated subtree's old character can silently land it at the wrong depth
 *****************************************************************************
 
-The roadmap's entry for ``_first_appearance_adornments`` (under "Original
-accepted/deferred record") already found and named half of this,
-in a different trigger: docutils' own title-style inference is
-asymmetric.  Reusing an already-established *shallower* character
-deeper in the tree is silently tolerated — it pops cleanly to that
-shallower, already-known level, no error, no WARNING.  Reusing an
-already-established *deeper* character shallower is the opposite: real,
-loud, "Inconsistent title style," caught by any ordinary Sphinx build
-before ``check_rst`` even runs its own logic. That fix (2026-07-21)
-taught the scanner to see short, previously-invisible titles that were
-triggering the *silent* half by accident. It did not, because nothing
-about it could, close off the silent half itself — the asymmetry is
-docutils' own inference rule, not a check_rst scanning gap, and it has
-a second, independent trigger the roadmap entry never considered:
-moving content between documents on purpose.
+Docutils' title-style inference is asymmetric.  Reusing an
+already-established *shallower* character deeper in the tree is silently
+tolerated — the title pops to that shallower, already-known level with no
+error and no WARNING.  Reusing an already-established *deeper* character
+shallower is loud: "Inconsistent title style", caught by any ordinary Sphinx
+build.  The silent half is docutils' own inference rule, not a check_rst
+scanning gap, and moving content between documents on purpose triggers it.
 
 Splitting an oversized page or relocating a section (:doc:`guide`,
 "The same principle scales to whole subtrees") pastes a subtree's *old*
@@ -517,7 +509,8 @@ anything, because they have not yet been assigned a character to
 collide with.  Diffing ``outline`` before and after any subtree
 splice is the only way to notice a silent misplacement after the fact;
 nothing in a clean ``check_rst`` run distinguishes it from a correctly
-nested document.
+nested document.  The scanner fix that first exposed the asymmetry is recorded
+under "Relocated subtrees" in :doc:`development`.
 
 ***************************************************
 A confusable letter is a keyboard slip, not noise
@@ -711,18 +704,8 @@ See "Local assets" under "Rule evidence and history" in :doc:`development`.
 Finding one item among many: the two-level list contract
 **********************************************************
 
-The friction that motivated this (Max, 2026-07-22): hunting for one
-specific item inside what were then :doc:`roadmap`'s numbered
-"Agreed direction" and bulleted "Accepted, deferred" lists, ``outline``
-answered nothing — it reported the enclosing section's line range and stopped,
-telling you a ~400-line list existed somewhere inside without saying
-what was in it, so the fallback was a raw ``grep`` against the file's
-own markup for ``^\* ``/``^\d+\.`` — exactly the fragile
-"scanning raw markup" pattern ``outline`` exists to replace for
-every other block kind.  The roadmap has since promoted those items to
-sections; this remains the historical motivation and the contract for lists
-that are semantically appropriate.
-
+A list that is semantically a list stays one, and ``outline`` must still let
+a reader find one item in it without scanning raw markup.
 A bullet or enumerated list gets TWO levels, not one, deliberately
 different from every other block-preview kind above: a CONTAINER entry
 for the whole list (``bullet list ('*', 22 items)``, at the enclosing
@@ -741,24 +724,15 @@ genuinely distinct term (unlike a bullet list's one shared bullet
 character) — the same title+body shape as ``AdmonitionEntry``
 (term=title, definition=body).
 
-Depth for a nested sub-list is not simply "one more than its outer
-container" — a real bug caught before shipping, 2026-07-26: a bullet
-item containing its own nested bullet list produced a sub-list at the
-SAME depth as the outer container, because the depth walk skipped the
-intervening item node entirely.  The fix counts ``list_item`` as an
-ancestor too, so a sub-list nested inside an item lands one level
-deeper than that item, not merely level with the list it is actually
-inside — confirmed by direct probe on exactly this shape before and
-after the fix.  Enumerated markers (``1.``, ``#.``, ``a)``, roman
-numerals) are never stored in the doctree at all — docutils renders
-enumerated-list numbering at write time only — so every marker shown
-is computed here from ``enumtype``/``prefix``/``suffix``/``start``,
-confirmed against a real Journal corpus scan that only arabic digits and
-``#.`` auto-numbering are ever actually used there; alpha
-and roman support exists for completeness, not local demand.
+A sub-list nested inside an item lands one level deeper than that item, not
+merely level with its outer container: ``list_item`` counts as an ancestor.
+Enumerated markers (``1.``, ``#.``, ``a)``, roman numerals) are never stored in
+the doctree — docutils renders enumerated-list numbering at write time — so
+every marker shown is computed from ``enumtype``/``prefix``/``suffix``/
+``start``; alpha and roman forms are supported for completeness.
 
-The two-level representation also makes ``context`` the escape hatch from
-the feedback loop that motivated list entries in the first place.  Use an
+The two-level representation also makes ``context`` the escape hatch when a
+full outline is too long.  Use an
 exact item preview when it is unique; when repeated text is ambiguous, use
 the candidate's generated ``docname:enumerated-item@line`` or
 ``docname:bullet-item@line`` selector.  The resulting briefing returns the
@@ -766,4 +740,5 @@ item's enclosing sections and list container plus its adjacent siblings, so
 neither ``--sections-only`` blindness nor a long complete outline justifies
 falling back to raw-markup grep.  The compact shared slug, occurrence-suffix,
 and section-alias contract is defined under "Entry selectors" in
-:doc:`guide` rather than repeated per entry kind here.
+:doc:`guide` rather than repeated per entry kind here.  The friction that
+motivated list entries is recorded under "List entries" in :doc:`development`.

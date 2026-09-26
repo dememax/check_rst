@@ -280,6 +280,33 @@ rendered page offered no way to retrieve it, and an ordinary hyperlink would
 have produced a deployed 404.
 
 ====================
+Relocated subtrees
+====================
+
+The roadmap entry "``_first_appearance_adornments`` blind to short
+underline-only titles" first named half of the asymmetry, through another
+trigger.  Its 2026-07-21 fix taught the scanner to see short,
+previously invisible titles that were triggering the silent half by accident.
+It could not close the silent half itself, and the entry never considered the
+second, independent trigger: moving content between documents on purpose.
+
+==============
+List entries
+==============
+
+Hunting for one item inside the roadmap's then-numbered "Agreed direction" and
+bulleted "Accepted, deferred" lists (Max, 2026-07-22), ``outline`` reported the
+enclosing section's range and stopped — a roughly 400-line list existed
+somewhere inside — so the fallback was a raw ``grep`` for list markers, exactly
+the fragile markup scan ``outline`` replaces for every other block kind.  The
+roadmap has since promoted those items to sections.  Before list entries
+shipped, a real bug was caught on 2026-07-26: a bullet item containing its own
+nested bullet list produced a sub-list at the same depth as the outer
+container, because the depth walk skipped the item node; counting
+``list_item`` as an ancestor fixed it, confirmed by probe on that exact shape.
+A Journal corpus scan found only arabic and ``#.`` enumerations in use.
+
+====================
 Confusable letters
 ====================
 
