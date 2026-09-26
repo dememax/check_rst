@@ -1630,7 +1630,8 @@ real normalize of six adopted documents, that session hand-rolled a grep filter
 over ``check_rst diff`` output to answer "did this touch only adornment
 lines, never prose?" — hardcoding the adornment character set from outside the
 tool rather than deriving it from check_rst's own model of what it just changed
-(see "Why you can trust --fix" in :doc:`guide`, which states the underlying
+(see "Why you can trust fix: adornments and hygiene, nothing else" in
+:doc:`guide`, which states the underlying
 guarantee directly and should already remove most of the need for this).  A
 sturdier, tool-side answer: ``diff --classify`` would tag each hunk
 ``adornment``/``hygiene``/``content`` (the last should never appear, making its
@@ -2504,7 +2505,7 @@ Similarity-ranked hierarchy suggestions
 
 ("where should OAuth2 go") — semantic similarity is the AI's half of the
 contract by the tool's founding principle; the parser's half is already
-``--outline``.
+``outline``.
 
 ================================
 Cross-page content consistency
@@ -2522,8 +2523,8 @@ Navigation/search
 *Current status: declined; existing search plus structural queries cover the
 observed need.*
 
-("where is MQTT discussed") — ``git grep`` across the journal's full history
-plus ``--outline`` for context already covers it.
+("where is MQTT discussed") — ``git grep`` across a repository's history
+plus ``outline`` or ``context`` for structure already covers it.
 
 ===============================
 Min/max-frequent word display

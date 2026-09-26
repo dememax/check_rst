@@ -11,7 +11,10 @@ This page records how evidence from real documentation work feeds back into
 catches justify the project's rules.  It is not the Python implementation or
 build-integration manual; repository development practice lives in
 ``AGENTS.md``, while packaging, installation, and documentation-build
-boundaries live in :doc:`integration`.
+boundaries live in :doc:`integration`.  Dated cases keep the command spellings
+current at their date — the pre-subcommand ``--fix``, ``--outline``, and
+``--json`` flags are today's ``fix``, ``outline``, and ``check
+--format=json``.
 
 *****************************************************
 The feedback loop: you are also the tool's reviewer
@@ -115,7 +118,7 @@ and — since a stat silently vanishing is precisely the failure mode the
 whole tool exists to prevent elsewhere — the "unavailable" case is no
 longer a silent return value at all.  It raises a dedicated exception
 that surfaces as an explicit, *counted* WARNING in both the footer and
-``--json``, so the next time this breaks, the run says so instead of
+JSON output, so the next time this breaks, the run says so instead of
 just going quiet.
 
 **************************************
