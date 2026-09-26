@@ -112,7 +112,7 @@ class _DocumentCore:
     on their own mutating line buffer and write to disk; after a fixer
     writes, construct a NEW Document. Invalidation is explicit in the
     object lifetime — which is exactly what makes the caching safe (a
-    path-keyed cache would serve stale text after --fix writes).
+    path-keyed cache would serve stale text after fix writes).
     """
 
     def __init__(
@@ -411,7 +411,7 @@ class _DocumentProseMixin(_DocumentCore):
 
 
 class _DocumentOutlineMixin(_DocumentCore):
-    """Outline domain: every entry-finder consumed by --outline/--json and
+    """Outline domain: every entry-finder consumed by outline/JSON output and
     check_bare_filenames/toctree reporting — the largest single cluster,
     but still only dependent on _DocumentCore, not on the inline-markup
     or prose domains above.
@@ -482,7 +482,7 @@ def _resolve_document(path: pathlib.Path, doc: Document | None) -> Document:
     return doc if doc is not None else Document(path)
 
 
-# --outline's own preview length for code-block/blockquote entries (Max,
+# outline's own preview length for code-block/blockquote entries (Max,
 # 2026-07-20) — deliberately separate from _BOLD_PREVIEW_LEN above (the
 # bold-related findings' own text preview, default and --verbose alike):
 # different feature, different reader, no reason the two should move
@@ -491,7 +491,7 @@ _OUTLINE_PREVIEW_LEN = 74
 
 
 def _outline_preview(text: str) -> str:
-    """Whitespace-collapsed, length-bounded content preview for --outline's
+    """Whitespace-collapsed, length-bounded content preview for outline's
     code-block/blockquote entries: no leading/trailing or doubled internal
     spaces (any whitespace run, including newlines, collapses to one
     space), truncated with '...' when it doesn't fit — a quick identity,
@@ -757,7 +757,7 @@ def find_block_quotes(path: pathlib.Path, doc: Document | None = None) -> list[B
 
     Bare docutils — blockquotes need no Sphinx environment, so unlike
     code-blocks there is no verified/heuristic split: the same function
-    serves both --outline modes.  A quote nested inside another quote is
+    serves both outline modes.  A quote nested inside another quote is
     not reported separately (the outer entry's preview covers the
     subtree).  depth is _block_depth — enclosing sections AND enclosing
     list nesting, same as every other entry kind (2026-07-26).
@@ -1190,7 +1190,7 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
 
     Bare docutils, like find_block_quotes — a real Sphinx build adds no
     table-type information (confirmed directly), so there is no verified/
-    heuristic split here; the same function serves both --outline modes.
+    heuristic split here; the same function serves both outline modes.
     depth is _block_depth — enclosing sections AND enclosing list
     nesting, same as every other entry kind (2026-07-26; found live: a
     list-table added inside a bullet item printed at the same depth as

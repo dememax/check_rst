@@ -790,7 +790,7 @@ class ListTableFileResult:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class ReferenceEntry:
-    """One role or toctree document reference, as reported by --refs.
+    """One role or toctree document reference, as reported by refs.
 
     docname is the entry's OWN document — the referring file for an
     OUTGOING entry (find_references), the file pointing IN for an
@@ -815,7 +815,7 @@ class ReferenceEntry:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class ToctreeEntry:
-    """A single ``.. toctree::`` directive, as reported by --outline
+    """A single ``.. toctree::`` directive, as reported by outline
     (2026-07-26) — the container marker; the documents it points at
     appear immediately after it as OutlineEntry instances (docname
     set), each recursively expanded through ITS OWN toctrees in turn,
@@ -844,7 +844,7 @@ class ToctreeEntry:
     docname is set only when this directive belongs to a document pulled in
     from another file, matching OutlineEntry's provenance contract.  None
     therefore means local to the file being outlined; a non-empty value is
-    public, self-identifying provenance in text, JSON, and --context.
+    public, self-identifying provenance in text, JSON, and context.
     """
 
     lineno: int

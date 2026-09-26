@@ -479,8 +479,7 @@ def _add_quiet_verbose_words(parser: argparse.ArgumentParser) -> None:
 def _add_max_output_lines(parser: argparse.ArgumentParser) -> None:
     """--max-output-lines — kept as its own helper (not folded into the
     quiet/verbose/words group) because diff's parser deliberately never
-    defines it: cli.py's _validate_cli_args already rejects it alongside
-    ordinary --diff, not only --diff-only."""
+    defines it: a truncated patch could look complete or applicable."""
     parser.add_argument(
         "--max-output-lines",
         type=int,
@@ -606,7 +605,7 @@ def _build_mutating_parent() -> argparse.ArgumentParser:
 _MODE_IDENTITY_ATTRS = frozenset({"command", "fix", "diff", "fix_only", "diff_only", "fast"})
 
 
-# Preserves today's exact asymmetry between --fix-only's and --diff-only's
+# Preserves the pre-redesign asymmetry between the former --fix-only and --diff-only
 # allowlists in the now-deleted _validate_cli_args (cli.py, pre-redesign):
 # fix's allows verbose/max_output_lines, diff's does not.
 _FAST_ALLOWLIST: dict[str, frozenset[str]] = {
@@ -651,7 +650,7 @@ def _cli_fail(message: str) -> NoReturn:
 
 
 def _validate_fast_allowlist(args: argparse.Namespace, verb: str) -> None:
-    """--fast is self-contained, same as today's --fix-only/--diff-only:
+    """--fast is self-contained, as the former --fix-only/--diff-only flags were:
     reject anything not on that verb's own allowlist (_FAST_ALLOWLIST)."""
     allowed = _FAST_ALLOWLIST[verb]
     values = vars(args)
@@ -936,11 +935,11 @@ def _backfill_post_parse(args: argparse.Namespace) -> None:
         args.refs = args.file
     elif args.command == "context":
         args.context, args.files = args.entry, [args.file]
-        args.quiet = True  # forced, same as today's --context behavior
+        args.quiet = True  # forced, as the former --context flag did
 
 
 def _validate_context_args(args: argparse.Namespace) -> None:
-    """The two value-level checks that survive from today's --context
+    """The two value-level checks that survive from the former --context flag's
     self-contained allowlist (cli.py's now-deleted _validate_cli_args):
     everything else in that allowlist is structural once `context` only
     accepts ENTRY and FILE on its own parser.
@@ -952,9 +951,10 @@ def _validate_context_args(args: argparse.Namespace) -> None:
 
 
 def _validate_outline_args(args: argparse.Namespace) -> None:
-    """The one value-level check that survives from today's --outline-depth
-    rule (cli.py's now-deleted _validate_cli_args): the ">= 1" range. The
-    "requires --outline/--outline-only" half is now structural — the flag
+    """The one value-level check that survives from the pre-redesign
+    --outline-depth rule (cli.py's now-deleted _validate_cli_args): the ">= 1"
+    range. The former "requires --outline/--outline-only" half is now
+    structural — the flag
     only exists on outline's own parser."""
     if args.outline_depth is not None and args.outline_depth < 1:
         _cli_fail("--outline-depth must be >= 1")
@@ -962,10 +962,10 @@ def _validate_outline_args(args: argparse.Namespace) -> None:
 
 def _validate_check_args(args: argparse.Namespace) -> None:
     """The two value-level checks that survive on check's own parser from
-    today's now-deleted _validate_cli_args: --no-toctree's "requires one of
-    --outline/--outline-only/--json/--context" half narrows to "requires
-    --format=json" now that check has neither --outline nor --context; and
-    --max-output-lines' incompatibility with --json is the only surviving
+    the pre-redesign _validate_cli_args: --no-toctree's former "requires one
+    of --outline/--outline-only/--json/--context" half narrows to "requires
+    --format=json" now that check has neither an outline nor a context mode;
+    and --max-output-lines' incompatibility with --format=json is the only surviving
     case of that rule now that diff/diff-only/compare/refs/context never
     carry --max-output-lines at all."""
     if args.no_toctree and not args.json:
@@ -1237,7 +1237,7 @@ def _run_git_comparison(args: argparse.Namespace, project_root: pathlib.Path) ->
 
 
 def _run_refs(args: argparse.Namespace, runtime_metadata: dict[str, Any]) -> NoReturn:
-    """--refs' own self-contained verb body: one file's outgoing/incoming
+    """The refs command's self-contained body: one file's outgoing/incoming
     cross-references, always exactly one document, always its own
     throwaway Sphinx build unless --build-dir asks to keep it. Split out
     of _main() alongside the snapshot comparison — same rationale, a clean,
@@ -1354,8 +1354,9 @@ def _discover_and_validate_files(
     unresolved-merge checks every verb past this point depends on having
     already passed. Returns (files, whole_file); every early-exit path
     here calls sys.exit itself — a typo or unresolved conflict must abort
-    atomically, never report partial progress (--fix-only's own
-    precedent, preserved via the _print_fix_only_status calls below)."""
+    atomically, never report partial progress (the precedent of the former
+    --fix-only flag, now fix --fast, preserved via the _print_fix_only_status
+    calls below)."""
     if args.recursive:
         # A directory scope is just as deliberate as naming files — always
         # checked in full. Validate every directory up front (fail loudly on

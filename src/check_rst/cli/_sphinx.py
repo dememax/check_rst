@@ -474,8 +474,8 @@ def find_incoming_references(env: sphinx.environment.BuildEnvironment, target_do
     """Every OTHER document's reference that resolves to *target_docname*
     — the inverse of find_references, built by scanning every document's
     doctree once (confirmed by direct probe, 2026-07-22: ~2.6s across
-    this Journal's full 1444 documents — fine for an on-demand --refs
-    call, not something to run on every default invocation)."""
+    the 1444 documents of Journal, the corpus this tool was extracted from —
+    fine for an on-demand refs call, not something to run on every default invocation)."""
     incoming: list[ReferenceEntry] = []
     for docname in sorted(env.found_docs):
         if docname == target_docname:
@@ -509,7 +509,7 @@ def _toctree_anomalies(
     scratch on every call, but its one real per-file caller, Phase 2's
     ``for path in files`` loop, invokes it once per file against the SAME,
     already-built env — O(files) redundant rebuilds of one project-wide
-    graph). Callers that only ever check one file at a time (--context,
+    graph). Callers that only ever check one file at a time (context,
     always exactly one document per invocation, with its own freshly
     built env) can still let check_multiple_toctree_parents compute this
     lazily; a caller processing many files against one shared env should
@@ -602,7 +602,7 @@ def find_toctrees(
     (confirmed by direct probe — without a real Sphinx environment it
     is not even recognized as a directive, let alone resolved), so
     there is no heuristic-mode equivalent — the same constraint as
-    --refs/check_bare_filenames.
+    refs/check_bare_filenames.
 
     Depth continues seamlessly across the file boundary: a toctree
     container sits at _block_depth within its OWN document; each

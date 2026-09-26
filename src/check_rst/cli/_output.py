@@ -187,7 +187,7 @@ def _print_outline_entries(
 
     verbose gates only the 'blocks:' whole-document summary line (Max,
     2026-07-20: verbosity-level inventory — the 'levels:' legend stays
-    unconditional whenever --outline runs at all, matching its existing,
+    unconditional whenever outline runs at all, matching its existing,
     unchanged behavior; 'blocks:' is the one promoted to --verbose-only).
     """
     shown = [
@@ -454,7 +454,7 @@ def _print_findings(
 
     Counts, not booleans, so main() can feed the final summary line —
     truthiness-compatible with the old (has_errors, has_warnings) shape.
-    suppress=True counts without printing (--outline-only): a display
+    suppress=True counts without printing (structure-only outline): a display
     filter under the "trims display, never information" contract — the
     footer and the exit code stay honest.
     """

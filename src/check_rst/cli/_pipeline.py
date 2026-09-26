@@ -211,7 +211,7 @@ def _run_phase1(
         # Phase 0 — byte hygiene, before anything parses the file.  Always
         # whole-file (a line-ending policy can't be diff-scoped), independent
         # of --no-adornments, and every finding is --fix-able, so
-        # --skip-fixable suppresses them all.  In --fix mode the complete
+        # --skip-fixable suppresses them all.  In fix mode the complete
         # selection was already planned without writes; this original-state
         # Document supplies the hygiene progress category before the composed
         # candidate is installed atomically below.
@@ -362,7 +362,7 @@ def _run_phase1(
             print(f"↷ {pstr}: {state.suppressed_fixable[path]} auto-fixable finding(s) suppressed")
 
         # Footer statistics, from the same normalized read Phase 0 defines —
-        # in --fix mode this is the file's final, post-fix state.  Empty
+        # in fix mode this is the file's final, post-fix state.  Empty
         # lines are RST's block delimiter, so the empty/total ratio is a
         # quick structure signal.
         state.documents[path] = document
@@ -757,7 +757,7 @@ def _emit_json_result(
     state: _PipelineState,
 ) -> NoReturn:
     """Emit the complete JSON contract and exit with the accumulated status."""
-    # --json: the whole model as one JSON object on stdout — nothing else
+    # JSON (check --format=json): the whole model as one JSON object on stdout — nothing else
     # was printed (quiet implied, findings suppressed and captured).
     for rec in state.json_records.values():
         rec["findings"] = [
@@ -982,8 +982,8 @@ def _run_check_pipeline(
 
     Split out of _main() (found by code review: _main was a single
     ~1000-line function with no seams) as the one piece left after the
-    already-self-contained early verb branches (compare --snapshots, --refs,
-    list-table, --context, --fix-only, diff --fast/non-fast) are each
+    already-self-contained early verb branches (compare --snapshots, refs,
+    list-table, context, fix --fast, diff --fast/non-fast) are each
     their own function — this is _main()'s true remaining body, not a
     per-verb split, because check/fix/diff genuinely share this walk.
     Always exits: JSON output exits directly; every other path falls

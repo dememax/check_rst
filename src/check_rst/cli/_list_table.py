@@ -583,7 +583,7 @@ def _canonical_doctree_model(node: docutils.nodes.Node) -> object:
 
 def _list_table_conversion_preserves_semantics(path: pathlib.Path, original_text: str, candidate_text: str) -> bool:
     """Parse both whole-file variants and require exact canonical-tree
-    equality — the same all-or-nothing rule --fix already uses: a
+    equality — the same all-or-nothing rule fix already uses: a
     changed subtree means the conversion is rejected outright, never
     partially applied or guessed at."""
     original_model = _canonical_doctree_model(_helpers._parse_rst(path, text=original_text))

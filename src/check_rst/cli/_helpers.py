@@ -146,7 +146,7 @@ PREFERRED_HIERARCHY = '#*=-^"'
 # to each other or to the preferred 6 — but giving every valid character
 # SOME defined, deterministic rank (even an arbitrary one past the first 6)
 # lets check_hierarchy's ERROR-level "skipped level"/"wrong order" checks,
-# and --fix's remap, apply uniformly to any valid adornment character, not
+# and fix's remap, apply uniformly to any valid adornment character, not
 # only the preferred 6.
 HIERARCHY = PREFERRED_HIERARCHY + "".join(c for c in VALID_ADORNMENT_CHARS if c not in PREFERRED_HIERARCHY)
 
@@ -165,7 +165,7 @@ def _is_adornment(line: str) -> bool:
     (``\\.\\.( +|$)``) takes precedence over the title-line pattern, so a
     lone ``..`` is always a comment marker to docutils, never an over/
     underline.  Treating it as an adornment made two ``..`` comment lines
-    around an indented note match the over/title/under shape — and --fix
+    around an indented note match the over/title/under shape — and fix
     rewrote the comment into a dotted section title (confirmed by direct
     testing, 2026-07-18).  Three or more dots don't match the comment
     pattern and stay valid adornments.

@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Maxime P. DEMENTYEV
 # SPDX-License-Identifier: GPL-3.0-only
-# Word-stats, --context, --refs formatting, and snapshot comparison — check_rst project
+# Word-stats, context, refs formatting, and snapshot comparison — check_rst project
 
 from __future__ import annotations
 
@@ -408,7 +408,7 @@ def _json_file_model(
     structure_stage: str = "parser-effective",
     project_root: pathlib.Path | None = None,
 ) -> dict[str, Any]:
-    """The per-file document model for --json: outline with stable ids,
+    """The per-file document model for JSON output: outline with stable ids,
     code-blocks, blockquote previews, statistics.
 
     word_samples == 0 (default outside --verbose/--word-samples, Max,
@@ -498,7 +498,7 @@ def _generic_entry_kind(entry: object) -> str:
     """Human-readable kind derived from a class name, with useful refinements.
 
     The fallback is deliberately generic: adding a new ``SomethingEntry`` to
-    the outline stream automatically makes it resolvable by --context.
+    the outline stream automatically makes it resolvable by context.
     """
     if isinstance(entry, OutlineEntry):
         return "section"
@@ -880,7 +880,7 @@ def _run_context_query(
     build_dir: pathlib.Path | None,
     no_toctree: bool,
 ) -> int:
-    """Run the self-contained, read-only --context query."""
+    """Run the self-contained, read-only context query."""
     try:
         document = Document(path, project_root)
         _ = document.doctree

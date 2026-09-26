@@ -58,7 +58,7 @@ def fix_hygiene(path: pathlib.Path) -> bool:
     """Apply Phase 0 normalization to *path* in-place.
 
     Returns True if the file was modified.  Must run before the adornment/
-    hierarchy fixers in a --fix pass, so they read the cleaned bytes.
+    hierarchy fixers in a fix pass, so they read the cleaned bytes.
     Whole-file by nature (like the hierarchy check): a line-ending policy
     can't be meaningfully diff-scoped.
     """
@@ -112,7 +112,7 @@ def _first_appearance_adornments(lines: list[str]) -> list[tuple[str, int]]:
     that character to HIERARCHY's rank-1 slot, silently colliding it with
     a DIFFERENT heading already using that slot.  The result was a
     genuinely inconsistent document (the same char at two different
-    depths) that no later --fix run could ever converge out of, since the
+    depths) that no later fix run could ever converge out of, since the
     scanner's blind spot never changes: check_rst itself never saw an
     error, only a fresh, independent docutils/Sphinx parse did.
     """
@@ -234,7 +234,7 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
     whitespace) are Phase 0 findings, not cascade errors here.
     Each block is validated against its canonical form from analyze_block —
     the same values _compute_adornment_fixes applies — so a reported
-    expectation is always exactly what --fix would produce.  The expected
+    expectation is always exactly what fix would produce.  The expected
     length is the canonical (stripped) title's display width + 2; see
     _canonical_title for why display width, not code points.
     """
@@ -316,7 +316,7 @@ def _compute_adornment_fixes(lines: list[str], ranges: list[tuple[int, int]] | N
 
     NOT handled here: hierarchy character remapping is a separate concern —
     _compute_structure_fixes() composes _compute_hierarchy_remap's remap
-    with this function so one --fix run converges.
+    with this function so one fix run converges.
 
     All patterns are collected from the original lines and processed in descending
     index order so that line insertions do not shift the positions of patterns
@@ -397,7 +397,7 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
     — not raw first-appearance order; the two differ once sibling subtrees
     are involved, see that function's docstring), must equal HIERARCHY[:n]
     exactly — starting at '#', no skipped or reordered ranks.  The check
-    consumes the very remap --fix applies, so the two cannot disagree:
+    consumes the very remap fix applies, so the two cannot disagree:
     every ERROR here is exactly one remapped character there, and a
     document with no ERRORs is left unmodified by the fixer
     (fix_structure).  (The previous transition-only check validated
@@ -452,7 +452,7 @@ def _compute_hierarchy_remap(lines: list[str]) -> dict[str, str]:
 
     THE single definition of the hierarchy rule: check_hierarchy derives
     its ERROR findings from this same mapping (one ERROR per pair), so the
-    check and --fix cannot disagree about what is a violation.
+    check and fix cannot disagree about what is a violation.
 
     Depth-indexed lookup rather than a positional zip against the
     established chars in scan order matters specifically when two
@@ -467,9 +467,9 @@ def _compute_hierarchy_remap(lines: list[str]) -> dict[str, str]:
     Applies uniformly across all of HIERARCHY (all 32 valid RST adornment
     characters), not just PREFERRED_HIERARCHY's 6 — a deliberate choice: a
     document using only a non-preferred character (e.g. '~' throughout) has
-    correct == HIERARCHY[:1] == '#', so --fix rewrites it into the preferred
+    correct == HIERARCHY[:1] == '#', so fix rewrites it into the preferred
     set the same way it already remaps preferred characters that are merely
-    out of order (see rst-formatting.md, "Hierarchy remap in --fix" — this
+    out of order (see docs/guide.rst, "What fix computes for you" — this
     was already established behavior for the preferred 6; this extends it
     uniformly rather than special-casing non-preferred characters).
     """
@@ -482,9 +482,9 @@ def _compute_structure_fixes(lines: list[str], ranges: list[tuple[int, int]] | N
     The remap is a whole-document property (a character's rank has no
     meaning per-hunk), so it rewrites adornment lines regardless of
     *ranges*.  Every line it rewrites therefore joins the adornment-fix
-    scope: after --fix writes the file, git would report those lines as
+    scope: after fix writes the file, git would report those lines as
     changed anyway — fixing their geometry in the same pass is what makes
-    bare --fix converge in one run instead of two.  (Found in a downstream project's
+    bare fix converge in one run instead of two.  (Found in a downstream project's
     coding-standards.rst, 2026-07-20: pass 1 remapped chars document-wide
     but preserved wrong widths outside the diff scope; only the write
     itself pulled those lines into scope for a second pass.)
@@ -967,7 +967,7 @@ def _normalize_blank_lines(path: pathlib.Path, text: str) -> tuple[str, int]:
     unsafe, retry each run independently so safe block separators elsewhere
     in the same document are still normalized.
     This semantic gate is the reason the operation is opt-in and unavailable
-    in the parser-free ``--fix-only`` / ``--diff-only`` modes.
+    in the parser-free ``fix --fast`` / ``diff --fast`` modes.
     Contract: ``docs/guide.rst``, "Opt-in blank-line
     normalization".
     """
