@@ -282,7 +282,6 @@ def test_nested_inline_markup_supersedes_heading_diagnosis(tmp_path: Path) -> No
 @pytest.mark.parametrize(
     ("source", "outer", "inner"),
     [
-        ("``code **bold** code``\n", "inline literal", "bold"),
         ("*emphasized ``code`` text*\n", "emphasis", "inline literal"),
         ("**:strong:`role text`**\n", "bold", "bold"),
         ("**`Markdown title reference`**\n", "bold", "interpreted text"),
@@ -302,6 +301,28 @@ def test_nested_inline_markup_detects_both_directions_and_role_syntax(
     assert len(findings) == 1
     assert f"in {outer} span" in findings[0].text
     assert f"contains {inner}" in findings[0].text
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "source",
+    [
+        "``code **bold** code``\n",  # RST syntax quoted as an example.
+        "``***********``\n",  # An adornment-like run, not a bold request.
+        "``* **term**: definition``\n",  # A quoted list-item pattern.
+        "``std::string connected_host_``\n",  # A code identifier, not a reference.
+        "``readelf -Ws /lib/*/libc.so.*``\n",  # A shell glob, not emphasis.
+    ],
+)
+def test_outer_inline_literal_is_explicit_data_by_default(tmp_path: Path, source: str) -> None:
+    """Decided 2026-09-26 (plan decision #4): an outer inline literal is an
+    explicit request to render its content as data.  A fresh parse can show
+    that the content *could* be markup, not that the author asked for two
+    roles; 45 of 45 sampled cases (this repository and Journal) were quoted
+    syntax or code.  Strong and emphasis outers are still checked."""
+    p = _rst(tmp_path, source)
+
+    assert _lint.check_nested_inline_markup(p, True) == []
 
 
 @pytest.mark.unit
