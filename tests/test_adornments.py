@@ -19,7 +19,7 @@ import pytest
 from _support import _BAD_BLOCK, _GOOD_BLOCK, _git, _rst
 
 from check_rst import cli
-from check_rst.cli import _document, _formatting, _helpers, _sphinx, _types
+from check_rst.cli import _document, _formatting, _helpers, _types
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -2851,30 +2851,15 @@ def test_skip_fixable_suppresses_sphinx_structural_duplicate_only(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Verified pre-fix output keeps a broken reference for human review,
-    but not Sphinx's duplicate of a Phase-1 auto-fixable title defect."""
+    but not Sphinx's genuine restatements of Phase-1 auto-fixable title
+    defects: a short overline and a short placeholder underline, both of
+    which fix resolves.  A real build, so the restatements are ones
+    Sphinx actually emits for this source."""
     (tmp_path / "conf.py").write_text('project = "test"\n', encoding="utf-8")
     document = tmp_path / "index.rst"
     document.write_text(
-        "######\nTitle\n######\n\nText.\n",
+        "#####\nLong Title\n#####\n\nSee :doc:`missing`.\n\nNew heading\n=========\n\nText.\n",
         encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        _sphinx,
-        "run_sphinx",
-        lambda *_args: [
-            _types.Finding(
-                1,
-                _types.Severity.WARNING,
-                "index.rst: Title overline too short.",
-                code=_types.FindingCode.SPHINX_TITLE_OVERLINE_TOO_SHORT,
-            ),
-            _types.Finding(
-                5,
-                _types.Severity.WARNING,
-                "index.rst: toctree contains reference to nonexisting document 'missing'",
-                code=_types.FindingCode.SPHINX_DIAGNOSTIC,
-            ),
-        ],
     )
     monkeypatch.setattr(
         "sys.argv",
@@ -2897,7 +2882,7 @@ def test_skip_fixable_suppresses_sphinx_structural_duplicate_only(
     out = capsys.readouterr().out
     assert "Title overline too short" not in out
     assert "Title underline too short" not in out
-    assert "nonexisting document" in out
+    assert "unknown document: 'missing'" in out
     assert "1 warning(s)" in out
 
 

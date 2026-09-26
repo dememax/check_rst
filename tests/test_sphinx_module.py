@@ -400,6 +400,146 @@ def test_skip_fixable_does_not_hide_a_non_fixable_title_level_skip(
     assert "1 error(s)" in out
 
 
+# Valid geometry and hierarchy for check_rst, but "Skipped" reuses the
+# already-established depth-4 character directly under a depth-2 section:
+# docutils reports a genuine level skip at line 24 that fix cannot resolve.
+_LEVEL_SKIP_DOC = textwrap.dedent("""\
+    #######
+    Title
+    #######
+
+    *********
+    Section
+    *********
+
+    ========
+    Subsec
+    ========
+
+    ---------
+    Deepest
+    ---------
+
+    Text.
+
+    *****
+    Two
+    *****
+
+    ---------
+    Skipped
+    ---------
+
+    Text.
+    """)
+
+
+# _LEVEL_SKIP_DOC with one unrelated fixable defect: "Deepest" has a
+# 7-character overline and underline, which fix widens to 9.  Docutils
+# accepts that geometry, so Sphinx reports only the surviving level skip.
+_LEVEL_SKIP_BESIDE_FIXABLE_DOC = _LEVEL_SKIP_DOC.replace("---------\nDeepest\n---------", "-------\nDeepest\n-------")
+
+# The fixable defect and the Sphinx ERROR sit on the SAME title: "Padded"
+# is underline-only (fix adds its overline), and docutils treats that
+# underline-only style as new, reporting a skip from level 2 to 5.  After
+# fix, "Padded" reuses the depth-4 over/underline style directly under a
+# depth-2 section: the skip survives as 2 to 4.  A same-title link would
+# wrongly call the pre-fix ERROR a restatement.
+_LEVEL_SKIP_ON_FIXABLE_TITLE_DOC = _LEVEL_SKIP_DOC.replace("---------\nSkipped\n---------", "Padded\n------")
+
+# A genuine restatement: the over/underline characters differ (fixable in
+# Phase 1) and docutils reports the same mismatch as an ERROR.  After fix
+# the title is canonical and Sphinx is silent.
+_MISMATCH_RESTATEMENT_DOC = "=======\nTitle\n-------\n\nText.\n"
+
+
+def _write_verified_doc(tmp_path: Path, text: str) -> Path:
+    (tmp_path / "conf.py").write_text('project = "t"\nextensions = []\nroot_doc = "doc"\n', encoding="utf-8")
+    doc = tmp_path / "doc.rst"
+    doc.write_text(text, encoding="utf-8")
+    return doc
+
+
+def _verified_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *command: str,
+) -> tuple[int, str]:
+    argv = ["check_rst", "--sphinx-src", str(tmp_path), "--build-dir", str(tmp_path / "_build"), *command]
+    monkeypatch.setattr("sys.argv", argv)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    return int(exc.value.code or 0), capsys.readouterr().out
+
+
+@pytest.mark.integration
+def test_skip_fixable_keeps_surviving_level_skip_beside_a_fixable_defect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """One real fixable defect must not license hiding every title ERROR.
+
+    The 2026-09-18 report's remaining case: a file-wide path-plus-message
+    match treated the surviving level skip as a restatement merely because
+    an unrelated title in the same file had a fixable width.
+    """
+    doc = _write_verified_doc(tmp_path, _LEVEL_SKIP_BESIDE_FIXABLE_DOC)
+
+    code, out = _verified_run(tmp_path, monkeypatch, capsys, "check", "--skip-fixable", str(doc))
+
+    assert code == 1
+    assert "sphinx:24: ERROR: doc.rst: Inconsistent title style: skip from level 2 to 4." in out
+    assert "doc.rst: 1 auto-fixable finding(s) suppressed" in out
+    assert "1 error(s)" in out
+
+
+@pytest.mark.integration
+def test_skip_fixable_keeps_level_skip_on_the_fixable_title_itself(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    doc = _write_verified_doc(tmp_path, _LEVEL_SKIP_ON_FIXABLE_TITLE_DOC)
+
+    code, out = _verified_run(tmp_path, monkeypatch, capsys, "check", "--skip-fixable", str(doc))
+
+    assert code == 1
+    assert "sphinx:23: ERROR: doc.rst: Inconsistent title style: skip from level 2 to 5." in out
+    assert "1 error(s)" in out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "text",
+    [_LEVEL_SKIP_BESIDE_FIXABLE_DOC, _LEVEL_SKIP_ON_FIXABLE_TITLE_DOC, _MISMATCH_RESTATEMENT_DOC],
+    ids=["beside-fixable", "on-fixable-title", "mismatch-restatement"],
+)
+def test_skip_fixable_exit_status_matches_check_after_fix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    text: str,
+) -> None:
+    """Invariant: --skip-fixable cannot change exit status because of a
+    finding that survives fix.  Every Phase 1 defect in these fixtures is
+    fixable, so the pre-fix skip-fixable status must equal the post-fix
+    check status exactly."""
+    doc = _write_verified_doc(tmp_path, text)
+
+    skip_fixable_code, _ = _verified_run(tmp_path, monkeypatch, capsys, "check", "--skip-fixable", str(doc))
+    monkeypatch.setattr("sys.argv", ["check_rst", "fix", "--fast", str(doc)])
+    with pytest.raises(SystemExit) as fix_exit:
+        cli.main()
+    capsys.readouterr()
+    fix_code = fix_exit.value.code
+    after_fix_code, after_fix_out = _verified_run(tmp_path, monkeypatch, capsys, "check", str(doc))
+
+    assert fix_code == 0
+    assert skip_fixable_code == after_fix_code, after_fix_out
+
+
 @pytest.mark.integration
 def test_title_enforcement_keeps_rst_epilogue_provenance(tmp_path: Path) -> None:
     """Synthetic Sphinx content remains visible without a fake physical line."""
@@ -579,40 +719,6 @@ def test_check_rst_findings_have_no_sphinx_origin(tmp_path: Path) -> None:
     findings = [*_formatting.check_adornments(path, whole_file=True), *_lint.check_directives(path, True)]
     assert findings
     assert [finding.sphinx for finding in findings] == [None] * len(findings)
-
-
-# Valid geometry and hierarchy for check_rst, but "Skipped" reuses the
-# already-established depth-4 character directly under a depth-2 section:
-# docutils reports a genuine level skip at line 24 that fix cannot resolve.
-_LEVEL_SKIP_DOC = textwrap.dedent("""\
-    #######
-    Title
-    #######
-
-    *********
-    Section
-    *********
-
-    ========
-    Subsec
-    ========
-
-    ---------
-    Deepest
-    ---------
-
-    Text.
-
-    *****
-    Two
-    *****
-
-    ---------
-    Skipped
-    ---------
-
-    Text.
-    """)
 
 
 @pytest.mark.integration
