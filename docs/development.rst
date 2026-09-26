@@ -202,6 +202,38 @@ unrelated entries below.
   logged as this function's third KNOWN, ACCEPTED limitation, the same
   kind already documented for its other two.
 
+***************************
+Rule evidence and history
+***************************
+
+Dated evidence behind the current rules in :doc:`rules`.  Each subsection
+belongs to one rule; the rule's current predicate, exceptions, dispositions,
+and output contract live in :doc:`rules`, and only the evidence lives here.
+
+====================
+Confusable letters
+====================
+
+Journal, the corpus the homoglyph rule was derived from, is deliberately
+trilingual — Russian, French, and English coexist constantly — so "does this
+line mix scripts" would have fired almost everywhere.  The signal lives one
+level down, in a single word where one script is a visual twin of the other,
+the shape a keyboard-layout slip actually produces (Max, 2026-07-24: "when
+letters look similar, but only one letter is from another alphabet").
+
+The precise rule was arrived at by scanning the corpus for every mixed-script
+word that existed — 14 across years of daily notes — rather than guessing, and
+the "every minority letter is a twin" condition separated real typos from
+legitimate constructions without a hand-tuned exception list.  One flagged
+word, "Calibration" typed with a Cyrillic capital, was a recurring habitual
+typo, twice on different dates, the same shape as the frequency-asymmetry
+catch under "Real catches".  The corpus-wide run found all
+6 real occurrences among the 14 candidates and misflagged exactly one of the 8
+legitimate constructions, the glued-preposition false positive.  A captured
+Sphinx warning log quoting a past lexer-name typo (Cyrillic ``с`` where
+``.cpp`` needed a Latin ``c``) stayed silent, correctly, because it sits in a
+literal block: a historical record, not fresh prose.
+
 ****************************************************
 Cross-review diagnostics: the output-boundary case
 ****************************************************

@@ -532,76 +532,69 @@ nested document.
 A confusable letter is a keyboard slip, not noise
 ***************************************************
 
-Journal, the corpus this rule was derived from, is deliberately trilingual —
-Russian, French, and English coexist constantly, so Cyrillic and Latin sit on nearly every line.
-"Does this line mix scripts" would fire almost everywhere and mean
-nothing.  The real signal lives one level down: does a single
-**word** — no space or punctuation inside it — mix scripts where one
-of them is visually a perfect twin of the other, the shape a keyboard-
-layout slip actually produces (Max, 2026-07-24: "when letters look
-similar, but only one letter is from another alphabet").
+A single word that mixes Cyrillic and Latin letters, where every letter of the
+minority script is a visual twin of a majority-script letter, is reported as a
+WARNING (``text.homoglyph``): evidence of a probable keyboard-layout slip, not
+proof of invalid structure.  It never changes the exit status and is not
+auto-fixable, because choosing the intended script is the author's decision —
+repairability does not determine severity, as the proven single-title ERROR
+above shows.  The line points at the word itself, or carries
+``(approximate line)`` when it cannot be proven.
 
-The precise rule, arrived at by scanning Journal's corpus for
-every mixed-script word that exists (14 total, across years of daily
-notes) rather than guessing: split a word's letters into majority
-script and minority script; flag it only if *every* minority-script
-letter is a known visual twin of a majority-script one (lowercase
-``а``/``a``, ``е``/``e``, ``о``/``o``, ``р``/``p``, ``с``/``c``,
-``у``/``y``, ``х``/``x``, plus a separately curated set of capitals —
-not simply those seven letters' own uppercase forms, since visual
-confusability is judged per case rather than inherited from the
-lowercase pairing.  The table is hand-curated, since no library on
-this system provides one; see ``_CYRILLIC_LATIN_CONFUSABLES`` for the
-exact, authoritative set).  A tied split is skipped as genuinely
-ambiguous, never guessed at.
+====================================
+Confusable words: what is detected
+====================================
 
-That one condition is what separates real typos from legitimate
-constructions, confirmed against the real 14 — no hand-tuned exception
-list needed.  Verbatim, so the illustration itself is not mistaken for
-fresh prose (a literal block is exactly what this check skips —
-captured output, not authored text, the same reasoning below)::
+A word is a run with no space or punctuation inside it.  Its letters are split
+into a majority and a minority script, and it is flagged only when *every*
+minority-script letter is a known visual twin of a majority-script one:
+lowercase ``а``/``a``, ``е``/``e``, ``о``/``o``, ``р``/``p``, ``с``/``c``,
+``у``/``y``, ``х``/``x``, plus a separately curated set of capitals, judged per
+case rather than inherited from the lowercase pairs.
+``_CYRILLIC_LATIN_CONFUSABLES`` is the authoritative, hand-curated table.  The
+check scans author-facing prose — the same Text nodes as the prose-word
+statistics, inline literals included — and does scan block quotes: a garbled
+word inside quoted material is still garbled.  Verbatim examples (a literal
+block, so the illustration is not itself flagged)::
 
     flagged (every minority letter is a confusables-table entry):
       Аuthor        -- Cyrillic capital А, Latin "uthor"
-      Сalibration   -- Cyrillic capital С, Latin "alibration" (recurring
-                        habitual typo, twice, different dates -- the same
-                        shape as the frequency-asymmetry catch recorded
-                        in development.rst)
+      Сalibration   -- Cyrillic capital С, Latin "alibration"
       вcе           -- Latin c substituted for Cyrillic с, amid Cyrillic в/е
       коробочкаp    -- a trailing Latin p, confusable with Cyrillic р
+      сWebSocket    -- a Russian preposition glued on: flagged, and an
+                        accepted false positive (one glance to dismiss)
 
-    NOT flagged, by construction, no carve-out needed:
-      VPNом         -- Cyrillic case ending on a Latin acronym, no
-                        separator (normal informal Russian) -- the м
-                        has no Latin twin
-      кодbase       -- Russian word glued to English, missing its space
-                        -- neither к nor д has a Latin twin
-      сWebSocket    -- Russian preposition glued on, missing its space --
-                        its ONE minority letter IS a table entry, so this
-                        one DOES get flagged: a soft, acceptable false
-                        positive (one-glance dismissal, not a wrong-fix
-                        risk, since nothing here is auto-fixed)
-      jьmati        -- genuine Proto-Slavic etymological notation -- the
-                        soft sign ь has no Latin twin at all
+=====================================================
+Confusable words: what is deliberately not detected
+=====================================================
 
-Scans the same author-facing prose Text nodes as top/rare prose words
-(code, comments, raw passthrough, generated topics excluded) —
-content inside a literal block is captured tool output or an example,
-never something to flag as a fresh typo; confirmed live on a real
-corpus hit: a captured Sphinx warning log quoting a past lexer-name
-typo (Cyrillic ``с`` where ``.cpp`` needed a Latin ``c``) stays silent,
-correctly, because it is a historical record, not fresh prose.  Unlike
-the bold/rubric checks, block quotes are NOT exempt — a garbled word
-inside quoted material is still garbled regardless of who typed it
-first.  WARNING, not ERROR: mixed script is evidence of a likely typo, not
-proof that the structure is invalid.  Choosing which script was intended is
-also non-fixable, but repairability does not determine severity — the proven
-single-top-level defect above is the counterexample.
+* Script mixing across a line: in multilingual prose Cyrillic and Latin share
+  nearly every line, so a line-level signal would mean nothing.
+* A word whose minority script has any letter without a visual twin — ``VPNом``
+  (a Russian case ending on a Latin acronym), ``кодbase`` (a missing space),
+  ``jьmati`` (etymological notation).
+* A tied majority/minority split, which is genuinely ambiguous and never
+  guessed.
+* Code, comments, raw passthrough, generated topics, and literal blocks, whose
+  content is captured output or an example rather than fresh prose.
 
-The real catch: a corpus-wide run found all 6 real occurrences among 14
-candidate mixed-script words, and misflagged exactly one of the 8 legitimate
-constructions — the accepted false positive above, a Russian preposition glued
-to a Latin word.
+================================
+Confusable words: dispositions
+================================
+
+Replace the slipped letter when the word is a typo (``rewrite``).  When the
+mixed-script word is deliberate, ``retain`` it with its reason in
+``.check_rst-retained.toml``.  Nothing is auto-fixed: which script was
+intended is knowledge only the author has.
+
+========================================
+Confusable words: evidence and history
+========================================
+
+The rule was derived from, and validated against, every mixed-script word in
+the Journal corpus; see "Confusable letters" under "Rule evidence and history"
+in :doc:`development`.
 
 *********************************************************
 A missing reference is the mirror image of a broken one
