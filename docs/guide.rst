@@ -929,9 +929,13 @@ action is therefore applicable to the reported source.
 
 ``list-table.unlocated-aligned-table`` has a different meaning: the modeled
 line contains neither an editable table start nor a position inside an aligned
-table.  Rerun ``list-table`` on the current file.  If the refusal recurs,
-preserve the complete diagnostic, the source file, and its current Git diff in
-a bug report.  The source is left unchanged at that position.
+table.  It is a known, still unexplained symptom rather than a structural
+verdict: in the one real occurrence, a table that had converted cleanly was
+refused after unrelated edits elsewhere in the file, and the next run on the
+same document converted it again.  Rerun ``list-table`` on the current file
+before restructuring anything.  If the refusal recurs, preserve the complete
+diagnostic, the source file, and its current Git diff in a bug report.  The
+source is left unchanged at that position.
 
 ======================================================
 entitle: wrap a document under a new top-level title

@@ -271,14 +271,19 @@ Presence is not positive evidence in a value-bearing mapping
   Sphinx error.  When values carry the event count, downstream logic must test
   the positive value rather than container truthiness or key presence.
 
-A modeled coordinate is not yet an editable source range
+A modeled coordinate is not yet an editable range or an exact report
   Docutils line metadata identifies where a semantic observation arose; it
-  does not by itself prove the physical bytes safe to replace.  The
-  ``list-table`` investigation became actionable only after source recovery
-  required an enclosing grid/simple-table range and gave an unlocated model
-  position its own refusal.  Before mutation, join parser evidence back to the
-  current source geometry and fail closed when that physical predicate is not
-  proven.
+  proves neither that the physical bytes are safe to replace nor which line a
+  reader should jump to.  The ``list-table`` investigation became actionable
+  only after source recovery required an enclosing grid/simple-table range and
+  gave an unlocated model position its own refusal.  The same gap then
+  surfaced in reported coordinates: comments located on the line after their
+  block, table-cell comments at the table border, included findings under the
+  root filename, and inline mentions at their paragraph's first line.  Before
+  mutation, join parser evidence back to the current source geometry and fail
+  closed when that physical predicate is not proven; before reporting, derive
+  the location from physical evidence as well, and never present an unproven
+  fallback as exact.
 
 Trace reachability before using a hypothetical as proof
   A direct ``sys.stdout.buffer`` write would bypass text adapters and was

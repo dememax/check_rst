@@ -116,6 +116,16 @@ ruff check --no-cache src tests tools
 python3.14 -m mypy src tests tools
 ```
 
+A test that asserts real standard-output or standard-error bytes — encoding
+errors, surrogate-escaped paths, byte-level truncation — must run the CLI in a
+subprocess (`tests/test_cli_black_box.py`'s `_run_cli`).  In-process capture
+cannot prove it: pytest's `capfd` stream uses `errors="replace"` and
+substitutes instead of raising, so such a test passes while the real CLI
+crashes.  Select the encoding regime with `PYTHONIOENCODING` on the child
+rather than depending on which locales the host has generated, and decode the
+child's output with `errors="surrogateescape"`.  `docs/development.rst`
+records the case that established this.
+
 After an RST edit, invoke the worktree implementation so validation never
 accidentally uses an older installed command:
 

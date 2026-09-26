@@ -61,6 +61,13 @@ representation.  The diagnostic states the blocker, impact, and next action.
 Ordinary refusals do not prevent unrelated proven tables from converting;
 failure of an explicitly requested ``--only`` table leaves that file intact.
 
+``list-table.nested-aligned-table`` is reported only when the source proves an
+enclosing aligned table: convert that ancestor first.
+``list-table.unlocated-aligned-table`` means the modeled position is neither a
+table start nor inside one.  It is a known, still unexplained symptom: rerun
+the command before restructuring, and report the diagnostic with the source and
+its Git diff if it recurs.
+
 *************
 EXIT STATUS
 *************

@@ -102,6 +102,14 @@ sed -i 's/docutils>=0.21,<0.23/docutils>=0.21/' \
 Ruff is not installed into this environment. Use the system Ruff 0.16.9
 executable pinned by `[tool.ruff].required-version` in `pyproject.toml`.
 
+The two validation hosts also differ by locale, not only by versions. An
+Ubuntu language locale such as `fr_FR.UTF-8` leaves Python's standard output
+on its strict error handler, while the Gentoo host's `C.utf8` enables Python's
+UTF-8 mode with `surrogateescape`, so identical code can crash on one host and
+not the other. The black-box tests select each regime explicitly with
+`PYTHONIOENCODING`, independent of which locales a host has generated; run the
+suite on both hosts for any locale- or encoding-sensitive change.
+
 For development, install the checkout in editable mode:
 
 ```bash

@@ -97,6 +97,11 @@ These entries are intentionally not presented as one uniform priority:
   Sphinx's reread set are covered; ``include``/``literalinclude`` inputs are
   not.  No failure involving those dependencies has been observed, so an
   extension is awaiting evidence.
+* The transient ``list-table.nested-aligned-table`` flip — the root cause is
+  still unknown after independent reproduction attempts.  The diagnostic now
+  separates a proven nested table from an ``unlocated-aligned-table`` position.
+  Automatic failure dumps stay deferred until a storage, retention, and cleanup
+  contract exists (see "Safety boundary after source-model review").
 
 ==========
 Declined
@@ -1413,7 +1418,9 @@ Phase 1 lint finding and verified bare-filename finding from an included
 fragment still printed under the root filename.  Each such finding now names
 its physical owner — the node's nearest located ancestor, the same rule comment
 recovery uses — and a fragment included twice yields each physical finding once
-rather than two identical lines.
+rather than two identical lines.  The general principle behind these range and
+location repairs is recorded in :doc:`development`, "A modeled coordinate is
+not yet an editable range or an exact report".
 
 ====================
 Outline enrichment

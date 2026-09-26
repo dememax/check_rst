@@ -42,6 +42,13 @@ environment that bypassed the package resolver fails clearly before relying
 on those path APIs.  The ``git`` executable is needed by the test suite's
 repository fixtures, not by an installed ``check_rst`` command.
 
+``pygit2``'s PyPI wheels bundle their own ``libgit2`` together with its
+OpenSSL, ``libssh2``, and PCRE libraries, independent of any system ``libgit2``
+package; a system ``libgit2`` upgrade therefore does not reach a wheel
+installation.  A distribution-built ``pygit2`` may link the system library
+instead.  The runtime provenance line reports the ``libgit2`` version actually
+linked, which is the authoritative answer on a given host.
+
 The console boundary preserves those paths too.  CLI startup changes a strict
 standard-output error handler to ``surrogateescape`` before installing any
 report sink, while leaving an explicit non-strict policy and standard error
