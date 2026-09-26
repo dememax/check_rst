@@ -1191,19 +1191,31 @@ def check_bare_filenames(
 
     from sphinx.addnodes import pending_xref
 
-    findings: list[Finding] = []
+    findings: list[tuple[Finding, tuple[int, ...]]] = []
     # Production uses Sphinx's doctree so genuine pending_xref/reference
     # nodes remain distinguishable from prose.  The fallback keeps this
     # checker usable with the deliberately minimal environment doubles in
     # unit tests and by direct library callers.
     get_doctree = getattr(env, "get_doctree", None)
     sphinx_doctree = get_doctree(docname) if callable(get_doctree) else doc.doctree
+    composition = (
+        CompositionIndex(
+            sphinx_doctree,
+            doc.path,
+            pathlib.Path(env.srcdir),
+            root_transformed=_source_was_transformed(env, docname),
+        )
+        if callable(get_doctree)
+        else doc.composition
+    )
     integrated_assets = _integrated_local_assets(env, docname, doc, sphinx_doctree)
     for text_node in sphinx_doctree.findall(docutils.nodes.Text):
         if _has_non_prose_ancestor(text_node, extra_types=(docutils.nodes.reference, pending_xref)):
             continue
         s = str(text_node)
         base_line = _node_line(text_node)
+        owner_source = _node_source_path(text_node, doc.path)
+        occurrence = composition.occurrence(composition.located(text_node)[1])
         for m in _BARE_FILENAME_RE.finditer(s):
             name = m.group(1)
             candidates = sorted(c for c in by_basename.get(name, ()) if c != docname)
@@ -1212,17 +1224,20 @@ def check_bare_filenames(
             lineno = base_line + s[: m.start()].count("\n")
             targets = ", ".join(repr(c) for c in candidates)
             findings.append(
-                Finding(
-                    lineno,
-                    Severity.WARNING,
-                    f"{name}.rst mentioned as plain text — did you mean a "
-                    f":doc:/:ref: cross-reference? possible target(s): {targets}",
-                    code=FindingCode.REFERENCE_BARE_FILENAME,
+                (
+                    Finding(
+                        lineno,
+                        Severity.WARNING,
+                        f"{name}.rst mentioned as plain text — did you mean a "
+                        f":doc:/:ref: cross-reference? possible target(s): {targets}",
+                        source=_finding_source(owner_source, doc),
+                        code=FindingCode.REFERENCE_BARE_FILENAME,
+                    ),
+                    occurrence,
                 )
             )
         if _is_inside_file_role(text_node):
             continue
-        owner_source = _node_source_path(text_node, doc.path)
         for match in _LOCAL_ASSET_RE.finditer(s):
             target = match.group("path")
             asset = _resolve_local_asset(env, doc, owner_source, target)
@@ -1235,17 +1250,20 @@ def check_bare_filenames(
             relative_target = _relative_to_root(asset, doc.project_root)
             resolved_target = str(relative_target) if relative_target is not None else str(asset)
             findings.append(
-                Finding(
-                    lineno,
-                    Severity.WARNING,
-                    f"{target} names a real local asset but is mentioned as plain text — "
-                    "use :download:, include/literalinclude, image/figure, or :file: when "
-                    f"reader access is intentionally unnecessary; resolved target: {resolved_target!r}",
-                    source=_finding_source(owner_source, doc),
-                    code=FindingCode.REFERENCE_PLAIN_LOCAL_ASSET,
+                (
+                    Finding(
+                        lineno,
+                        Severity.WARNING,
+                        f"{target} names a real local asset but is mentioned as plain text — "
+                        "use :download:, include/literalinclude, image/figure, or :file: when "
+                        f"reader access is intentionally unnecessary; resolved target: {resolved_target!r}",
+                        source=_finding_source(owner_source, doc),
+                        code=FindingCode.REFERENCE_PLAIN_LOCAL_ASSET,
+                    ),
+                    occurrence,
                 )
             )
-    return findings
+    return _helpers._collapse_include_repeats(findings)
 
 
 def find_code_blocks(

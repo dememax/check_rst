@@ -403,6 +403,27 @@ def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None =
     return ranges
 
 
+def _collapse_include_repeats(located: Iterable[tuple[Finding, tuple[int, ...]]]) -> list[Finding]:
+    """Keep each physical finding once across repeated include occurrences.
+
+    A fragment included twice repeats its nodes, so every finding it owns
+    appears once per include occurrence.  Identical findings within ONE
+    occurrence are distinct constructs — two mentions a paragraph-level
+    anchor cannot yet tell apart — and all stay.  An identical finding from
+    another occurrence is kept only beyond the count a single occurrence
+    already contributed.  First-seen document order is preserved.
+    """
+    emitted: collections.Counter[Finding] = collections.Counter()
+    per_occurrence: dict[tuple[int, ...], collections.Counter[Finding]] = collections.defaultdict(collections.Counter)
+    kept: list[Finding] = []
+    for finding, occurrence in located:
+        per_occurrence[occurrence][finding] += 1
+        if per_occurrence[occurrence][finding] > emitted[finding]:
+            emitted[finding] += 1
+            kept.append(finding)
+    return kept
+
+
 def _in_scope(ranges: list[tuple[int, int]] | None, first: int, last: int) -> bool:
     """Return True if any line in [first, last] overlaps the changed ranges."""
     if ranges is None:

@@ -23,6 +23,7 @@ from ._document import (
     _resolve_document,
 )
 from ._helpers import (
+    _collapse_include_repeats,
     _enclosing_section_title,
     _findall_node_types,
     _has_non_prose_ancestor,
@@ -150,25 +151,29 @@ def check_homoglyphs(path: pathlib.Path, doc: Document | None = None) -> list[Fi
     short while a homoglyph can be anywhere in a long paragraph.
     """
     document = _resolve_document(path, doc)
-    findings: list[Finding] = []
+    findings: list[tuple[Finding, tuple[int, ...]]] = []
     for text_node in document.doctree.findall(docutils.nodes.Text):
         if _has_non_prose_ancestor(text_node):
             continue
         s = str(text_node)
         base_line = _node_line(text_node)
         for start, _end, word in _homoglyph_words_in(s):
-            lineno = base_line + s[:start].count("\n")
+            lineno, source, occurrence = document.finding_location(text_node, base_line + s[:start].count("\n"))
             findings.append(
-                Finding(
-                    lineno,
-                    Severity.WARNING,
-                    f"{word!r} mixes Cyrillic and Latin letters that look "
-                    "identical — probably a keyboard-layout slip, not "
-                    "intentional",
-                    code=FindingCode.TEXT_HOMOGLYPH,
+                (
+                    Finding(
+                        lineno,
+                        Severity.WARNING,
+                        f"{word!r} mixes Cyrillic and Latin letters that look "
+                        "identical — probably a keyboard-layout slip, not "
+                        "intentional",
+                        source=source,
+                        code=FindingCode.TEXT_HOMOGLYPH,
+                    ),
+                    occurrence,
                 )
             )
-    return findings
+    return _collapse_include_repeats(findings)
 
 
 def check_nested_inline_markup(
@@ -186,7 +191,7 @@ def check_nested_inline_markup(
     """
     document = _resolve_document(path, doc)
     ranges: list[tuple[int, int]] | None = None if whole_file else document.ranges
-    findings: list[Finding] = []
+    findings: list[tuple[Finding, tuple[int, ...]]] = []
     for outer in _findall_node_types(document.doctree, _INLINE_CONTAINER_TYPES):
         nested = document.nested_inline_by_node.get(id(outer), ())
         if not nested:
@@ -194,19 +199,20 @@ def check_nested_inline_markup(
         lineno = _inline_node_line(outer)
         if not _in_scope(ranges, lineno, lineno):
             continue
+        lineno, owner_source, occurrence = document.finding_location(outer, lineno)
         source = " ".join(str(outer.rawsource).split())
         if len(source) > _BOLD_PREVIEW_LEN:
             source = source[:_BOLD_PREVIEW_LEN] + "…"
         inner_kinds = ", ".join(dict.fromkeys(_inline_kind(node) for node in nested))
-        findings.append(
-            Finding(
-                lineno=lineno,
-                severity=Severity.WARNING,
-                text=(f"nested inline markup in {_inline_kind(outer)} span {source!r} (contains {inner_kinds})"),
-                code=FindingCode.INLINE_NESTED_MARKUP,
-            )
+        finding = Finding(
+            lineno=lineno,
+            severity=Severity.WARNING,
+            text=(f"nested inline markup in {_inline_kind(outer)} span {source!r} (contains {inner_kinds})"),
+            source=owner_source,
+            code=FindingCode.INLINE_NESTED_MARKUP,
         )
-    return findings
+        findings.append((finding, occurrence))
+    return _collapse_include_repeats(findings)
 
 
 def check_directives(
@@ -232,18 +238,23 @@ def check_directives(
     document = _resolve_document(path, doc)
     ranges: list[tuple[int, int]] | None = None if whole_file else document.ranges
     doc_tree = document.doctree
-    findings: list[Finding] = []
+    findings: list[tuple[Finding, tuple[int, ...]]] = []
     # A leading/standalone bold span with broken nested markup used to be
     # misdiagnosed as a heading substitute.  The more specific syntax warning
     # must own those nodes: promoting one to a section cannot restore the inner
     # styling that docutils discarded.
     nested_strong_ids = set(document.nested_inline_by_node)
 
-    def warn(node: docutils.nodes.Node, code: FindingCode, text: str, *, lineno: int | None = None) -> None:
-        if lineno is None:
-            lineno = _node_line(node)
-        if _in_scope(ranges, lineno, lineno):
-            findings.append(Finding(lineno=lineno, severity=Severity.WARNING, text=text, code=code))
+    def warn(node: docutils.nodes.Node, code: FindingCode, text: str, *, comment: bool = False) -> None:
+        if comment:
+            scope_line = document.comment_source_context(node)[0]
+            lineno, source, occurrence = document.comment_finding_location(node)
+        else:
+            scope_line = _node_line(node)
+            lineno, source, occurrence = document.finding_location(node, scope_line)
+        if _in_scope(ranges, scope_line, scope_line):
+            finding = Finding(lineno=lineno, severity=Severity.WARNING, text=text, source=source, code=code)
+            findings.append((finding, occurrence))
 
     def section_clause(node: docutils.nodes.Node) -> str:
         title = _enclosing_section_title(node)
@@ -300,7 +311,7 @@ def check_directives(
                     f"comment '.. {name}: …' looks like a mistyped directive — "
                     "a single colon makes it a comment that silently hides "
                     f"its content; did you mean '.. {name}::'?",
-                    lineno=document.comment_source_context(node)[0],
+                    comment=True,
                 )
             raise docutils.nodes.SkipNode
 
@@ -380,4 +391,4 @@ def check_directives(
                     warn(node, FindingCode.PSEUDO_HEADING_BOLD_OPENER, f"bold paragraph opener {text!r}")
 
     doc_tree.walkabout(_Visitor(doc_tree))
-    return findings
+    return _collapse_include_repeats(findings)

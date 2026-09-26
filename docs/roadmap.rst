@@ -1408,6 +1408,13 @@ shared conformance matrix pins root sibling boundaries, included-source
 coordinates, and nested-container boundaries across sections, code blocks,
 blockquotes, admonitions, comments, lists, tables, includes, and toctrees.
 
+That first correction shared the recovered line but not the owning file: every
+Phase 1 lint finding and verified bare-filename finding from an included
+fragment still printed under the root filename.  Each such finding now names
+its physical owner — the node's nearest located ancestor, the same rule comment
+recovery uses — and a fragment included twice yields each physical finding once
+rather than two identical lines.
+
 ====================
 Outline enrichment
 ====================

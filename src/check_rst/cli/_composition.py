@@ -490,6 +490,29 @@ class CompositionIndex:
     def provenance(self, node: docutils.nodes.Node) -> SourceProvenance | None:
         return self._provenance.get(id(node))
 
+    def located(self, node: docutils.nodes.Node) -> tuple[docutils.nodes.Node, SourceProvenance | None]:
+        """Return *node*'s nearest located owner and that owner's provenance.
+
+        A node without its own source — inline and Text nodes — belongs to its
+        nearest ancestor that carries one.
+        """
+        owner = node
+        provenance = self.provenance(owner)
+        while provenance is None and getattr(owner, "source", None) is None and owner.parent is not None:
+            owner = owner.parent
+            provenance = self.provenance(owner)
+        return owner, provenance
+
+    @staticmethod
+    def occurrence(provenance: SourceProvenance | None) -> tuple[int, ...]:
+        """Identify the parsed include occurrence that composed this content.
+
+        Each include site's doctree order is unique per occurrence, so a
+        fragment included twice yields two distinct chains; root content is
+        the empty chain.
+        """
+        return tuple(site.order for site in provenance.include_chain) if provenance is not None else ()
+
     def physical_line(self, node: docutils.nodes.Node, logical_line: int) -> int:
         if logical_line <= 0:
             return 0

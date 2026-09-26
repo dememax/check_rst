@@ -15,7 +15,7 @@ import pytest
 from _support import _rst
 
 from check_rst import cli
-from check_rst.cli import _helpers, _lint
+from check_rst.cli import _helpers, _lint, _types
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -403,3 +403,38 @@ def test_directives_mistyped_directive_in_block_quote_not_flagged(
     rubric (the whole quoted subtree is skipped)."""
     p = _rst(tmp_path, "He sent:\n\n    .. code: bash\n\n        quoted\n")
     assert _lint.check_directives(p, True) == []
+
+
+@pytest.mark.unit
+def test_collapse_include_repeats_merges_occurrences_not_constructs() -> None:
+    """Identical findings within one include occurrence are distinct
+    constructs and all stay; a repeat from another occurrence is dropped
+    unless it exceeds what one occurrence already contributed."""
+
+    def mention(lineno: int) -> _types.Finding:
+        return _types.Finding(
+            lineno,
+            _types.Severity.WARNING,
+            "index.rst mentioned as plain text",
+            code=_types.FindingCode.REFERENCE_BARE_FILENAME,
+        )
+
+    first, second = (4,), (9,)
+    located = [
+        (mention(3), first),
+        (mention(3), first),
+        (mention(7), first),
+        (mention(3), second),
+        (mention(3), second),
+        (mention(7), second),
+        (mention(12), ()),
+        (mention(12), ()),
+    ]
+
+    assert _helpers._collapse_include_repeats(located) == [
+        mention(3),
+        mention(3),
+        mention(7),
+        mention(12),
+        mention(12),
+    ]
