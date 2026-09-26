@@ -754,14 +754,8 @@ the full validation pipeline.
 Why you can trust fix: adornments and hygiene, nothing else
 =============================================================
 
-An independent Claude Code session, before recommending a real project
-normalize six real, externally-authored documents in full, needed to
-answer one question first: does ``fix`` touch only adornment
-geometry, or can it also mutate prose content?  It hand-rolled a grep
-filter over ``check_rst diff`` output to check every changed line was
-made of nothing but adornment characters — a workaround worth
-retiring by stating the guarantee directly, since it is true and
-provable, not just true by convention: default ``fix`` has exactly two
+Default ``fix`` touches adornment geometry and byte hygiene, never prose
+content, and that is provable rather than conventional: it has exactly two
 fixers.  ``fix_hygiene`` (Phase 0: BOM removal, CRLF/CR/exotic line
 separators to LF, control whitespace to space, and parser-ignored trailing
 whitespace on every source line) and ``fix_structure`` (Phase 1: adornment
@@ -785,15 +779,11 @@ whitespace; git does not split on any of them.  One such character
 anywhere in a file silently desynchronizes every line number docutils
 reports from the line number git — and a human — sees, for the rest of
 the file; normalizing them to LF first is what keeps every later
-phase's line numbers trustworthy.  The ordering paid for a real
-incident (2026-07-18): before hygiene ran first, a BOM or trailing
-space sitting on a title's own overline made ``fix`` insert a
-*duplicate* overline into an otherwise valid block, because the
-adornment fixer read the file before hygiene had a chance to normalize
-it.  Hygiene now always resolves and reports first, and every later
-phase reads the file through that one normalized pass, so a hygiene
-defect is diagnosed once, as its own root cause, instead of cascading
-into a false adornment finding.
+phase's line numbers trustworthy.  Hygiene always resolves and reports first,
+and every later phase reads the file through that one normalized pass, so a
+hygiene defect is diagnosed once, as its own root cause, instead of cascading
+into a false adornment finding.  The incident that established this order is
+recorded under "Operational history behind the guide" in :doc:`development`.
 
 ``--normalize-blank-lines`` is a deliberately visible exception, never an
 implicit expansion of that promise.  It reaches meaningful source whitespace
@@ -1390,17 +1380,8 @@ line itself.
 Verbosity levels: ``--quiet``, default, ``--verbose``
 =======================================================
 
-Three honest levels, not two flags bolted onto an undifferentiated
-default.  The gap that motivated this: ``--quiet``'s own ``--help``
-text promised "only the summary line still prints," but one whole
-group — the footer's ``lines:``/``words:``/top-and-rare-prose-words —
-ignored that promise and printed unconditionally, for every run,
-whether requested or not.  Caught twice independently the same day
-(2026-07-19→20): once by a first-principles inventory of every
-``print()`` call site and its guard, once by a session doing heavy editing in
-a downstream project and complaining that "``--quiet`` doesn't quiet the
-prose-statistics tail" on a check-fix-recheck loop where those lines
-were pure repeated noise after the first read.
+Three honest levels, not two flags bolted onto an undifferentiated default:
+every line the tool prints belongs to exactly one level.
 
 .. list-table:: The ladder
    :header-rows: 1
@@ -1684,18 +1665,10 @@ gcc/clang/mypy-style diagnostics.  A leading glyph — even a single,
 consistent one — breaks that: it puts a character before the path
 that the tooling's pattern doesn't expect.
 
-This *replaces* an earlier design, not merely a cosmetic tweak: every
-``⚠``/``✗`` finding line used to open with that glyph, added
-2026-07-18 from real evidence (five AI sessions independently piping
-output through ``grep '^⚠'`` to recover findings from progress
-noise).  Reversed 2026-07-20 (Max: "those prefixes are optional, we've
-got the text warning or error... will it be better to delete them?"):
-the same recovery is ``grep 'WARNING:'``/``grep 'ERROR:'`` now, barely
-more typing, and ``--quiet`` — added the same day as the glyph, from
-the same evidence — already gives a cleaner path to "findings only"
-that makes the grep workaround largely moot on its own.  Documentation
-follows reality here, not the other way around.  Historical examples in
-the roadmap remain evidence of old friction, not recommended usage.
+``--quiet`` is the supported way to see findings without progress narration.
+A leading glyph was once tried and removed; that history is recorded under
+"Operational history behind the guide" in :doc:`development`, and historical
+roadmap examples of it are evidence, not recommended usage.
 
 The one thing that is *not* a per-finding diagnostic — the shared
 rationale a repeated finding kind prints once per run (see "Verbosity
@@ -2381,42 +2354,31 @@ Git-hygiene precaution "Auditing a scope" above already recommends
 before any multi-document normalization pass.
 
 --------------------------------------------
-Adopting a foreign document: a worked case
+Adopting and re-syncing a foreign document
 --------------------------------------------
 
-An independent Claude Code session normalized six externally generated
-documents in a downstream project this way (2026-07-21), and it is a materially
-different claim than "it fixes my adornments" — the tool managing a
-whole external-content lifecycle: pandoc converts Markdown to RST,
-``check_rst fix`` normalizes every adornment, and a human/AI judges
-which bold-as-heading WARNINGs represent a real structural intent
-(step 1 of the loop, same as always) — but the promoted bold-to-real-
-heading decisions are *semantic*, and the pipeline reproduces
-adornments, not semantic structure, on the next re-sync from the
-upstream Markdown.  The session's own new practice: log each hand-
-judged promotion in the normalized file's own header — "the pipeline
-reproduces adornments but not semantic structure; here are the
-bold→heading promotions to re-apply by hand next time" — so the
-judgment survives the next pandoc pass instead of being silently
-redone from scratch or silently lost.  This is not yet a check_rst
-feature; it is a *project convention*, discovered by using the tool
-for real, that deserves to travel with the contract: whenever adopting
-and periodically re-syncing foreign generated content, record the
-semantic decisions the tool cannot infer, in the file the decisions
-apply to.
+A foreign document adopted into a project — for example Markdown converted with
+pandoc, normalized with ``fix``, and periodically re-synced from upstream —
+has two kinds of decisions.  ``fix`` reproduces the adornments on every re-sync;
+the semantic decisions it cannot infer are not reproduced.  Record them where
+they survive the next conversion:
 
-The same session later exposed a second workflow rule while re-syncing adopted
-documents.  Before any structural operation, run ``outline --sections-only``
-and read the source from its beginning through the first reported section; the
-legend establishes whether there is one depth-1 section or a competing-title
-defect, while the source start shows whether front matter or introductory body
-content changes how that section functions.  If the document already has one
-intended title, edit its text in place when renaming it.  Use ``entitle`` only
-when deliberately preserving existing top-level content as a visible child of
-a new title, or when repairing competing titles in a self-contained source.
-Always run preview and review the complete diff as a separate step before
-``--apply``: seeing the old title remain one level deeper is the evidence that
-the operation is wrapping rather than renaming.  The failed session had run
-``entitle --apply`` directly and then manually unwound the structurally valid
-but unintended wrapper; no new analyzer signal was missing—``outline`` and the
-preview already exposed both facts at their canonical boundaries.
+* A reviewed ``retain`` decision belongs in ``.check_rst-retained.toml``, whose
+  source-digest identity survives line shifts across re-syncs (see "Retained
+  WARNINGs: recording a reviewed decision").
+* A bold-to-heading promotion must be re-applied after each conversion; list
+  it in the adopted file's own header so the judgment is neither silently lost
+  nor silently redone differently.
+
+Before any structural operation, run ``outline --sections-only`` and read the
+source from its beginning through the first reported section.  The legend shows
+whether there is one depth-1 section or a competing-title defect, and the
+source start shows whether front matter or introductory body content changes
+how that section functions.  If the document already has one intended title,
+edit its text in place to rename it.  Use ``entitle`` only to deliberately
+preserve the existing top-level content as a visible child of a new title, or
+to repair competing titles in a self-contained source.  Always run the preview
+and review the complete diff as a separate step before ``--apply``: seeing the
+old title remain one level deeper is the evidence that the operation wraps
+rather than renames.  The sessions that established these rules are recorded
+under "Operational history behind the guide" in :doc:`development`.

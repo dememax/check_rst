@@ -356,6 +356,69 @@ shipped; that absence stays recorded honestly rather than replaced with an
 invented catch.  The rule has since become the parsed, composition-aware,
 non-fixable ERROR described in :doc:`rules`.
 
+**************************************
+Operational history behind the guide
+**************************************
+
+Dated incidents behind operational rules in :doc:`guide`.  The guide states
+each current rule; this chapter keeps only the evidence that produced it.
+
+==============
+Trusting fix
+==============
+
+An independent Claude Code session, before recommending that a project
+normalize six externally authored documents in full, needed to know whether
+``fix`` could mutate prose content.  It hand-rolled a grep filter over
+``check_rst diff`` output to confirm that every changed line was made of
+adornment characters.  That workaround was retired by stating the two-fixer
+guarantee directly and pinning it with a whole-document test.  The phase order
+was paid for by an incident on 2026-07-18: before hygiene ran first, a BOM or
+trailing space on a title's overline made ``fix`` insert a duplicate overline
+into an otherwise valid block, because the adornment fixer read the file
+before hygiene normalized it.
+
+===============
+The quiet gap
+===============
+
+``--quiet``'s own help promised that only the summary line would print, but the
+footer's ``lines:``/``words:`` and top/rare prose-word group printed
+unconditionally on every run.  It was caught twice independently on
+2026-07-19→20: by a first-principles inventory of every ``print()`` call and
+its guard, and by a session editing a downstream project that complained that
+"``--quiet`` doesn't quiet the prose-statistics tail" on a check-fix-recheck
+loop.  The three-level ladder replaced the two unrelated flags.
+
+========================
+Compiler-output glyphs
+========================
+
+Every finding line once opened with a ``⚠`` or ``✗`` glyph, added on
+2026-07-18 after five AI sessions independently piped output through
+``grep '^⚠'`` to recover findings from progress noise.  It was reversed on
+2026-07-20 (Max: "those prefixes are optional, we've got the text warning or
+error... will it be better to delete them?"): a leading glyph breaks the
+``path:line: SEVERITY:`` shape generic tooling parses, and ``--quiet`` — added
+the same day from the same evidence — already gives a cleaner path to
+findings only.
+
+============================
+Adopting foreign documents
+============================
+
+An independent session normalized six externally generated documents in a
+downstream project on 2026-07-21: pandoc converted Markdown, ``fix``
+normalized every adornment, and the author judged which bold-as-heading
+WARNINGs were real structure.  Because the pipeline reproduces adornments but
+not semantic structure, the session began logging each hand-judged promotion in
+the normalized file's own header so the next re-sync could re-apply it.  The
+same session later ran ``entitle --apply`` directly on an adopted document that
+already had its intended title, and had to unwind a structurally valid but
+unintended wrapper by hand.  No analyzer signal was missing — ``outline`` and
+the preview already exposed both facts — which is why the guide now requires
+reading the source start and reviewing the preview before applying.
+
 ****************************************************
 Cross-review diagnostics: the output-boundary case
 ****************************************************
