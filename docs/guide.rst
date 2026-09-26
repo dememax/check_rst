@@ -1079,7 +1079,12 @@ parent nor that the title is unique.  It also says nothing about an included
 source, a toctree descendant, or extension-transformed content.  Prior reading
 does not change those facts.  Run ``context`` when the entry is known; run
 ``outline`` when it is not; use ``targets --exact`` when a label is known but
-its file is not.  Only then read the reported physical range.
+its file is not.  Only then read the reported physical range.  A range reported
+by a current query may be read directly while the source is unchanged; after
+an edit that can shift lines, rerun the query rather than trusting the
+remembered coordinate.  Raw text search remains valid for literal,
+non-structural inventory the model does not expose, but a text match is never
+evidence of depth, parentage, or entry boundaries.
 
 =============================================
 What a reader command's exit status answers
