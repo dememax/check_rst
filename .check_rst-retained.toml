@@ -1,0 +1,138 @@
+# Copyright (C) 2026 Maxime P. DEMENTYEV
+# SPDX-License-Identifier: GPL-3.0-only
+# Reviewed retain decisions for this repository's own WARNINGs — check_rst project
+
+version = 1
+
+[[retain]]
+path = "docs/development.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "488179a0fbafc14f6b22ce2d2b5241e6ec2da81c33c3bfc9c48e125319e265fc"
+reason = "One dated entry in the \"Real catches\" evidence register; the co-equal entries are read together as a list, not navigated as separate sections."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/development.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "200117b9686c05d4edffbd5ced5a914d377c6fce335cf79ecfe5f834afd781c1"
+reason = "One dated entry in the \"Real catches\" evidence register; the co-equal entries are read together as a list, not navigated as separate sections."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/development.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "4573501ab51330de7cab464c6cf342b058710de3d7eca45d002eb505b3ffc79d"
+reason = "One dated entry in the \"Real catches\" evidence register; the co-equal entries are read together as a list, not navigated as separate sections."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/development.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "bf5dec93f290bdc7637f94a9e0e3dcfc58bcd50cb0dbb2cd33cb8b25efd636f1"
+reason = "One dated entry in the \"Real catches\" evidence register; the co-equal entries are read together as a list, not navigated as separate sections."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/development.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "d1021733d345ccef61973d36e59fc455ae387c2fa87d4d7bd47552b1f825b607"
+reason = "One dated entry in the \"Real catches\" evidence register; the co-equal entries are read together as a list, not navigated as separate sections."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/development.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "2768aae3a73865118ffa9fe8ab90efde5d659d099dd12ce40d57eb01b66ee5c9"
+reason = "One dated entry in the \"Real catches\" evidence register; the co-equal entries are read together as a list, not navigated as separate sections."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/development.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "e98d9b4ff981315545578da4479bc62f5a076620011b493c67d8ea10fd890f36"
+reason = "One dated entry in the \"Real catches\" evidence register; the co-equal entries are read together as a list, not navigated as separate sections."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/development.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "2231a25f0085f0ed740839bac42f1ef9b93179801366f19a882ad542c1056c57"
+reason = "One dated entry in the \"Real catches\" evidence register; the co-equal entries are read together as a list, not navigated as separate sections."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/development.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "01a69a10cd144cc02c41910035a8bd8d88e8300f1d83cd96a919a4a0af0e7529"
+reason = "One dated entry in the \"Real catches\" evidence register; the co-equal entries are read together as a list, not navigated as separate sections."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/development.rst"
+code = "reference.bare-filename"
+source-sha256 = "c82a36852253a4b3870a70ea71cf25c0c390291578ad6a291dd018982637fbc9"
+reason = "Quotes a historical command line; index.rst there is Journal's file, not a check_rst document to link."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/roadmap.rst"
+code = "inline.nested-markup"
+source-sha256 = "67746213dc67b737cb034b9af480d6809c31bbeb5bed8c6d57667b74f0c89408"
+reason = "Quotes the Markdown bold-around-code pattern that the nested-inline rule itself detects."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/roadmap.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "0bd9621e8402d38fbd5585ab42a6761eaab4297ea91661368049e76349766251"
+reason = "One of two co-equal decision labels in the list-table settled shape; the pair reads as one short register."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/roadmap.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "2ab4f2bd73a4fbcee15518c5e1296434abc37622c917502d215e26072a02234d"
+reason = "One of two co-equal decision labels in the list-table settled shape; the pair reads as one short register."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/roadmap.rst"
+code = "reference.bare-filename"
+source-sha256 = "ecf9e56d012eb6924becd9878217cf6c101576f815351064bc24ab51e39a132d"
+reason = "Names the index.rst file whose toctree the entry discusses; a literal filename, not a navigation target."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/roadmap.rst"
+code = "reference.bare-filename"
+source-sha256 = "fa6c15e25e98e9d2b30f794b62bc5315691d0cad52478208fe40e433d40d8322"
+reason = "Names the index.rst file whose toctree the entry discusses; a literal filename, not a navigation target."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/roadmap.rst"
+code = "reference.bare-filename"
+source-sha256 = "1c4c6a28a6b2d92883b4ab8b16eccf961e5b6690a5e3258291633f09ea965243"
+reason = "Names the index.rst file whose toctree the entry discusses; a literal filename, not a navigation target."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/rules.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "2fdd1aba6682bd523b269751fe7845cd79f1db007d9aa28719669e69cf2168db"
+reason = "One case in the bare-filename threshold register; the three co-equal cases are read together."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/rules.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "e92de6bd343b382cc8dd5828ef9f3957ac7d9460900de0be8368d5b5bc47f8fe"
+reason = "One case in the bare-filename threshold register; the three co-equal cases are read together."
+date = "2026-09-26"
+
+[[retain]]
+path = "docs/rules.rst"
+code = "pseudo-heading.bold-opener"
+source-sha256 = "141e8285251823ec1a2f129d26596b222d402cdfd779c47878df624735fcd789"
+reason = "One case in the bare-filename threshold register; the three co-equal cases are read together."
+date = "2026-09-26"

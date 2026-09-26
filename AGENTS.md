@@ -35,6 +35,7 @@ promised public library API.
 | `tests/` | Complete unit and integration regression suite |
 | `docs/` | User guide, semantic rules, development evidence, and roadmap |
 | `.check_rst.toml` | This repository's explicit Sphinx facts |
+| `.check_rst-retained.toml` | Reviewed retain decisions for this repository's own WARNINGs |
 | `pyproject.toml` | Packaging, test, formatting, and type-check configuration |
 
 Normative behavior belongs in `docs/guide.rst` and `docs/rules.rst`.
@@ -136,7 +137,9 @@ PYTHONPATH=src python3.14 -m check_rst check
 ```
 
 Review semantic WARNINGs in the first pass. Never suppress them merely to
-make the validation loop quiet. In a dirty worktree containing unrelated RST
+make the validation loop quiet. Record a reviewed `retain` decision, with its
+reason, in `.check_rst-retained.toml`; update or remove any entry the loop
+reports as stale. In a dirty worktree containing unrelated RST
 edits, use the same `--git-scope` allowlist on all three commands — see
 `docs/guide.rst`, "History protection: bare mode and selective Git scope",
 for exactly what stays whole-file regardless of scope.

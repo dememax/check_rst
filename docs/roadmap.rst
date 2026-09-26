@@ -2509,6 +2509,35 @@ records its resolved physical file and Sphinx's own message as data; the
 ``sphinx:LINE:`` presentation is unchanged and reserved for the cross-phase
 output decision.
 
+===========================================
+Retained WARNINGs with durable identities
+===========================================
+
+Implemented on 2026-09-26, after 0.6.2 (plan decisions #3 and #6).  The
+semantic rules required a stated reason for every ``retain`` disposition, but a
+reviewed WARNING still looked unreviewed on every run.  A committed
+``.check_rst-retained.toml`` beside the project configuration now stores each
+decision.  Its identity is the project-relative owning source path, the stable
+rule code, and the SHA-256 of the whitespace-normalized source line, and the
+reason is mandatory.  Line numbers and message wording were rejected as
+identity: edits above a construct move its line, and wording improvements would
+invalidate valid decisions.  Only exactly located, first-party WARNINGs can be
+retained, ERRORs never.  Retained findings stay counted and stay in JSON with
+their reason, and a whole-file check reports an entry that no longer matches
+as stale.  No ``retain`` command was added: a manual format, with JSON
+supplying each ``code`` and ``source_sha256``, was the agreed first step until
+real use shows what an authoring command should select.
+
+Dogfooding covered both sides the plan required.  This repository's 19 reviewed
+WARNINGs — register openers, one quoted example of the nested-inline pattern,
+and literal mentions of the documentation index file — are recorded with reasons, so its docs
+check reports 0 open WARNINGs and 19 retained.  A read-only replay on sagui's
+adopted ``proreus-yocto-sa-gui-if.rst`` built a sidecar from its v0.15 re-sync
+(153 WARNINGs) and checked the v0.17 re-sync against it.  144 of 149 WARNINGs
+still matched despite line shifts throughout the document, the 5 genuinely new
+constructs stayed open, and the 12 decisions whose text had changed or been
+removed surfaced as stale for review.
+
 ***********************************************************
 Declined decisions and reasons — counter-evidence welcome
 ***********************************************************
