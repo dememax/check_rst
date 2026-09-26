@@ -461,8 +461,12 @@ Step 1 shows only what deterministic mutation cannot settle (see "What the
 tool deliberately leaves to you").  This normally means WARNINGs, but a proven
 invalid structure that needs an author's decision — such as two effective page
 titles — is a non-fixable ERROR and returns status 1.  The pass reports how many
-auto-fixable findings were suppressed per file and removes only their duplicate
-structural messages from Sphinx; unrelated Sphinx warnings remain visible.
+auto-fixable findings were suppressed per file.  It hides a Sphinx title
+diagnostic only when that diagnostic provably restates one of them: docutils
+reproduces it on the same title, and it disappears once the exact fix
+``fix --fast`` would write is simulated.  A level skip that survives the fix,
+any diagnostic that cannot be proven a restatement, and unrelated Sphinx
+warnings remain visible and keep their effect on the exit status.
 Step 2 plans the complete selected set, applies every deterministic fix, and
 stops without parsing or building.  Step 3 is the single full validation run
 and verifies convergence — a clean pass is a machine-checked guarantee, not an

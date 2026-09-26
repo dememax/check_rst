@@ -2443,6 +2443,37 @@ outline report, and JSON parsing/path round-trip.  A blanket
 ``UnicodeEncodeError`` catch was declined: it could disguise a truncated patch
 or JSON document as a handled outcome instead of proving complete output.
 
+==========================================
+Proven restatements under --skip-fixable
+==========================================
+
+Implemented on 2026-09-26, after 0.6.2.  The 2026-09-18 dogfooding report had
+two halves; the zero-count half was fixed immediately, but the duplicate filter
+still hid every Sphinx diagnostic containing one of four title messages once the
+same file had any suppressed fixable finding.  A genuine level skip beside one
+unrelated fixable width therefore made ``check --skip-fixable`` exit 0 while
+``check`` after ``fix --fast`` failed.
+
+Linking a Sphinx diagnostic to a suppressed finding on the same title was
+rejected as unsound: an underline-only title is both fixable and reported by
+docutils as a new-style level skip, and after fix it can still skip a level with
+the established style.  The filter now requires proof.  Docutils — the parser
+Sphinx uses for title geometry and style levels — must reproduce the diagnostic
+inside that title's physical span, and the same diagnostic class must be absent
+from the same title after the exact structural fix ``fix --fast`` would write
+for that file and scope.  Titles correspond by ordinal because fix only shifts
+lines; it never adds or removes a title.  Anything unproven stays visible and
+keeps its exit status, so the only accepted over-report is a Sphinx title
+diagnostic that bare docutils cannot reproduce.
+
+Two internal foundations support the proof without changing output.  Every
+finding carries a stable ``<domain>.<condition>`` rule code, such as
+``hygiene.crlf`` or ``sphinx.inconsistent-title-style``, which JSON and text do
+not render until a public-output decision.  Each Sphinx console diagnostic
+records its resolved physical file and Sphinx's own message as data; the
+``sphinx:LINE:`` presentation is unchanged and reserved for the cross-phase
+output decision.
+
 ***********************************************************
 Declined decisions and reasons — counter-evidence welcome
 ***********************************************************
