@@ -1,6 +1,6 @@
 .. Copyright (C) 2026 Maxime P. DEMENTYEV
 .. SPDX-License-Identifier: GPL-3.0-only
-.. Semantic WARNINGs left to human judgment — check_rst project
+.. Semantic rules and the findings left to author judgment — check_rst project
 
 ##########################
 check_rst semantic rules
@@ -20,8 +20,19 @@ WARNINGs are the tool's refusal to guess at semantics:
 * nested inline markup definitely loses one role in rendered RST, but the tool
   cannot decide whether the outer role, the inner role, or the literal marker
   text expresses the author's intent;
+* a comment whose first line looks like a directive with one colon may be
+  silently hiding content — or be an ordinary comment;
+* a word mixing look-alike Cyrillic and Latin letters is probably a keyboard
+  slip — or a deliberate mixed-script name;
+* a document filename or local asset path mentioned as plain text may deserve
+  a real cross-reference or Sphinx integration — or be a deliberate literal
+  mention;
 * a valid-but-non-preferred adornment character is a style note, common
   in content imported from other projects.
+
+One finding is an ERROR that still needs you: a second effective top-level
+title is invalid structure, but choosing the page title is an author decision,
+so ``fix`` cannot repair it and ``--skip-fixable`` keeps it visible.
 
 These require reasoning about *meaning*, which is your half of the
 contract.  Review them in step 1 of the loop; never suppress them with
@@ -231,8 +242,10 @@ systematic pseudo-heading convention.  Judge whether each bold opener
 names an independently navigable concept.  If it does, promote it to a
 real section using the placeholder workflow.  If it is genuinely one item
 in a register, definition list, checklist, or other sequence whose meaning
-depends on being read together, retain it deliberately — the roadmap's
-chronological registers above are the concrete counterexample.
+depends on being read together, retain it deliberately — the
+chronological registers the roadmap once kept were the concrete case, until
+they grew large enough to become sections (see "What the tool deliberately
+leaves to you" above).
 
 Give every warning in the changed scope an explicit disposition:
 
@@ -297,7 +310,9 @@ prove that both requested styles survived.
 regular expression.  For every outer strong, emphasis, or inline-literal node,
 it feeds the node's leftover text through a fresh
 ``docutils.parsers.rst.states.Inliner``.  A successful explicit inline node in
-that second parse proves that the source asked for nested markup.  The fresh
+that second parse shows that the leftover text *can* be parsed as markup
+outside its outer role; it does not by itself prove which role the author
+intended, which is why the finding is a WARNING for you to judge.  The fresh
 probe document is an isolation predicate: discovering a reference or target
 cannot mutate the real doctree used by later checks.
 
@@ -376,7 +391,7 @@ similar) is flagged.  ``todo`` is deliberately excluded from that
 supplement: ``.. TODO: fix this`` is too common a genuine-comment idiom
 on its own to flag without drowning the real signal in noise.
 
-The real catch this shipped for: a calendar note (2025-11-13) contained
+The real catch this shipped for: a Journal calendar note (2025-11-13) contained
 exactly ``.. code: bash`` — a C++ listing that had been silently
 invisible in the rendered HTML for eight months before this lint's
 first whole-corpus run found it, the one true positive, zero false
@@ -390,9 +405,10 @@ one buried past the first line, produces no WARNING at all and stays
 just as silently dropped as before.  That is why every comment, not
 only the ones this heuristic recognizes, is its own entry kind in
 ``outline`` (see "Block previews" in :doc:`guide`):
-``comment "code: bash"
+``comment "code: bash …"
 [suspicious — looks like a mistyped directive]`` when the heuristic
-matches, a plain ``comment "..."`` preview when it doesn't — general
+matches — the preview carries the hidden body, so the dropped listing itself is
+visible — and a plain ``comment "..."`` preview when it doesn't — general
 visibility closes the blind spot the regex alone cannot, without
 pretending the regex is exhaustive.
 
@@ -450,7 +466,7 @@ source.  Verified mode uses the Sphinx parse, including extension
 same HTML builder used by Phase 3.  Inexact transformed or synthetic sources
 remain visible at line 0 instead of receiving a fabricated editable location.
 
-A corpus-wide run against this Journal's full calendar (1415 files) found zero
+A corpus-wide run against Journal's full calendar (1415 files) found zero
 instances when the original source-only WARNING shipped; that absence remains
 recorded honestly rather than replaced with an invented catch.
 
@@ -458,8 +474,8 @@ recorded honestly rather than replaced with an invented catch.
 A relocated subtree's old character can silently land it at the wrong depth
 *****************************************************************************
 
-The roadmap's "Accepted, deferred" entry for
-``_first_appearance_adornments`` already found and named half of this,
+The roadmap's entry for ``_first_appearance_adornments`` (under "Original
+accepted/deferred record") already found and named half of this,
 in a different trigger: docutils' own title-style inference is
 asymmetric.  Reusing an already-established *shallower* character
 deeper in the tree is silently tolerated — it pops cleanly to that
@@ -485,18 +501,14 @@ shallower level instead of nesting where it visually sits, and
 ``check_hierarchy`` never sees anything wrong, because from a
 structural point of view nothing *is* wrong — the resulting tree is
 completely self-consistent, just not the tree the author placed on the
-page.  No WARNING fires for the same reason the top-level-title WARNING
-above needs one at all and this does not get one yet: that WARNING has
-a recognizable signature to trigger on (this document's own
-first-appearing character, reused with nothing between the two uses).
-A relocated subtree colliding with a host's unrelated character has no
-comparable signature — a legitimately-authored document that happens to
-use the same characters in the same arrangement is indistinguishable
-from this defect from inside the file alone.  Recorded honestly as a
-known blind spot rather than a shipped WARNING, the same as the
-top-level-title rule's own "no real catch yet" — except this one may
-not be catchable at all without knowing the author's intent, which
-lives nowhere in the file.
+page.  Unlike the second-title rule above, no finding can fire here.  That
+rule reads a proven fact from the parsed, composed section tree — two effective
+top-level sections.  A relocated subtree colliding with a host's unrelated
+character leaves no such fact: a legitimately-authored document that happens
+to use the same characters in the same arrangement is indistinguishable from
+this defect from inside the file alone.  It is recorded honestly as a known
+blind spot rather than a shipped finding, and it may not be catchable at all
+without knowing the author's intent, which lives nowhere in the file.
 
 The only mitigation available today lives in the workflow, not the
 tool: neutralize a subtree's headings back to bare placeholders before
@@ -513,8 +525,8 @@ nested document.
 A confusable letter is a keyboard slip, not noise
 ***************************************************
 
-This Journal is deliberately trilingual — Russian, French, and English
-coexist constantly, so Cyrillic and Latin sit on nearly every line.
+Journal, the corpus this rule was derived from, is deliberately trilingual —
+Russian, French, and English coexist constantly, so Cyrillic and Latin sit on nearly every line.
 "Does this line mix scripts" would fire almost everywhere and mean
 nothing.  The real signal lives one level down: does a single
 **word** — no space or punctuation inside it — mix scripts where one
@@ -522,7 +534,7 @@ of them is visually a perfect twin of the other, the shape a keyboard-
 layout slip actually produces (Max, 2026-07-24: "when letters look
 similar, but only one letter is from another alphabet").
 
-The precise rule, arrived at by scanning this Journal's own corpus for
+The precise rule, arrived at by scanning Journal's corpus for
 every mixed-script word that exists (14 total, across years of daily
 notes) rather than guessing: split a word's letters into majority
 script and minority script; flag it only if *every* minority-script
@@ -546,7 +558,8 @@ captured output, not authored text, the same reasoning below)::
       Аuthor        -- Cyrillic capital А, Latin "uthor"
       Сalibration   -- Cyrillic capital С, Latin "alibration" (recurring
                         habitual typo, twice, different dates -- the same
-                        shape as the frequency-asymmetry catch above)
+                        shape as the frequency-asymmetry catch recorded
+                        in development.rst)
       вcе           -- Latin c substituted for Cyrillic с, amid Cyrillic в/е
       коробочкаp    -- a trailing Latin p, confusable with Cyrillic р
 
@@ -578,9 +591,10 @@ proof that the structure is invalid.  Choosing which script was intended is
 also non-fixable, but repairability does not determine severity — the proven
 single-top-level defect above is the counterexample.
 
-The real catch: a corpus-wide run found 6 real occurrences against 14
-candidate mixed-script words total, zero of the 8 legitimate
-constructions misflagged.
+The real catch: a corpus-wide run found all 6 real occurrences among 14
+candidate mixed-script words, and misflagged exactly one of the 8 legitimate
+constructions — the accepted false positive above, a Russian preposition glued
+to a Latin word.
 
 *********************************************************
 A missing reference is the mirror image of a broken one
@@ -612,8 +626,8 @@ is just noise:
 * **The only match is the mentioning document's own docname** —
   mentioning your own filename is not a missing cross-reference.
 * **More than 5 documents share the basename** — confirmed by real
-  evidence: this Journal's own corpus has 1072 files named
-  ``Notes.rst``.  A bare "Notes.rst" mention (this project talks about
+  evidence: Journal's corpus has 1072 files named
+  ``Notes.rst``.  A bare "Notes.rst" mention (Journal talks about
   its own file-naming convention constantly) is not a specific,
   actionable target; dumping all 1072 candidates would be exactly the
   kind of noise this whole project exists to avoid.  The threshold is
@@ -629,9 +643,9 @@ real cross-reference is a content decision (which role, which target
 syntax) no deterministic pass can make.
 
 The real catch: both downstream-project mentions above are flagged live,
-unchanged, by the shipped checker.  A corpus-wide run against this
-Journal's own aggregation pages (``projects/``, ``techs/``,
-``organs/``) found one more, verbatim (a literal block, so this very
+unchanged, by the shipped checker.  A corpus-wide run against Journal's
+own aggregation pages (``projects/``, ``techs/``, ``organs/``) found one
+more, verbatim (a literal block, so this very
 illustration is not itself mistaken for a fresh mention — the same
 reasoning as the homoglyph section above)::
 
@@ -735,8 +749,8 @@ after the fix.  Enumerated markers (``1.``, ``#.``, ``a)``, roman
 numerals) are never stored in the doctree at all — docutils renders
 enumerated-list numbering at write time only — so every marker shown
 is computed here from ``enumtype``/``prefix``/``suffix``/``start``,
-confirmed against a real corpus scan that only arabic digits and
-``#.`` auto-numbering are ever actually used in this project; alpha
+confirmed against a real Journal corpus scan that only arabic digits and
+``#.`` auto-numbering are ever actually used there; alpha
 and roman support exists for completeness, not local demand.
 
 The two-level representation also makes ``context`` the escape hatch from
