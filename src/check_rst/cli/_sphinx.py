@@ -62,6 +62,7 @@ from ._types import (
     ReferenceEntry,
     Severity,
     SourceProvenance,
+    SphinxSource,
     ToctreeEntry,
 )
 
@@ -1352,12 +1353,14 @@ def _findings_from_sphinx_output(
             if p in explicit:
                 rel = _relative_to_root(p, root) or p
                 line = m.group("line")
+                message = m.group("msg")
                 findings.append(
                     Finding(
                         lineno=int(line) if line is not None else 0,
                         severity=Severity(m.group("level")),
-                        text=f"{rel}: {m.group('msg')}",
-                        code=_sphinx_message_code(m.group("msg")),
+                        text=f"{rel}: {message}",
+                        code=_sphinx_message_code(message),
+                        sphinx=SphinxSource(p, message),
                     )
                 )
     return findings
@@ -1449,15 +1452,17 @@ def run_sphinx(
     )
     findings = _findings_from_sphinx_output(result.stdout + result.stderr, files, project_root)
     if result.returncode != 0 and not any(finding.severity == Severity.ERROR for finding in findings):
+        text = (
+            f"sphinx-build exited {result.returncode} "
+            "(failure may be outside the checked files — run without file filter)"
+        )
         findings.append(
             Finding(
                 lineno=0,
                 severity=Severity.ERROR,
-                text=(
-                    f"sphinx-build exited {result.returncode} "
-                    "(failure may be outside the checked files — run without file filter)"
-                ),
+                text=text,
                 code=FindingCode.SPHINX_BUILD_FAILED,
+                sphinx=SphinxSource(None, text),
             )
         )
     return findings

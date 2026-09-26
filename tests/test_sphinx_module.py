@@ -1082,6 +1082,7 @@ def test_cli_verified_mode_deduplicates_same_phase2_and_phase3_finding(
         severity=_types.Severity.WARNING,
         text="test.rst: repeated Sphinx diagnostic [review.test]",
         code=_types.FindingCode.SPHINX_DIAGNOSTIC,
+        sphinx=_types.SphinxSource(p.resolve(), "repeated Sphinx diagnostic [review.test]"),
     )
     monkeypatch.setattr(
         _sphinx,

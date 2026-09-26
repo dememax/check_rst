@@ -115,6 +115,21 @@ class FindingCode(enum.StrEnum):
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class SphinxSource:
+    """The structured origin of one Sphinx console diagnostic.
+
+    ``path`` is the resolved physical file Sphinx named, or None for a build
+    failure Sphinx did not locate; ``message`` is Sphinx's own text without
+    the path prefix check_rst's current presentation adds.  Comparing
+    physical files through this record, instead of parsing that prefix, is
+    what lets a duplicate be proven rather than inferred.
+    """
+
+    path: pathlib.Path | None
+    message: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class Finding:
     """A lint finding with independent severity and repairability.
 
@@ -124,6 +139,11 @@ class Finding:
     this flag alone decides whether ``--skip-fixable`` may suppress it.
     ``code`` is the required internal rule identity (see FindingCode):
     keyword-only and without a default, so no construction site can omit it.
+
+    ``sphinx`` is set exactly for diagnostics Sphinx itself reported — the
+    phase identity as data.  For those, ``source`` stays None and ``text``
+    keeps the path prefix: the printed ``sphinx:LINE:`` location is the
+    current presentation contract, deliberately not yet the physical one.
     """
 
     lineno: int
@@ -132,6 +152,7 @@ class Finding:
     source: str | None = None
     fixable: bool = False
     code: FindingCode = dataclasses.field(kw_only=True)
+    sphinx: SphinxSource | None = dataclasses.field(default=None, kw_only=True)
 
     def __str__(self) -> str:
         return f"{self.lineno}: {self.severity}: {self.text}"
