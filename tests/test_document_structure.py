@@ -1548,6 +1548,122 @@ def test_included_comment_keeps_fragment_source_range(tmp_path: Path) -> None:
     assert entry.provenance.source == "fragment.rst"
 
 
+def _modeled_entry_range(document: _document.Document, kind: str) -> tuple[int, int]:
+    if kind == "section":
+        entry = next(
+            (candidate for candidate in document.outline if candidate.provenance is not None),
+            document.outline[0],
+        )
+        return entry.lineno, entry.end
+    elif kind == "admonition":
+        admonition = document.admonitions[0]
+        return admonition.lineno, admonition.end
+    elif kind == "block_quote":
+        block_quote = document.block_quotes[0]
+        return block_quote.lineno, block_quote.end
+    elif kind == "comment":
+        comment = document.comments[0]
+        return comment.lineno, comment.end
+    elif kind == "list":
+        list_entry = document.lists[0]
+        return list_entry.lineno, list_entry.end
+    elif kind == "code_block":
+        code_block = document.code_blocks_heuristic[0]
+        return code_block.lineno, code_block.end
+    elif kind == "table":
+        table = document.tables[0]
+        return table.lineno, table.end
+    raise AssertionError(f"unhandled modeled entry kind: {kind}")
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("kind", "source", "expected_range"),
+    [
+        ("section", "Part\n====\n\nBody.\n\nNext\n====\n", (1, 4)),
+        ("admonition", ".. note::\n\n   Body.\n\nAfter.\n", (1, 3)),
+        ("block_quote", "   Quoted.\n   More.\n\nAfter.\n", (1, 2)),
+        ("comment", ".. first\n   second\n\nAfter.\n", (1, 2)),
+        ("list", "* First.\n\n  More.\n\nAfter.\n", (1, 3)),
+        ("code_block", ".. code-block:: python\n\n   print(1)\n\nAfter.\n", (1, 3)),
+        ("table", "+---+---+\n| A | B |\n+===+===+\n| 1 | 2 |\n+---+---+\n\nAfter.\n", (1, 5)),
+    ],
+)
+def test_modeled_entry_ranges_stop_before_following_root_content(
+    tmp_path: Path,
+    kind: str,
+    source: str,
+    expected_range: tuple[int, int],
+) -> None:
+    document = _document.Document(_rst(tmp_path, source), tmp_path)
+
+    assert _modeled_entry_range(document, kind) == expected_range
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("kind", "source", "expected_range"),
+    [
+        ("section", "Part\n====\n\nBody.\n", (1, 4)),
+        ("admonition", ".. note::\n\n   Body.\n", (1, 3)),
+        ("block_quote", "   Quoted.\n   More.\n", (1, 2)),
+        ("comment", ".. first\n   second\n", (1, 2)),
+        ("list", "* First.\n\n  More.\n", (1, 3)),
+        ("code_block", ".. code-block:: python\n\n   print(1)\n", (1, 3)),
+        ("table", "+---+---+\n| A | B |\n+===+===+\n| 1 | 2 |\n+---+---+\n", (1, 5)),
+    ],
+)
+def test_modeled_entry_ranges_keep_included_source_coordinates(
+    tmp_path: Path,
+    kind: str,
+    source: str,
+    expected_range: tuple[int, int],
+) -> None:
+    root = tmp_path / "index.rst"
+    root.write_text("Index\n=====\n\n.. include:: fragment.rst\n", encoding="utf-8")
+    (tmp_path / "fragment.rst").write_text(source, encoding="utf-8")
+
+    document = _document.Document(root, tmp_path)
+
+    assert _modeled_entry_range(document, kind) == expected_range
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("kind", "source", "expected_range"),
+    [
+        ("admonition", "* item\n\n  .. note::\n\n     Body.\n\nSibling.\n", (3, 5)),
+        ("block_quote", "* item\n\n     Quoted.\n     More.\n\nSibling.\n", (3, 4)),
+        ("comment", "* item\n\n  .. first\n     second\n\nSibling.\n", (3, 4)),
+        (
+            "table",
+            "* item\n\n  +---+---+\n  | A | B |\n  +===+===+\n  | 1 | 2 |\n  +---+---+\n\nSibling.\n",
+            (3, 7),
+        ),
+    ],
+)
+def test_nested_entry_ranges_stop_before_container_siblings(
+    tmp_path: Path,
+    kind: str,
+    source: str,
+    expected_range: tuple[int, int],
+) -> None:
+    document = _document.Document(_rst(tmp_path, source), tmp_path)
+
+    assert _modeled_entry_range(document, kind) == expected_range
+
+
+@pytest.mark.integration
+def test_include_directive_range_stops_before_following_content(tmp_path: Path) -> None:
+    root = tmp_path / "index.rst"
+    root.write_text(".. include:: fragment.rst\n   :start-line: 0\n\nAfter.\n", encoding="utf-8")
+    (tmp_path / "fragment.rst").write_text("Included.\n", encoding="utf-8")
+
+    entry = _document.Document(root, tmp_path).includes[0]
+
+    assert (entry.lineno, entry.end) == (1, 2)
+
+
 @pytest.mark.integration
 def test_comments_no_preceding_heading_is_depth_1(tmp_path: Path) -> None:
     """Same top-level convention as

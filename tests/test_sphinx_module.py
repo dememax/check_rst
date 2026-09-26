@@ -1837,7 +1837,7 @@ def test_toctree_inside_include_retains_include_provenance(tmp_path: Path) -> No
 
     container = clusters[0][0]
     assert isinstance(container, _types.ToctreeEntry)
-    assert container.lineno == 1
+    assert (container.lineno, container.end) == (1, 4)
     assert container.provenance is not None
     assert container.provenance.source == "navigation.rst"
     assert isinstance(clusters[0][1], _types.OutlineEntry)
