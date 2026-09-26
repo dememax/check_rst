@@ -788,7 +788,7 @@ def _format_context(
 
     lines.append("findings:")
     if applicable:
-        lines.extend(f"  {finding.lineno}: {finding.severity}: {finding.text}" for finding in applicable)
+        lines.extend(f"  {finding}" for finding in applicable)
     else:
         lines.append("  (none in selected range)")
 

@@ -144,6 +144,11 @@ class Finding:
     phase identity as data.  For those, ``source`` stays None and ``text``
     keeps the path prefix: the printed ``sphinx:LINE:`` location is the
     current presentation contract, deliberately not yet the physical one.
+
+    ``location_exact`` is False when check_rst could not prove the line and
+    kept its best fallback: the finding stays visible, its human line ends
+    with "(approximate line)", and JSON says so.  A Sphinx diagnostic keeps
+    the line Sphinx reported.
     """
 
     lineno: int
@@ -153,9 +158,11 @@ class Finding:
     fixable: bool = False
     code: FindingCode = dataclasses.field(kw_only=True)
     sphinx: SphinxSource | None = dataclasses.field(default=None, kw_only=True)
+    location_exact: bool = dataclasses.field(default=True, kw_only=True)
 
     def __str__(self) -> str:
-        return f"{self.lineno}: {self.severity}: {self.text}"
+        marker = "" if self.location_exact else " (approximate line)"
+        return f"{self.lineno}: {self.severity}: {self.text}{marker}"
 
     def __contains__(self, item: object) -> bool:
         """Support ``"substring" in finding`` for test assertions."""
@@ -168,16 +175,18 @@ class FindingLocation(NamedTuple):
     """Where one finding belongs; see Document.finding_location.
 
     ``lineno`` and ``source`` are the physical coordinates reported to the
-    reader.  ``occurrence`` identifies the include that composed the content.
-    ``scope_line`` is the root-coordinate line a changed-line scope tests:
-    the finding's own line for root content, the outermost include
-    directive's line for included content, 0 when the root has no such line.
+    reader, and ``exact`` says whether that line is proven.  ``occurrence``
+    identifies the include that composed the content.  ``scope_line`` is the
+    root-coordinate line a changed-line scope tests: the finding's own line
+    for root content, the outermost include directive's line for included
+    content, 0 when the root has no such line.
     """
 
     lineno: int
     source: str | None
     occurrence: tuple[int, ...]
     scope_line: int
+    exact: bool = True
 
 
 # (1-based inclusive physical span of a title, title-diagnostic code) pairs

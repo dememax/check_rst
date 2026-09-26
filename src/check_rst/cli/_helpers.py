@@ -798,6 +798,7 @@ def _is_located_text_block(node: docutils.nodes.Node) -> bool:
         isinstance(node, docutils.nodes.TextElement)
         and not isinstance(node, docutils.nodes.Inline)
         and isinstance(node.line, int)
+        and node.line > 0  # Sphinx stores 0 for an unknown line
         and isinstance(node.rawsource, str)
         and bool(node.rawsource)
     )
@@ -895,7 +896,12 @@ def _inline_source_line(node: docutils.nodes.Node, offset: int = 0) -> int | Non
     own_text = str(node) if isinstance(node, docutils.nodes.Text) else parent_raw
     if not 0 <= offset <= len(own_text):
         return None
-    return cast("int", located.line) + located.rawsource[:position].count("\n") + own_text[:offset].count("\n")
+    first_line = cast("int", located.line)
+    if isinstance(located, docutils.nodes.title) and isinstance(located.parent, docutils.nodes.section):
+        # Docutils records a section title at its underline; the one-line
+        # title text is the line above, with or without an overline.
+        first_line -= 1
+    return first_line + located.rawsource[:position].count("\n") + own_text[:offset].count("\n")
 
 
 def _enclosing_section_title(node: docutils.nodes.Node) -> str | None:

@@ -984,7 +984,7 @@ def test_unproven_finding_lines_stay_visible_but_approximate(
     """A field name carries no line or raw source of its own: the finding
     keeps its best line, never pretends it is exact, and never disappears."""
     path = tmp_path / "doc.rst"
-    path.write_text("#####\nTitle\n#####\n\n:\u0410uthor: value\n\nSee \u0410gain here.\n", encoding="utf-8")
+    path.write_text("#######\nTitle\n#######\n\n:\u0410uthor: value\n\nSee \u0410gain here.\n", encoding="utf-8")
 
     assert [(f.lineno, f.location_exact) for f in _lint.check_homoglyphs(path)] == [(5, False), (7, True)]
 

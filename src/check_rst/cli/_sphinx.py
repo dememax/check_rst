@@ -1235,6 +1235,7 @@ def check_bare_filenames(
                         f":doc:/:ref: cross-reference? possible target(s): {targets}",
                         source=_finding_source(owner_source, doc),
                         code=FindingCode.REFERENCE_BARE_FILENAME,
+                        location_exact=exact_line is not None,
                     ),
                     occurrence,
                 )
@@ -1263,6 +1264,7 @@ def check_bare_filenames(
                         f"reader access is intentionally unnecessary; resolved target: {resolved_target!r}",
                         source=_finding_source(owner_source, doc),
                         code=FindingCode.REFERENCE_PLAIN_LOCAL_ASSET,
+                        location_exact=exact_line is not None,
                     ),
                     occurrence,
                 )

@@ -161,7 +161,7 @@ def check_homoglyphs(path: pathlib.Path, doc: Document | None = None) -> list[Fi
         for start, _end, word in _homoglyph_words_in(s):
             exact_line = _inline_source_line(text_node, start)
             parser_line = base_line + s[:start].count("\n") if exact_line is None else exact_line
-            location = document.finding_location(text_node, parser_line)
+            location = document.finding_location(text_node, parser_line, exact=exact_line is not None)
             findings.append(
                 (
                     Finding(
@@ -172,6 +172,7 @@ def check_homoglyphs(path: pathlib.Path, doc: Document | None = None) -> list[Fi
                         "intentional",
                         source=location.source,
                         code=FindingCode.TEXT_HOMOGLYPH,
+                        location_exact=location.exact,
                     ),
                     location.occurrence,
                 )
@@ -200,7 +201,11 @@ def check_nested_inline_markup(
         if not nested:
             continue
         exact_line = _inline_source_line(outer)
-        location = document.finding_location(outer, _inline_node_line(outer) if exact_line is None else exact_line)
+        location = document.finding_location(
+            outer,
+            _inline_node_line(outer) if exact_line is None else exact_line,
+            exact=exact_line is not None,
+        )
         if not _in_scope(ranges, location.scope_line, location.scope_line):
             continue
         source = " ".join(str(outer.rawsource).split())
@@ -213,6 +218,7 @@ def check_nested_inline_markup(
             text=(f"nested inline markup in {_inline_kind(outer)} span {source!r} (contains {inner_kinds})"),
             source=location.source,
             code=FindingCode.INLINE_NESTED_MARKUP,
+            location_exact=location.exact,
         )
         findings.append((finding, location.occurrence))
     return _collapse_include_repeats(findings)
@@ -256,7 +262,12 @@ def check_directives(
         # its outermost include directive, never through its own lines.
         if _in_scope(ranges, location.scope_line, location.scope_line):
             finding = Finding(
-                lineno=location.lineno, severity=Severity.WARNING, text=text, source=location.source, code=code
+                lineno=location.lineno,
+                severity=Severity.WARNING,
+                text=text,
+                source=location.source,
+                code=code,
+                location_exact=location.exact,
             )
             findings.append((finding, location.occurrence))
 

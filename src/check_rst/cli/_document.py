@@ -229,10 +229,19 @@ class _DocumentCore:
             view[first - 1 + index] = f"{' ' * indent}{text}" if text.strip() else ""
         return view, range(first, first + len(cell_lines)), (id(table), row_index, cell_index)
 
+    @property
+    def _comment_source_contexts(self) -> dict[int, tuple[int, list[str], SourceProvenance | None]]:
+        return self._comment_recovery[0]
+
+    @property
+    def _approximate_comments(self) -> frozenset[int]:
+        """Comments whose start fell back to an unproven parser location."""
+        return self._comment_recovery[1]
+
     @functools.cached_property
-    def _comment_source_contexts(
+    def _comment_recovery(
         self,
-    ) -> dict[int, tuple[int, list[str], SourceProvenance | None]]:
+    ) -> tuple[dict[int, tuple[int, list[str], SourceProvenance | None]], frozenset[int]]:
         """Recover comment starts from source instead of Docutils' end hint.
 
         Docutils assigns a comment node the line after its complete block when
@@ -242,6 +251,7 @@ class _DocumentCore:
         the candidate whose extent ends immediately before that hint.
         """
         contexts: dict[int, tuple[int, list[str], SourceProvenance | None]] = {}
+        approximate: set[int] = set()
         cursors: dict[tuple[str, tuple[int, ...]], int] = {}
         cell_cursors: dict[tuple[int, int, int], int] = {}
 
@@ -259,6 +269,7 @@ class _DocumentCore:
             lines = self.composition.source_lines(provenance, self.path, self.lines)
             if not lines:
                 contexts[id(node)] = self.source_context(node)
+                approximate.add(id(node))
                 continue
 
             first = node.astext().split("\n", 1)[0]
@@ -296,13 +307,14 @@ class _DocumentCore:
             selected = adjacent[-1] if adjacent else (candidates[0] if candidates else None)
             if selected is None:
                 contexts[id(node)] = self.source_context(node)
+                approximate.add(id(node))
                 continue
 
             start, _end = selected
             cursors[key] = start
             contexts[id(node)] = (start, lines, provenance)
 
-        return contexts
+        return contexts, frozenset(approximate)
 
     def comment_source_context(
         self,
@@ -312,7 +324,7 @@ class _DocumentCore:
         context = self._comment_source_contexts.get(id(node))
         return self.source_context(node) if context is None else context
 
-    def finding_location(self, node: docutils.nodes.Node, lineno: int) -> FindingLocation:
+    def finding_location(self, node: docutils.nodes.Node, lineno: int, *, exact: bool = True) -> FindingLocation:
         """Return where a finding at *node* belongs.
 
         *lineno* is the parser-coordinate line a checker computed for *node*.
@@ -322,22 +334,24 @@ class _DocumentCore:
         owner's coordinates.  An inexact owner reports line 0 rather than a
         plausible but unproven line, as the single-title rule does.  The
         occurrence identifies which include composed the content, so repeats
-        can be collapsed without merging distinct constructs.
+        can be collapsed without merging distinct constructs.  *exact* is the
+        caller's proof that *lineno* is the construct's own line.
         """
         owner, provenance = self.composition.located(node)
         if provenance is None:
-            return FindingLocation(lineno, None, (), lineno)
+            return FindingLocation(lineno, None, (), lineno, exact)
         physical = self.composition.physical_line(owner, lineno) if provenance.exact else 0
-        return self._included_location(physical, provenance)
+        return self._included_location(physical, provenance, exact)
 
     def comment_finding_location(self, node: docutils.nodes.Node) -> FindingLocation:
         """Return where a comment finding belongs, from its recovered start."""
         start, _lines, provenance = self.comment_source_context(node)
+        exact = id(node) not in self._approximate_comments
         if provenance is None:
-            return FindingLocation(start, None, (), start)
-        return self._included_location(start if provenance.exact else 0, provenance)
+            return FindingLocation(start, None, (), start, exact)
+        return self._included_location(start if provenance.exact else 0, provenance, exact)
 
-    def _included_location(self, lineno: int, provenance: SourceProvenance) -> FindingLocation:
+    def _included_location(self, lineno: int, provenance: SourceProvenance, exact: bool) -> FindingLocation:
         """Locate non-root content; scope it through its outermost include.
 
         The root's changed-line ranges are root coordinates.  The only root
@@ -352,6 +366,7 @@ class _DocumentCore:
             provenance.source,
             self.composition.occurrence(provenance),
             outermost.lineno if outermost is not None else 0,
+            exact,
         )
 
 

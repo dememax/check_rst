@@ -734,9 +734,9 @@ def _run_sphinx_phases(
 def _finding_record(finding: Finding) -> dict[str, Any]:
     """Serialize one finding's public JSON fields, in schema order.
 
-    Explicit rather than dataclasses.asdict: Finding.code is an internal rule
-    identity until a public-output decision, so adding it to the dataclass
-    must not change the JSON schema.
+    Explicit rather than dataclasses.asdict: Finding.code joins JSON only in
+    its own public rule-code step, while location_exact is an additive
+    schema-1 member (decided 2026-09-26).
     """
     return {
         "lineno": finding.lineno,
@@ -744,6 +744,7 @@ def _finding_record(finding: Finding) -> dict[str, Any]:
         "text": finding.text,
         "source": finding.source,
         "fixable": finding.fixable,
+        "location_exact": finding.location_exact,
     }
 
 

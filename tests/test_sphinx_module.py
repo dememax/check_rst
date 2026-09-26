@@ -792,6 +792,7 @@ def test_verified_sphinx_findings_keep_legacy_presentation(
             "text": "doc.rst: Inconsistent title style: skip from level 2 to 4.",
             "source": None,
             "fixable": False,
+            "location_exact": True,
         }
     ]
 
