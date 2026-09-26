@@ -13,7 +13,7 @@ import pytest
 from _support import _GOOD_BLOCK, _rst
 
 from check_rst import cli
-from check_rst.cli import _document, _formatting, _sphinx
+from check_rst.cli import _document, _formatting, _lint, _sphinx
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -1546,6 +1546,63 @@ def test_included_comment_keeps_fragment_source_range(tmp_path: Path) -> None:
     assert (entry.lineno, entry.end) == (1, 2)
     assert entry.provenance is not None
     assert entry.provenance.source == "fragment.rst"
+
+
+_GRID_CELL_COMMENTS = textwrap.dedent("""\
+    ####
+    T
+    ####
+
+    Para.
+
+    +------------------+-------+
+    | .. note: in cell | plain |
+    |                  |       |
+    | text             | x     |
+    +------------------+-------+
+    | row2             | .. c: |
+    |                  |       |
+    |                  |  body |
+    +------------------+-------+
+
+    After.
+    """)
+
+
+@pytest.mark.integration
+def test_grid_table_cell_comments_report_their_content_lines(tmp_path: Path) -> None:
+    """Docutils gives a comment inside a table cell no location, and the
+    nearest located ancestor is the table's top border.  Each comment must
+    report the physical lines of its own cell content instead."""
+    document = _document.Document(_rst(tmp_path, _GRID_CELL_COMMENTS), tmp_path)
+
+    assert [(entry.lineno, entry.end) for entry in document.comments] == [(8, 8), (12, 14)]
+
+
+@pytest.mark.integration
+def test_indented_grid_and_simple_table_cell_comments_report_content_lines(tmp_path: Path) -> None:
+    source = textwrap.dedent("""\
+        - item
+
+          +-----------+
+          | .. a: one |
+          +-----------+
+
+        =====  ==========
+        A      .. b: two
+        B      text
+        =====  ==========
+        """)
+    document = _document.Document(_rst(tmp_path, source), tmp_path)
+
+    assert [(entry.lineno, entry.end) for entry in document.comments] == [(4, 4), (8, 8)]
+
+
+@pytest.mark.integration
+def test_mistyped_directive_in_table_cell_warns_at_cell_line(tmp_path: Path) -> None:
+    findings = _lint.check_directives(_rst(tmp_path, _GRID_CELL_COMMENTS), True)
+
+    assert [(finding.lineno, finding.code) for finding in findings] == [(8, "directive.mistyped")]
 
 
 def _modeled_entry_range(document: _document.Document, kind: str) -> tuple[int, int]:
