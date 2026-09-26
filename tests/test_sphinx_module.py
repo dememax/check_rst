@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import docutils.nodes
+    import sphinx.environment
 
 
 @pytest.mark.unit
@@ -1355,6 +1356,60 @@ def test_cli_did_you_mean_suggested_for_broken_doc_reference(
     assert "unknown document" in out
     assert "did you mean" in out
     assert "other-page" in out
+
+
+# Mentions and roles late in multiline paragraphs: after a multiline link,
+# inside inline literals, and repeated on different lines.  Each finding
+# must name its token's own physical line, not the paragraph's first line.
+_INLINE_ANCHOR_DOC = textwrap.dedent("""\
+    A
+    =
+
+    First line of a long paragraph with
+    a `multi line
+    link <https://example.com>`_ then
+    guide.rst in plain text and ``plan.md``
+    and finally ``guide.rst`` here, plus
+    ``guide.rst`` again on its own line.
+
+    Before :doc:`guide` there is text,
+    and a second role
+    :doc:`other` on its own line.
+
+    .. toctree::
+
+       guide
+       other
+    """)
+
+
+def _inline_anchor_env(tmp_path: Path) -> sphinx.environment.BuildEnvironment:
+    (tmp_path / "plan.md").write_text("# Plan\n", encoding="utf-8")
+    return _build_multi_file_env(
+        tmp_path,
+        {"a": _INLINE_ANCHOR_DOC, "guide": "Guide\n=====\n", "other": "Other\n=====\n"},
+    )
+
+
+@pytest.mark.integration
+def test_bare_filename_and_asset_findings_anchor_to_their_mention_lines(tmp_path: Path) -> None:
+    env = _inline_anchor_env(tmp_path)
+    findings = _sphinx.check_bare_filenames(env, "a", _document.Document(tmp_path / "a.rst", tmp_path))
+
+    assert sorted((finding.lineno, finding.code) for finding in findings) == [
+        (7, "reference.bare-filename"),
+        (7, "reference.plain-local-asset"),
+        (8, "reference.bare-filename"),
+        (9, "reference.bare-filename"),
+    ]
+
+
+@pytest.mark.integration
+def test_references_anchor_to_their_role_lines(tmp_path: Path) -> None:
+    env = _inline_anchor_env(tmp_path)
+    roles = [(entry.lineno, entry.target) for entry in _sphinx.find_references(env, "a") if entry.reftype == "doc"]
+
+    assert roles == [(11, "guide"), (13, "other")]
 
 
 @pytest.mark.integration

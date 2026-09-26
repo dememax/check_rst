@@ -927,6 +927,47 @@ def test_cli_text_and_json_agree_on_included_finding_sources(
     ]
 
 
+_HOMOGLYPH_ANCHOR_TEXT = (
+    "Start of a paragraph with\na `multi line\nlink <https://example.com>`_ then \u0410uthor here,\n"
+    "and *emphasis with\n\u0410gain* inside, and ``\u0410lpha`` too.\n"
+)
+
+
+@pytest.mark.integration
+def test_homoglyph_findings_anchor_to_their_word_lines(tmp_path: Path) -> None:
+    """Text nodes split at inline markup, so a word after a multiline link,
+    inside emphasis, or inside a literal is not on its paragraph's line."""
+    path = tmp_path / "doc.rst"
+    path.write_text("H\n=\n\n" + _HOMOGLYPH_ANCHOR_TEXT, encoding="utf-8")
+
+    assert [finding.lineno for finding in _lint.check_homoglyphs(path)] == [6, 8, 8]
+
+
+@pytest.mark.integration
+def test_included_homoglyph_anchors_to_its_fragment_word_line(tmp_path: Path) -> None:
+    (tmp_path / "frag.rst").write_text(_HOMOGLYPH_ANCHOR_TEXT, encoding="utf-8")
+    root = tmp_path / "main.rst"
+    root.write_text("######\nMain\n######\n\n.. include:: frag.rst\n", encoding="utf-8")
+
+    assert [(f.source, f.lineno) for f in _lint.check_homoglyphs(root)] == [
+        ("frag.rst", 3),
+        ("frag.rst", 5),
+        ("frag.rst", 5),
+    ]
+
+
+@pytest.mark.integration
+def test_nested_inline_findings_keep_exact_lines(tmp_path: Path) -> None:
+    """Guard for the shared locator: definition bodies and line blocks."""
+    path = tmp_path / "doc.rst"
+    path.write_text(
+        "N\n=\n\nterm with a long\n   **bold *em* text** definition\n\n| line one\n| line **bold *em* two**\n",
+        encoding="utf-8",
+    )
+
+    assert [finding.lineno for finding in _lint.check_nested_inline_markup(path, True)] == [5, 8]
+
+
 @pytest.mark.integration
 def test_git_scope_never_selects_fragment_lines_through_root_hunks(
     rst_repo: Path,
