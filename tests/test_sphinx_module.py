@@ -793,6 +793,7 @@ def test_verified_sphinx_findings_keep_legacy_presentation(
             "source": None,
             "fixable": False,
             "location_exact": True,
+            "code": "sphinx.inconsistent-title-style",
         }
     ]
 

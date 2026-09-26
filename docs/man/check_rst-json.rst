@@ -35,7 +35,8 @@ or ``heuristic``.  ``runtime`` records versions that can affect results.
 ``config`` records the selected source and applied or inactive values, or is
 null.  ``files`` contains per-document models, ``summary`` contains aggregate
 counts, and verified reports may include ``sphinx_findings``.  Each finding
-records ``location_exact``; ``summary.suppressed`` counts WARNINGs hidden by
+records its ``<domain>.<condition>`` rule ``code`` and ``location_exact``;
+``summary.suppressed`` counts WARNINGs hidden by
 ``--no-warnings``, findings hidden by ``--skip-fixable``, and proven fixable
 Sphinx restatements, kept apart from the visible totals.
 
