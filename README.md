@@ -99,8 +99,8 @@ sed -i 's/docutils>=0.21,<0.23/docutils>=0.21/' \
 ~/opt/check_rst-ubuntu/bin/python -m pip check
 ```
 
-Ruff is not installed into this environment. Use a system Ruff version that
-satisfies `[tool.ruff].required-version` in `pyproject.toml`.
+Ruff is not installed into this environment. Use the system Ruff 0.16.9
+executable pinned by `[tool.ruff].required-version` in `pyproject.toml`.
 
 For development, install the checkout in editable mode:
 

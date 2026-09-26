@@ -95,9 +95,9 @@ the system Python already satisfies every pinned dependency — runtime
 rule violation when the system genuinely lacks what's needed at the
 pinned versions — it is the expected, inevitable fallback (e.g. a system
 Python with no Sphinx package at all, or a mypy version different from the
-pinned version). Python commands must use Python 3.14 explicitly. Ruff is the
-system executable either way — it is self-checked against its own pinned
-`[tool.ruff].required-version`, never pip-installed.
+pinned version). Python commands must use Python 3.14 explicitly. Ruff 0.16.9
+is the system executable either way — it is self-checked against its exact
+`[tool.ruff].required-version` pin, never pip-installed.
 
 Use Ruff and mypy at the maximum practical strictness for this codebase.
 Fix findings in the implementation or make the relevant invariant visible
