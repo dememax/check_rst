@@ -103,6 +103,10 @@ class _PipelineState:
     fixed_files: set[str] = dataclasses.field(default_factory=set)
     would_change: set[str] = dataclasses.field(default_factory=set)
     suppressed_fixable: collections.Counter[pathlib.Path] = dataclasses.field(default_factory=collections.Counter)
+    # Findings a deliberate filter hid, kept apart from the visible totals so a
+    # summary never presents "hidden" as "absent" (decided 2026-09-26).
+    suppressed_warnings: int = 0
+    suppressed_restatements: int = 0
     # Resolved physical file -> Sphinx title diagnostics fix provably removes.
     title_restatements: dict[pathlib.Path, ResolvedTitleDiagnostics] = dataclasses.field(default_factory=dict)
     sphinx_findings_json: list[dict[str, Any]] | None = None
@@ -147,6 +151,11 @@ def _plan_normal_fixes(
             f"check_rst: {len(files)} file(s) selected, {state.total_errors} input error(s), 0 file(s) fixed"
         )
         raise SystemExit(1)
+
+
+def _hidden_warnings(args: argparse.Namespace, findings: list[Finding]) -> int:
+    """Count the WARNINGs --no-warnings hides from *findings*."""
+    return sum(1 for finding in findings if finding.severity == Severity.WARNING) if args.no_warnings else 0
 
 
 def _owned_findings_filter(
@@ -345,12 +354,12 @@ def _run_phase1(
         e, w = _print_findings(phase1_v, pstr, args.no_warnings, suppress_findings)
         state.total_errors += e
         state.total_warnings += w
+        state.suppressed_warnings += _hidden_warnings(args, phase1_v)
         if adornments_clean and not args.diff and not args.quiet:
             print(f"✓ {pstr}: adornments + hierarchy OK")
-        visible_directives = [
-            finding for finding in directive_v or [] if finding.severity != Severity.WARNING or not args.no_warnings
-        ]
-        if directive_v is not None and not visible_directives and not args.quiet:
+        # A success line states that the family found nothing, never merely
+        # that a filter hid what it found.
+        if directive_v == [] and not args.quiet:
             print(f"✓ {pstr}: directives OK")
 
         if args.skip_fixable and state.suppressed_fixable[path] and not args.quiet:
@@ -449,8 +458,11 @@ def _run_sphinx_phases(
                             project_root=project_root,
                         )
                     )
-                    if state.json_records[path]["stats"]["word_stats_error"] and not args.no_warnings:
-                        state.total_warnings += 1
+                    if state.json_records[path]["stats"]["word_stats_error"]:
+                        if args.no_warnings:
+                            state.suppressed_warnings += 1
+                        else:
+                            state.total_warnings += 1
                 if args.outline and not args.json:
                     heuristic_entries: list[LocalEntry] = [
                         *phase2_doc.outline,
@@ -541,6 +553,7 @@ def _run_sphinx_phases(
                 e, w = _print_findings(verified_v, str(path), args.no_warnings, suppress_findings)
                 state.total_errors += e
                 state.total_warnings += w
+                state.suppressed_warnings += _hidden_warnings(args, verified_v)
             if args.outline or args.json:
                 for path in files:
                     # phase2_doc: see the sibling heuristic loop above for
@@ -641,8 +654,11 @@ def _run_sphinx_phases(
                                 project_root=project_root,
                             )
                         )
-                        if state.json_records[path]["stats"]["word_stats_error"] and not args.no_warnings:
-                            state.total_warnings += 1
+                        if state.json_records[path]["stats"]["word_stats_error"]:
+                            if args.no_warnings:
+                                state.suppressed_warnings += 1
+                            else:
+                                state.total_warnings += 1
                         if docname is None:
                             state.json_records[path]["unreachable"] = (
                                 "not part of the --sphinx-src project — code-blocks unavailable"
@@ -711,18 +727,30 @@ def _run_sphinx_phases(
                 # class is not proof (dogfooding reports, 2026-09-18 and
                 # 2026-09-26) — one fixable width must not hide a surviving
                 # level skip elsewhere in the file, or on the fixed title.
-                sphinx_v = [
+                kept_v = [
                     finding
                     for finding in sphinx_v
                     if not _is_proven_title_restatement(finding, state.title_restatements)
                 ]
+                restatements = len(sphinx_v) - len(kept_v)
+                state.suppressed_restatements += restatements
+                sphinx_v = kept_v
+            else:
+                restatements = 0
+            hidden = _hidden_warnings(args, sphinx_v)
+            state.suppressed_warnings += hidden
             if args.json:
                 state.sphinx_findings_json = [
                     _finding_record(f) for f in sphinx_v if not args.no_warnings or f.severity != Severity.WARNING
                 ]
             e, w = _print_findings(sphinx_v, "sphinx", args.no_warnings, suppress_findings)
-            if not e and not w and not args.quiet:
-                print("✓ no warnings or errors in the checked files")
+            if not args.quiet:
+                if restatements:
+                    print(f"↷ sphinx: {restatements} proven fixable restatement(s) suppressed")
+                if hidden:
+                    print(f"↷ sphinx: {hidden} warning(s) suppressed by --no-warnings")
+                if not sphinx_v and not restatements:
+                    print("✓ no warnings or errors in the checked files")
             state.total_errors += e
             state.total_warnings += w
         finally:
@@ -785,6 +813,11 @@ def _emit_json_result(
             "files_checked": state.files_checked,
             "errors": state.total_errors,
             "warnings": state.total_warnings,
+            "suppressed": {
+                "warnings": state.suppressed_warnings,
+                "fixable": sum(state.suppressed_fixable.values()),
+                "restatements": state.suppressed_restatements,
+            },
             "lines": state.total_lines,
             "empty_lines": state.empty_lines,
             "chars": state.total_chars,
@@ -828,7 +861,9 @@ def _emit_text_summary(
             rare_result = _reports._rare_prose_words(prose_texts, word_samples)
         except WordStatsUnavailable as exc:
             word_stats_error = str(exc)
-            if not args.no_warnings:
+            if args.no_warnings:
+                state.suppressed_warnings += 1
+            else:
                 state.total_warnings += 1
 
     # Summary — always, one machine-parseable line (kills the grep -c and
@@ -847,8 +882,12 @@ def _emit_text_summary(
     parts = [
         f"check_rst: {state.files_checked} file(s) checked",
         f"{state.total_errors} error(s)",
-        f"{state.total_warnings} warning(s)",
+        f"{state.total_warnings} warning(s)"
+        + (f" ({state.suppressed_warnings} suppressed by --no-warnings)" if state.suppressed_warnings else ""),
     ]
+    suppressed_fixable = sum(state.suppressed_fixable.values())
+    if suppressed_fixable:
+        parts.append(f"{suppressed_fixable} auto-fixable finding(s) suppressed")
     if args.fix:
         parts.append(f"{len(state.fixed_files)} file(s) fixed")
     if args.diff:

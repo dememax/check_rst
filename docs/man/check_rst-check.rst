@@ -39,9 +39,12 @@ IMPORTANT OPTIONS
 ``--skip-fixable``
    Hide findings that ``fix`` can resolve while keeping WARNINGs and
    non-fixable ERRORs.  This is the recommended first pass before mutation.
+   The summary reports how many auto-fixable findings were suppressed.
 
 ``--no-warnings``
-   Hide WARNING findings while continuing to count and report ERRORs.
+   Hide WARNING findings while continuing to count and report ERRORs.  The
+   summary reports how many WARNINGs were suppressed, and no success line is
+   printed for a family whose findings were only hidden.
 
 ``--no-adornments``, ``--no-directives``
    Disable the corresponding checks.  ``--no-adornments`` includes title

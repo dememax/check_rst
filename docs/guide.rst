@@ -1622,10 +1622,10 @@ defined rather than accidental.
 
 ``--no-warnings`` is not an answer to either reflex.  It is a destructive
 finding-class filter, not a non-destructive verbosity control: it removes
-WARNING diagnostics and currently makes the summary report zero warnings
-without a separate suppressed count.  Use it only when an errors-only answer is
-explicitly wanted, never as a generic way to shorten an ordinary validation
-report.
+WARNING diagnostics from the report, and the summary then says how many it
+suppressed (``0 warning(s) (3 suppressed by --no-warnings)``).  Use it only
+when an errors-only answer is explicitly wanted, never as a generic way to
+shorten an ordinary validation report.
 
 Neither rule is absolute.  A deliberately targeted pipeline over a separately
 retained, complete report — ``grep`` for one known, stable substring while the

@@ -495,7 +495,7 @@ def _add_report_filters(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--no-warnings",
         action="store_true",
-        help="suppress WARNING-level findings; only show and count ERROR-level ones",
+        help="hide WARNING-level findings; the summary reports how many were suppressed",
     )
     parser.add_argument(
         "--skip-fixable",
