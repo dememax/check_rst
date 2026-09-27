@@ -54,6 +54,13 @@ The following capabilities are implemented and protected by tests:
   existing top-level content into that title's own children, then
   renormalize with the same hierarchy/adornment engine ``fix`` already uses.
   Shipped 2026-08-24.
+* 0.7.0 (2026-09-27): reviewed-WARNING retention through
+  ``.check_rst-retained.toml``; ``--skip-fixable`` restatements proven by fix
+  simulation; owning-source attribution, exact inline anchors, and
+  approximate-line marking; source-ordered findings within each phase;
+  visible and suppressed counts; outer inline literals out of the default
+  nested-markup report; rule codes and the other additive schema-1 JSON
+  members.
 
 ==================
 Agreed next work
@@ -2483,7 +2490,7 @@ or JSON document as a handled outcome instead of proving complete output.
 Proven restatements under --skip-fixable
 ==========================================
 
-Implemented on 2026-09-26, after 0.6.2.  The 2026-09-18 dogfooding report had
+Implemented for 0.7.0 on 2026-09-26.  The 2026-09-18 dogfooding report had
 two halves; the zero-count half was fixed immediately, but the duplicate filter
 still hid every Sphinx diagnostic containing one of four title messages once the
 same file had any suppressed fixable finding.  A genuine level skip beside one
@@ -2514,7 +2521,7 @@ output decision.
 Retained WARNINGs with durable identities
 ===========================================
 
-Implemented on 2026-09-26, after 0.6.2 (plan decisions #3 and #6).  The
+Implemented for 0.7.0 on 2026-09-26 (plan decisions #3 and #6).  The
 semantic rules required a stated reason for every ``retain`` disposition, but a
 reviewed WARNING still looked unreviewed on every run.  A committed
 ``.check_rst-retained.toml`` beside the project configuration now stores each
