@@ -109,6 +109,9 @@ These entries are intentionally not presented as one uniform priority:
   separates a proven nested table from an ``unlocated-aligned-table`` position.
   Automatic failure dumps stay deferred until a storage, retention, and cleanup
   contract exists (see "Safety boundary after source-model review").
+* Release-process follow-ups — signing, hosted releases, release automation,
+  development-version provenance, and a written version-number policy remain
+  deferred under the evidence gates in "Release labels and deferred tooling".
 
 ==========
 Declined
@@ -2545,6 +2548,40 @@ adopted ``proreus-yocto-sa-gui-if.rst`` built a sidecar from its v0.15 re-sync
 still matched despite line shifts throughout the document, the 5 genuinely new
 constructs stayed open, and the 12 decisions whose text had changed or been
 removed surfaced as stale for review.
+
+=====================================
+Release labels and deferred tooling
+=====================================
+
+Accepted on 2026-09-28: releases use ``v``-prefixed, annotated, explicitly
+unsigned tags on the commit that introduces the exact package version.  The
+tag object keeps its real creation date.  The initial backfill covers every
+historical version identity from 0.1.0 through 0.7.0, including the seeded
+0.1.0 state and the 0.5.0 feature commit.  Publishing uses one atomic push of
+named refs and never ``--tags``.  A committed failing release-identity test
+precedes every future version-bump commit.  The normative procedure is
+:doc:`releasing`.
+
+The following related work remains deliberately deferred:
+
+* Signed tags await one signing identity and a verification procedure that
+  work consistently on both development hosts.  Existing unsigned tags will
+  not be rewritten when signing begins.
+* Release branches await the first real backport requirement.  GitHub Releases,
+  a changelog, and artifact-publication automation await an external
+  distribution need that commit bodies, tags, and locally built wheels do not
+  satisfy.
+* A release helper awaits evidence that the written procedure is too error
+  prone or frequent to run manually.  The initial backfill's one-off script is
+  not retained as permanent product code.
+* Tag-derived package versions, ``git describe`` in runtime provenance, and an
+  immediate ``X.Y.Z.dev0`` post-release bump remain separate choices.  Revisit
+  them if in-between builds must identify themselves more precisely than the
+  last released package version.
+* A written rule for choosing major, minor, or patch numbers awaits enough
+  release evidence to generalize beyond the current 0.x examples.  Historical
+  author normalization and retroactive pre-0.7 roadmap Shipped entries remain
+  unqueued archival work, not prerequisites for reliable release labels.
 
 ***********************************************************
 Declined decisions and reasons — counter-evidence welcome

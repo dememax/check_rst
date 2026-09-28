@@ -178,6 +178,12 @@ the commit or release notes for any breaking change, so a consumer hitting
 it afterward can rule out a version mismatch before suspecting a real
 formatting defect.
 
+## Releases
+
+The maintainer procedure, tag contract, and publication safety rules are in
+[`docs/releasing.rst`](docs/releasing.rst). Follow that procedure for every
+version change and historical-tag operation.
+
 ## Documentation structure
 
 Ask whether a cold human reader or fresh-context AI will need to retrieve a

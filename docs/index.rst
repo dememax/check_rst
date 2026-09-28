@@ -22,6 +22,7 @@ and Sphinx documentation.
    example
    rules
    development
+   releasing
    roadmap
    integration
    man/index
