@@ -50,7 +50,7 @@ def test_cli_accepts_required_pygit2_runtime_version(
         cli.main()
 
     assert exc.value.code == 0
-    assert "check_rst 0.7.0" in capsys.readouterr().out
+    assert "check_rst 0.7.1" in capsys.readouterr().out
 
 
 @pytest.mark.unit
