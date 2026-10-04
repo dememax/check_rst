@@ -52,7 +52,7 @@ wheel explicitly from the same clean export instead:
 
 ```bash
 python3.14 -m pip wheel --wheel-dir dist /tmp/check_rst-source.tar
-python3.14 -m pip install dist/check_rst-0.7.0-py3-none-any.whl
+python3.14 -m pip install dist/check_rst-0.7.1-py3-none-any.whl
 ```
 
 The generated wheel is a pure-Python, platform-independent package. Its exact
