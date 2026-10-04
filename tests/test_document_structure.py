@@ -1089,7 +1089,7 @@ def test_cli_outline_blocks_summary_line(
     )
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)],
+        ["check_rst.py", "outline", "--with-findings", "--verbose", str(p)],
     )
     with pytest.raises(SystemExit):
         cli.main()
@@ -1448,7 +1448,7 @@ def test_cli_outline_admonitions_counted_in_blocks_legend_and_section_brackets(
     )
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)],
+        ["check_rst.py", "outline", "--with-findings", "--verbose", str(p)],
     )
     with pytest.raises(SystemExit):
         cli.main()
@@ -1579,6 +1579,27 @@ def test_grid_table_cell_comments_report_their_content_lines(tmp_path: Path) -> 
     nearest located ancestor is the table's top border.  Each comment must
     report the physical lines of its own cell content instead."""
     document = _document.Document(_rst(tmp_path, _GRID_CELL_COMMENTS), tmp_path)
+
+    assert [(entry.lineno, entry.end) for entry in document.comments] == [(8, 8), (12, 14), (16, 16), (18, 18)]
+
+
+@pytest.mark.integration
+def test_grid_table_comment_location_ignores_docutils_source_metadata(tmp_path: Path) -> None:
+    """Docutils releases may attach the root filename to nested comments."""
+    document = _document.Document(_rst(tmp_path, _GRID_CELL_COMMENTS), tmp_path)
+    for comment in document.doctree.findall(docutils.nodes.comment):
+        comment.source = str(document.path)
+
+    assert [(entry.lineno, entry.end) for entry in document.comments] == [(8, 8), (12, 14), (16, 16), (18, 18)]
+
+
+@pytest.mark.integration
+def test_grid_table_comment_location_without_docutils_table_metadata(tmp_path: Path) -> None:
+    """The supported Docutils floor leaves table line and source unset."""
+    document = _document.Document(_rst(tmp_path, _GRID_CELL_COMMENTS), tmp_path)
+    for table in document.doctree.findall(docutils.nodes.table):
+        table.line = None
+        table.source = None
 
     assert [(entry.lineno, entry.end) for entry in document.comments] == [(8, 8), (12, 14), (16, 16), (18, 18)]
 
@@ -1768,7 +1789,7 @@ def test_cli_outline_comments_counted_in_blocks_legend_and_section_brackets(
     )
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)],
+        ["check_rst.py", "outline", "--with-findings", "--verbose", str(p)],
     )
     with pytest.raises(SystemExit):
         cli.main()
@@ -1954,7 +1975,7 @@ def test_cli_outline_lists_counted_in_blocks_legend_and_section_brackets(
     p.write_text("Title\n#####\n\n* One.\n* Two.\n", encoding="utf-8")
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)],
+        ["check_rst.py", "outline", "--with-findings", "--verbose", str(p)],
     )
     with pytest.raises(SystemExit):
         cli.main()
@@ -2043,7 +2064,6 @@ def test_cli_sections_only_keeps_bracket_counts_and_legend(
             "check_rst.py",
             "outline",
             "--with-findings",
-            "--quiet",
             "--verbose",
             "--sections-only",
             str(p),
@@ -2678,7 +2698,7 @@ def test_cli_outline_blocks_summary_includes_tables(
     )
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)],
+        ["check_rst.py", "outline", "--with-findings", "--verbose", str(p)],
     )
     with pytest.raises(SystemExit):
         cli.main()

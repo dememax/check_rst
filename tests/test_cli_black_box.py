@@ -78,6 +78,15 @@ def _start_cli(cwd: Path, *arguments: str) -> subprocess.Popen[str]:
 
 
 @pytest.mark.integration
+def test_contract_version_is_stable_machine_readable_integer(tmp_path: Path) -> None:
+    result = _run_cli(tmp_path, "--contract-version")
+
+    assert result.returncode == 0
+    assert result.stdout == "1\n"
+    assert result.stderr == ""
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "stdout_error_handler",
     [
@@ -177,6 +186,65 @@ def test_json_strict_stdout_escapes_non_utf8_filename_and_round_trips_bytes(
     assert b"\\udcff" in wire_bytes
     report = json.loads(wire_bytes)
     assert os.fsencode(report["files"][0]["path"]) == raw_path
+
+
+@pytest.mark.integration
+def test_json_report_survives_third_party_stderr(tmp_path: Path) -> None:
+    """A noisy trusted conf.py must not replace a valid report with a false empty pass."""
+    (tmp_path / "conf.py").write_text(
+        'import sys\nprint("CONF-NOISE", file=sys.stderr)\nproject = "t"\nextensions = []\n',
+        encoding="utf-8",
+    )
+    document = tmp_path / "index.rst"
+    document.write_text("#######\nIndex\n#######\n\nClean prose.\n", encoding="utf-8")
+
+    result = _run_cli(tmp_path, "--sphinx-src", str(tmp_path), "check", "--format=json", str(document))
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["mode"] == "verified"
+    assert payload["summary"]["files_checked"] == 1
+    assert payload["files"][0]["path"] == str(document)
+    assert "CONF-NOISE" in result.stderr
+
+
+@pytest.mark.integration
+def test_json_report_survives_third_party_stdout(tmp_path: Path) -> None:
+    """A trusted conf.py writing stdout must not erase the machine report."""
+    (tmp_path / "conf.py").write_text(
+        'print("CONF-STDOUT-NOISE")\nproject = "t"\nextensions = []\n',
+        encoding="utf-8",
+    )
+    document = tmp_path / "index.rst"
+    document.write_text("#######\nIndex\n#######\n\nClean prose.\n", encoding="utf-8")
+
+    result = _run_cli(tmp_path, "--sphinx-src", str(tmp_path), "check", "--format=json", str(document))
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["mode"] == "verified"
+    assert payload["summary"]["files_checked"] == 1
+    assert payload["files"][0]["path"] == str(document)
+    assert "CONF-STDOUT-NOISE" in result.stderr
+
+
+@pytest.mark.integration
+def test_c_locale_text_output_escapes_unencodable_unicode_without_crashing(tmp_path: Path) -> None:
+    """An uncoerced ASCII console needs display fallback for ordinary Unicode text."""
+    document = tmp_path / "document.rst"
+    document.write_text("########\nRésumé\n########\n", encoding="utf-8")
+
+    result = _run_cli(
+        tmp_path,
+        "--no-config",
+        "outline",
+        str(document),
+        env_overrides={"LC_ALL": "C", "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0"},
+    )
+
+    assert result.returncode == 0
+    assert "Traceback" not in result.stderr
+    assert r"R\xe9sum\xe9" in result.stdout
 
 
 @pytest.fixture

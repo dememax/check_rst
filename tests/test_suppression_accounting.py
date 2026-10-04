@@ -81,6 +81,20 @@ def test_skip_fixable_summary_and_json_count_suppressed_fixable_findings(
 
 
 @pytest.mark.integration
+def test_verbose_names_suppressed_fixable_codes_and_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _doc(tmp_path, _TWO_FIXABLE)
+
+    code, out = _run(monkeypatch, capsys, "--no-config", "check", "--skip-fixable", "--verbose", str(path))
+
+    assert code == 0
+    assert "suppressed:" in out
+    assert "@" in out
+    assert "adornment." in out
+
+
+@pytest.mark.integration
 def test_phase3_never_claims_clean_when_warnings_were_hidden(
     rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

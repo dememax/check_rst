@@ -557,6 +557,33 @@ def test_cli_collapse_title_spaces_is_opt_in_and_resizes_adornments(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("verb", ["fix", "diff"])
+def test_cli_collapse_title_spaces_converges_for_short_placeholder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    verb: str,
+) -> None:
+    document = tmp_path / "test.rst"
+    original = "Sub   Part\n---------\n"
+    document.write_text(original, encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", verb, "--collapse-title-spaces", str(document)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == (0 if verb == "fix" else 1)
+    output = capsys.readouterr()
+    assert "Traceback" not in output.err
+    expected = "##########\nSub Part\n##########\n"
+    if verb == "fix":
+        assert document.read_text(encoding="utf-8") == expected
+    else:
+        assert document.read_text(encoding="utf-8") == original
+        assert "+Sub Part" in output.out
+
+
+@pytest.mark.integration
 def test_cli_collapse_title_spaces_absent_from_check_verb(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -666,6 +693,76 @@ def test_single_space_prose_preserves_tabs_unicode_spaces_and_title_scope(
 
     assert normalized == source.replace("ordinary  prose", "ordinary prose")
     assert counts == _types.TextSpaceCounts(prose_runs=1)
+
+
+@pytest.mark.unit
+def test_single_space_prose_does_not_parse_grid_rows(tmp_path: Path) -> None:
+    rows = "".join(f"| cell {index:<4} | value  kept |\n+-----------+-------------+\n" for index in range(200))
+    source = "#######\nTitle\n#######\n\n+-----------+-------------+\n" + rows
+    _helpers.CALL_COUNTS.clear()
+
+    normalized, counts = _formatting._normalize_text_spaces(
+        tmp_path / "grid.rst",
+        source,
+        collapse_titles=False,
+        single_space_prose=True,
+    )
+
+    assert normalized == source
+    assert counts == _types.TextSpaceCounts()
+    assert _helpers.CALL_COUNTS["_parse_rst"] == 0
+
+
+@pytest.mark.unit
+def test_single_space_prose_does_not_parse_literal_blocks(tmp_path: Path) -> None:
+    source = "Example::\n\n" + "".join(f"   fixed  columns  {index}\n" for index in range(30))
+    _helpers.CALL_COUNTS.clear()
+
+    normalized, counts = _formatting._normalize_text_spaces(
+        tmp_path / "fixed.rst",
+        source,
+        collapse_titles=False,
+        single_space_prose=True,
+    )
+
+    assert normalized == source
+    assert counts == _types.TextSpaceCounts()
+    assert _helpers.CALL_COUNTS["_parse_rst"] == 0
+
+
+@pytest.mark.unit
+def test_single_space_prose_normalizes_valid_simple_table_cells_with_bounded_parses(tmp_path: Path) -> None:
+    rows = "".join(f"A{index:<6}kept  value\n" for index in range(30))
+    source = "=====  =============\nName   Value\n=====  =============\n" + rows + "=====  =============\n"
+    _helpers.CALL_COUNTS.clear()
+
+    normalized, counts = _formatting._normalize_text_spaces(
+        tmp_path / "simple.rst",
+        source,
+        collapse_titles=False,
+        single_space_prose=True,
+    )
+
+    assert normalized == source.replace("kept  value", "kept value")
+    assert counts == _types.TextSpaceCounts(prose_runs=30)
+    assert _helpers.CALL_COUNTS["_parse_rst"] <= 3
+
+
+@pytest.mark.unit
+def test_single_space_prose_parse_counter_control_is_nonzero(tmp_path: Path) -> None:
+    """Keep the grid-row performance assertion from passing on a misspelled counter."""
+    _helpers.CALL_COUNTS.clear()
+
+    normalized, counts = _formatting._normalize_text_spaces(
+        tmp_path / "prose.rst",
+        "Prose  needing normalization.\n",
+        collapse_titles=False,
+        single_space_prose=True,
+    )
+
+    assert normalized == "Prose needing normalization.\n"
+    assert counts == _types.TextSpaceCounts(prose_runs=1)
+    assert _helpers.CALL_COUNTS["_parse_rst"] > 1
 
 
 @pytest.mark.unit

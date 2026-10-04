@@ -789,7 +789,7 @@ def test_cli_bold_opener_rationale_printed_once_per_run(
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
-    rationale = "AI documents often use this pattern as an informal heading; consider a proper section title"
+    rationale = "choose a reviewed disposition: promote, retain, rewrite, or restructure"
     assert out.count(rationale) == 1
     for point in (
         "First point",
@@ -1418,6 +1418,37 @@ def test_first_appearance_adornments_sees_short_underline_only_titles() -> None:
     lines = ["Doc", "###", "", "Sub", "***", "", "Deep", "===="]
     seen = _formatting._first_appearance_adornments(lines)
     assert seen == [("#", 1), ("*", 4), ("=", 7)]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mark", ["..", "...", "---"])
+def test_first_appearance_adornments_ignores_short_marks_below_long_prose(mark: str) -> None:
+    """Docutils leaves a too-short mark below four columns as prose when it
+    is narrower than the preceding text; hierarchy discovery must agree."""
+    lines = ["The list goes on and on", mark]
+
+    assert _formatting._first_appearance_adornments(lines) == []
+
+
+@pytest.mark.integration
+def test_fix_does_not_rewrite_short_mark_below_long_prose(tmp_path: Path) -> None:
+    path = _rst(tmp_path, "The list goes on and on\n...\n")
+    original = path.read_text(encoding="utf-8")
+
+    assert _formatting.check_hierarchy(path) == []
+    assert not _formatting.fix_structure(path, True)
+    assert path.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.integration
+def test_fix_does_not_promote_last_line_of_multiline_paragraph(tmp_path: Path) -> None:
+    """Parser paragraph ownership outranks a title-shaped lexical suffix."""
+    path = _rst(tmp_path, "First paragraph line\nsecond line\n-----------\n")
+    original = path.read_text(encoding="utf-8")
+
+    assert _formatting.check_hierarchy(path) == []
+    assert not _formatting.fix_structure(path, True)
+    assert path.read_text(encoding="utf-8") == original
 
 
 @pytest.mark.unit
@@ -2585,9 +2616,8 @@ def test_cli_git_scope_rejects_file_outside_selected_worktree_before_fix(
 
 
 @pytest.mark.unit
-def test_compute_structure_fixes_remapped_lines_join_scope() -> None:
-    """When the remap fires, the blocks it rewrites get canonical geometry
-    in the SAME pass, even though they sit outside the changed ranges."""
+def test_compute_structure_fixes_remapped_lines_join_geometry_scope() -> None:
+    """A hierarchy remap canonicalizes the complete block so one pass converges."""
     lines = (_WIDE_STARRED_DOC + _APPENDED_THIRD_LEVEL).splitlines()
     appended_start = len(_WIDE_STARRED_DOC.splitlines()) + 1
     ranges = [(appended_start, appended_start + 6)]
@@ -2597,8 +2627,6 @@ def test_compute_structure_fixes_remapped_lines_join_scope() -> None:
     assert "#######\nTitle\n#######" in fixed
     assert "*********\nSection\n*********" in fixed
     assert "=======\nAdded\n=======" in fixed
-    assert "*" * 22 not in fixed
-    assert "=" * 22 not in fixed
 
 
 @pytest.mark.unit
@@ -2635,9 +2663,7 @@ def test_cli_bare_fix_converges_in_one_pass_when_remap_fires(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The downstream-project two-pass defect, end to end: commit a wide '*'-rooted doc,
-    append a section, run bare --fix ONCE — the immediately following bare
-    check (step 3 of the loop) must already be clean."""
+    """A document-wide remap must leave the next bare check clean."""
     p = rst_repo / "doc.rst"
     p.write_text(_WIDE_STARRED_DOC, encoding="utf-8")
     _git(rst_repo, "add", "doc.rst")
@@ -2654,18 +2680,121 @@ def test_cli_bare_fix_converges_in_one_pass_when_remap_fires(
     with pytest.raises(SystemExit) as check_exit:
         cli.main()
     out = capsys.readouterr().out
-    assert "ERROR" not in out
     assert check_exit.value.code == 0
+    assert "ERROR" not in out
 
 
 @pytest.mark.integration
-def test_cli_bare_diff_previews_composed_result(
+def test_cli_bare_fix_preserves_sibling_release_topology(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """--diff must preview what one --fix run would produce: remapped chars
-    AT canonical widths, never the remap-only intermediate state."""
+    """Fixing an appended release must not make it a child of the prior release."""
+    path = rst_repo / "CHANGELOG.rst"
+    first_release = "#########\nChangelog\n#########\n\nRelease 1.0\n===========\n\nFirst release.\n"
+    path.write_text(first_release, encoding="utf-8")
+    _git(rst_repo, "add", path.name)
+    _git(rst_repo, "commit", "-m", "first release")
+    path.write_text(
+        first_release + "\nRelease 1.1\n===========\n\nSecond release.\n",
+        encoding="utf-8",
+    )
+    before = [(entry.depth, entry.title) for entry in _document.Document(path, rst_repo).outline]
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix"])
+    with pytest.raises(SystemExit) as fix_exit:
+        cli.main()
+    capsys.readouterr()
+
+    after = [(entry.depth, entry.title) for entry in _document.Document(path, rst_repo).outline]
+    assert fix_exit.value.code == 0
+    assert before == [(1, "Changelog"), (2, "Release 1.0"), (2, "Release 1.1")]
+    assert after == before
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check"])
+    with pytest.raises(SystemExit) as check_exit:
+        cli.main()
+    assert check_exit.value.code == 0
+
+
+@pytest.mark.integration
+def test_cli_bare_fix_tracks_ranges_when_remap_inserts_an_overline(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A document-wide insertion before a hunk must not stale its line range."""
+    path = rst_repo / "doc.rst"
+    original = textwrap.dedent("""\
+        Title
+        =====
+
+        Section
+        -------
+
+        ====
+        Third
+        ====
+
+        Body old.
+        """)
+    path.write_text(original, encoding="utf-8")
+    _git(rst_repo, "add", path.name)
+    _git(rst_repo, "commit", "-m", "three levels")
+    path.write_text(original.replace("Body old.", "Body changed."), encoding="utf-8")
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "diff"])
+    with pytest.raises(SystemExit) as diff_exit:
+        cli.main()
+    preview = capsys.readouterr()
+    assert diff_exit.value.code == 1
+    assert "Traceback" not in preview.err
+    assert "would change" in preview.out
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix"])
+    with pytest.raises(SystemExit) as fix_exit:
+        cli.main()
+    capsys.readouterr()
+    assert fix_exit.value.code == 0
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check"])
+    with pytest.raises(SystemExit) as check_exit:
+        cli.main()
+    assert check_exit.value.code == 0
+
+
+@pytest.mark.integration
+def test_cli_fast_fix_repairs_title_immediately_after_list_item(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The parser-free fixer must repair every title its matching check reports."""
+    path = tmp_path / "doc.rst"
+    source = "- item\nSection\n=======\n\nBody.\n"
+    path.write_text(source, encoding="utf-8")
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "fix", "--fast", str(path)])
+    with pytest.raises(SystemExit) as fix_exit:
+        cli.main()
+    capsys.readouterr()
+    assert fix_exit.value.code == 0
+    assert path.read_text(encoding="utf-8") != source
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "check", str(path)])
+    with pytest.raises(SystemExit) as check_exit:
+        cli.main()
+    assert check_exit.value.code == 0
+
+
+@pytest.mark.integration
+def test_cli_bare_diff_previews_composed_convergent_result(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The preview is the same convergent result that fix would write."""
     p = rst_repo / "doc.rst"
     p.write_text(_WIDE_STARRED_DOC, encoding="utf-8")
     _git(rst_repo, "add", "doc.rst")
@@ -2677,8 +2806,210 @@ def test_cli_bare_diff_previews_composed_result(
         cli.main()
     out = capsys.readouterr().out
 
-    assert "+#######\n" in out  # Title block, remapped AND resized
-    assert "+" + "#" * 22 not in out  # the intermediate must not appear
+    assert "+#######\n" in out
+    assert "+" + "#" * 22 not in out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "source",
+    [
+        "1.0\n===\n",
+        "##########\nMain Title\n##########\n\nSub\n===\n",
+    ],
+)
+def test_cli_fix_and_diff_converge_for_common_short_titles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    source: str,
+) -> None:
+    """A short recognized title must be fixable and previewable without a traceback."""
+    path = tmp_path / "CHANGELOG.rst"
+    path.write_text(source, encoding="utf-8")
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "diff", str(path)])
+    with pytest.raises(SystemExit) as diff_exit:
+        cli.main()
+    captured = capsys.readouterr()
+    assert diff_exit.value.code == 1
+    assert "Traceback" not in captured.err
+    assert "would change" in captured.out
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "fix", str(path)])
+    with pytest.raises(SystemExit) as fix_exit:
+        cli.main()
+    assert fix_exit.value.code == 0
+    capsys.readouterr()
+    once = path.read_bytes()
+
+    with pytest.raises(SystemExit) as second_exit:
+        cli.main()
+    assert second_exit.value.code == 0
+    assert path.read_bytes() == once
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("char", _HIERARCHY_CHARS)
+@pytest.mark.parametrize("overline", [False, True])
+@pytest.mark.parametrize("title", ["V", "A longer title"])
+def test_fix_plan_title_shape_matrix_is_a_fixed_point(
+    tmp_path: Path,
+    char: str,
+    overline: bool,
+    title: str,
+) -> None:
+    """Every supported title shape is previewable and converges in one plan."""
+    adornment = char * (len(title) + 3)
+    source = f"{adornment}\n{title}\n{adornment}\n" if overline else f"{title}\n{adornment}\n"
+    path = tmp_path / "shape.rst"
+    path.write_text(source, encoding="utf-8")
+
+    preview = _formatting.diff_fixes(path, True, include_structure=True)
+    plan = _formatting._plan_fix(path, True, include_structure=True)
+    path.write_text(plan.fixed, encoding="utf-8")
+
+    assert (preview == "") is (not plan.changed)
+    assert _formatting.diff_fixes(path, True, include_structure=True) == ""
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("root_overline", [False, True])
+@pytest.mark.parametrize("child_overline", [False, True])
+@pytest.mark.parametrize("compact", [False, True])
+def test_fix_plan_multi_title_matrix_preserves_docutils_topology(
+    tmp_path: Path,
+    root_overline: bool,
+    child_overline: bool,
+    compact: bool,
+) -> None:
+    """Canonicalization must preserve parentage across several title styles."""
+    root = "Root" if compact else "A longer root"
+    child = "One" if compact else "First child"
+    grandchild = "Sub" if compact else "Nested child"
+    sibling = "Two" if compact else "Second child"
+
+    def heading(title: str, char: str, overline: bool) -> str:
+        rule = char * len(title)
+        return f"{rule}\n{title}\n{rule}\n" if overline else f"{title}\n{rule}\n"
+
+    source = (
+        heading(root, "~", root_overline)
+        + "\nIntro.\n\n"
+        + heading(child, "+", child_overline)
+        + "\nBody.\n\n"
+        + heading(grandchild, "=", False)
+        + "\nNested.\n\n"
+        + heading(sibling, "+", child_overline)
+        + "\nSibling.\n"
+    )
+    path = tmp_path / "matrix.rst"
+    path.write_text(source, encoding="utf-8")
+    before = [(entry.depth, entry.title) for entry in _document.Document(path, tmp_path).outline]
+
+    plan = _formatting._plan_fix(path, True, include_structure=True)
+    after = [(entry.depth, entry.title) for entry in _document.Document(path, tmp_path, source_text=plan.fixed).outline]
+    path.write_text(plan.fixed, encoding="utf-8")
+
+    assert before == [(1, root), (2, child), (3, grandchild), (2, sibling)]
+    assert after == before
+    assert _formatting.diff_fixes(path, True, include_structure=True) == ""
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("changed_position", ["before", "after"])
+def test_bare_fix_matrix_preserves_topology_with_hunks_around_titles(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    changed_position: str,
+) -> None:
+    """Git hunks on either side of headings must survive remap line shifts."""
+    path = rst_repo / "doc.rst"
+    source = textwrap.dedent("""\
+        .. revision: old
+
+        Root
+        ~~~~
+
+        Intro.
+
+        Child
+        +++++
+
+        Body old.
+        """)
+    path.write_text(source, encoding="utf-8")
+    _git(rst_repo, "add", path.name)
+    _git(rst_repo, "commit", "-m", "noncanonical hierarchy")
+    changed = (
+        source.replace("revision: old", "revision: new")
+        if changed_position == "before"
+        else source.replace("Body old.", "Body new.")
+    )
+    path.write_text(changed, encoding="utf-8")
+    before = [(entry.depth, entry.title) for entry in _document.Document(path, rst_repo).outline]
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "diff"])
+    with pytest.raises(SystemExit) as diff_exit:
+        cli.main()
+    assert diff_exit.value.code == 1
+    assert "Traceback" not in capsys.readouterr().err
+
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "fix"])
+    with pytest.raises(SystemExit) as fix_exit:
+        cli.main()
+    capsys.readouterr()
+    assert fix_exit.value.code == 0
+    assert [(entry.depth, entry.title) for entry in _document.Document(path, rst_repo).outline] == before
+
+    with pytest.raises(SystemExit) as second_exit:
+        cli.main()
+    assert second_exit.value.code == 0
+
+
+@pytest.mark.unit
+def test_structure_remap_adds_canonical_overline_and_underline() -> None:
+    """A remapped title block is complete and canonical in the same pass."""
+    lines = textwrap.dedent("""\
+        ##########
+        Root
+        ##########
+
+        Child
+        ~~~~~~~~~~~~~~~~~~~~~~
+        """).splitlines()
+
+    fixed = _formatting._compute_structure_fixes(lines, [(1, 3)])
+
+    assert fixed[-3:] == ["*" * 7, "Child", "*" * 7]
+
+
+@pytest.mark.unit
+def test_structure_remap_removes_overline_and_canonicalizes_underline() -> None:
+    """Removing a style overline still leaves canonical title geometry."""
+    lines = textwrap.dedent("""\
+        ##########
+        Root
+        ##########
+
+        First
+        **********************
+
+        First child
+        ======================
+
+        Second
+        **********************
+
+        ~~~~~~~~~~~~~~~~~~~~~~
+        Second child
+        ~~~~~~~~~~~~~~~~~~~~~~
+        """).splitlines()
+
+    fixed = _formatting._compute_structure_fixes(lines, [(1, 3)])
+
+    assert "\n".join(fixed).endswith("Second\n" + "*" * 22 + "\n\nSecond child\n" + "=" * 14)
 
 
 @pytest.mark.integration
@@ -3162,7 +3493,7 @@ def test_cli_summary_reports_line_statistics(
     # _GOOD_BLOCK: 7 lines, 2 of them empty.
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -3191,7 +3522,7 @@ def test_cli_summary_line_statistics_aggregate_across_files(
     p1.write_text(_GOOD_BLOCK, encoding="utf-8")  # 7 lines, 2 empty
     p2.write_text(_GOOD_BLOCK, encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p1), str(p2)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p1), str(p2)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -3241,7 +3572,7 @@ def test_cli_summary_shows_bytes_when_differs_from_chars(
     p = rst_repo / "test.rst"
     p.write_text("########\nR\u00e9sum\u00e9\n########\n\nCaf\u00e9.\n", encoding="utf-8")
 
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out

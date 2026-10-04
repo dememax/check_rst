@@ -116,6 +116,35 @@ def test_packaging_metadata_exposes_the_canonical_guide() -> None:
     assert project["urls"]["Documentation"] == DOCUMENTATION_URL
 
 
+@pytest.mark.unit
+def test_release_docs_require_a_concrete_clean_export_build() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    releasing = (DOCS_DIR / "releasing.rst").read_text(encoding="utf-8")
+
+    assert "git archive --prefix=check_rst/" in readme
+    assert "pip wheel --wheel-dir dist ." not in readme
+    assert "release_tree=$(mktemp -d)" in releasing
+    assert 'git archive <release-commit> | tar -x -C "$release_tree"' in releasing
+
+
+@pytest.mark.unit
+def test_contract_version_and_next_minor_scope_are_documented() -> None:
+    command_manual = (DOCS_DIR / "man" / "check_rst.rst").read_text(encoding="utf-8")
+    roadmap = (DOCS_DIR / "roadmap.rst").read_text(encoding="utf-8")
+
+    assert (
+        "Increment it when a wrapper-visible command-line or JSON runtime contract becomes incompatible"
+        in command_manual
+    )
+    for item in (
+        "cross-path snapshot pairing",
+        "JSON output for further commands",
+        "list-table reflow",
+        "byte-safe JSON path",
+    ):
+        assert item in roadmap
+
+
 @pytest.mark.integration
 def test_source_distribution_contains_manual_sources(tmp_path: Path) -> None:
     source = tmp_path / "source"

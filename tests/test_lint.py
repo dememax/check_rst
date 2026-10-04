@@ -12,7 +12,7 @@ import pytest
 from _support import _git, _rst
 
 from check_rst import cli
-from check_rst.cli import _document, _formatting, _helpers, _lint, _sphinx
+from check_rst.cli import _document, _formatting, _helpers, _lint, _sphinx, _types
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -175,6 +175,19 @@ def test_directives_rubric_flagged(tmp_path: Path) -> None:
     violations = _lint.check_directives(p, True)
     assert violations
     assert any("rubric" in v for v in violations)
+
+
+@pytest.mark.integration
+def test_directives_rubric_uses_source_line_when_docutils_points_after_directive(tmp_path: Path) -> None:
+    """Docutils 0.22 reports the line after a rubric; source text is authoritative."""
+    path = _rst(tmp_path, "Before.\n\n.. rubric:: My Heading\n\nAfter.\n")
+    document = _document.Document(path, tmp_path)
+    rubric = next(document.doctree.findall(docutils.nodes.rubric))
+    rubric.line = 4
+
+    violations = _lint.check_directives(path, True, doc=document)
+
+    assert [(finding.lineno, finding.code) for finding in violations] == [(3, _types.FindingCode.PSEUDO_HEADING_RUBRIC)]
 
 
 @pytest.mark.integration

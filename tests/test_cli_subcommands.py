@@ -206,6 +206,16 @@ def test_check_verb_populates_full_attribute_contract() -> None:
 
 
 @pytest.mark.unit
+def test_quiet_and_verbose_are_mutually_exclusive() -> None:
+    parser = cli._build_cli_parser()
+
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["check", "--quiet", "--verbose", "file.rst"])
+
+    assert exc.value.code == 2
+
+
+@pytest.mark.unit
 def test_check_verb_format_json_backfills_json_flag() -> None:
     args = _parse(["check", "--format", "json", "file.rst"])
     assert args.json is True

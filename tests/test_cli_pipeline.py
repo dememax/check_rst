@@ -531,12 +531,12 @@ def test_cli_no_toctree_requires_format_json(
 
 
 @pytest.mark.integration
-def test_cli_foreign_sphinx_file_stops_before_fix_or_phases(
+def test_cli_foreign_sphinx_file_runs_phase01_without_sphinx(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Verified mode must never mutate a file outside its Sphinx source tree."""
+    """A file outside the Sphinx tree keeps the ordinary Phase 0/1 contract."""
     sphinx_src = tmp_path / "docs"
     sphinx_src.mkdir()
     (sphinx_src / "conf.py").write_text('project = "test"\n', encoding="utf-8")
@@ -552,11 +552,11 @@ def test_cli_foreign_sphinx_file_stops_before_fix_or_phases(
     with pytest.raises(SystemExit) as exc:
         cli.main()
 
-    assert exc.value.code == 1
-    assert foreign.read_text(encoding="utf-8") == original
+    assert exc.value.code == 0
+    assert foreign.read_text(encoding="utf-8") != original
     out = capsys.readouterr().out
-    assert "not part of --sphinx-src" in out
-    assert "Phase 1" not in out
+    assert "outside sphinx-src — Phase 0/1 only" in out
+    assert "Phase 3: Sphinx build — skipped" in out
 
 
 @pytest.mark.integration
@@ -1273,7 +1273,7 @@ def test_outline_blocks_summary_shown_with_verbose(
     )
     monkeypatch.setattr(
         "sys.argv",
-        ["check_rst.py", "outline", "--with-findings", "--quiet", "--verbose", str(p)],
+        ["check_rst.py", "outline", "--with-findings", "--verbose", str(p)],
     )
     with pytest.raises(SystemExit):
         cli.main()
@@ -1306,7 +1306,7 @@ def test_footer_lines_words_shown_with_verbose(
 ) -> None:
     p = rst_repo / "test.rst"
     p.write_text(_GOOD_BLOCK, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -1360,7 +1360,6 @@ def test_word_samples_zero_disables_even_under_verbose(
         [
             "check_rst.py",
             "check",
-            "--quiet",
             "--verbose",
             "--word-samples",
             "0",

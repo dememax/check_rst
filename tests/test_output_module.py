@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import io
+import json
 import re
 from typing import TYPE_CHECKING
 
@@ -19,15 +20,24 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.unit
-def test_configure_stdout_changes_only_strict_encoding_errors() -> None:
-    strict = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", errors="strict")
+def test_configure_stdout_selects_a_safe_policy_for_strict_encoding_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PYTHONIOENCODING", "ascii:surrogateescape")
+    utf8_strict = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", errors="strict")
+    ascii_strict = io.TextIOWrapper(io.BytesIO(), encoding="ascii", errors="strict")
     explicit = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", errors="backslashreplace")
+    explicit_surrogateescape = io.TextIOWrapper(io.BytesIO(), encoding="ascii", errors="surrogateescape")
 
-    _output._configure_stdout_for_filesystem_paths(strict)
+    _output._configure_stdout_for_filesystem_paths(utf8_strict)
+    _output._configure_stdout_for_filesystem_paths(ascii_strict)
     _output._configure_stdout_for_filesystem_paths(explicit)
+    _output._configure_stdout_for_filesystem_paths(explicit_surrogateescape)
 
-    assert strict.errors == "surrogateescape"
+    assert utf8_strict.errors == "surrogateescape"
+    assert ascii_strict.errors == "backslashreplace"
     assert explicit.errors == "backslashreplace"
+    assert explicit_surrogateescape.errors == "surrogateescape"
 
 
 @pytest.mark.unit
@@ -109,12 +119,13 @@ def test_suppressed_warning_does_not_leak_its_shared_hint(
 @pytest.mark.parametrize(
     ("argv", "expected"),
     [
-        (["--max-output-lines", "10"], 10),
-        (["--max-output-lines=7"], 7),
-        (["--max-output-lines", "10", "--max-output-lines=2"], 2),
-        (["--", "--max-output-lines", "10"], None),
-        (["--max-output-lines", "1"], None),
-        (["--help", "--max-output-lines", "10"], None),
+        (["check", "--max-output-lines", "10"], 10),
+        (["outline", "--max-output-lines=7"], 7),
+        (["fix", "--max-output-lines", "10", "--max-output-lines=2"], 2),
+        (["check", "--", "--max-output-lines", "10"], None),
+        (["check", "--max-output-lines", "1"], None),
+        (["check", "--help", "--max-output-lines", "10"], None),
+        (["refs", "--max-output-lines", "10"], None),
     ],
 )
 def test_requested_output_limit_matches_cli_bootstrap_rules(argv: list[str], expected: int | None) -> None:
@@ -167,7 +178,7 @@ def test_cli_max_output_lines_two_reserves_statistics_and_failed_footer(
 
 
 @pytest.mark.integration
-def test_cli_max_output_lines_reports_zero_suppression_without_padding(
+def test_cli_max_output_lines_omits_trailer_when_nothing_was_suppressed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -184,12 +195,9 @@ def test_cli_max_output_lines_reports_zero_suppression_without_padding(
 
     assert exc.value.code == 1
     lines = capsys.readouterr().out.splitlines()
-    assert len(lines) == 3
+    assert len(lines) == 2
     assert lines[0].startswith(f"{document}:")
-    assert lines[1] == (
-        "check_rst: output limited — 1 of 1 detail line(s) shown, 0 skipped; full output requires 3 lines"
-    )
-    assert lines[2].startswith("check_rst: 1 file(s) checked, 1 error(s)")
+    assert lines[1].startswith("check_rst: 1 file(s) checked, 1 error(s)")
 
 
 @pytest.mark.integration
@@ -358,9 +366,61 @@ def test_cli_max_output_lines_rejects_format_json(
         cli.main()
 
     assert exc.value.code == 1
-    lines = capsys.readouterr().out.splitlines()
-    assert any("--max-output-lines" in line and "incompatible" in line for line in lines)
-    assert lines[-1] == ("check_rst: command failed before producing a run summary, exit status 1")
+    data = json.loads(capsys.readouterr().out)
+    assert data["summary"]["errors"] == 1
+    assert "--max-output-lines" in data["errors"][0]["message"]
+    assert "incompatible" in data["errors"][0]["message"]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "argv_tail",
+    [
+        ["check", "--format=json", "missing.rst"],
+        ["check", "--format=json", "--no-toctree", "doc.rst"],
+        ["--sphinx-src", "missing", "check", "--format=json", "doc.rst"],
+    ],
+)
+def test_json_early_failures_emit_one_schema_object(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv_tail: list[str],
+) -> None:
+    (tmp_path / "doc.rst").write_text(_GOOD_BLOCK, encoding="utf-8")
+    expanded = [
+        str(tmp_path / token) if token in {"doc.rst", "missing.rst", "missing"} else token for token in argv_tail
+    ]
+    monkeypatch.setattr("sys.argv", ["check_rst.py", *expanded])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["schema_version"] == 1
+    assert data["files"] == []
+    assert data["summary"]["errors"] == 1
+    assert len(data["errors"]) == 1
+    assert data["runtime"]["check_rst"]["version"]
+    assert data["runtime"]["check_rst"]["contract_version"] == 1
+
+
+@pytest.mark.integration
+def test_json_option_does_not_swallow_check_help(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--format=json", "--help"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith("usage: check_rst check")
+    assert "--format" in captured.out
+    assert captured.err == ""
 
 
 @pytest.mark.integration
@@ -398,7 +458,47 @@ def test_cli_max_output_lines_absent_from_structured_or_copyable_verbs(
         cli.main()
 
     assert exc.value.code == 2
-    assert "unrecognized arguments" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert "unrecognized arguments" in captured.err
+    assert captured.out == ""
+
+
+@pytest.mark.integration
+def test_cli_max_output_lines_never_hides_argparse_diagnostic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--max-output-lines", "2", "--unknown-option"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 2
+    assert "unrecognized arguments: --unknown-option" in captured.err
+    assert "output limited" not in captured.out
+
+
+@pytest.mark.integration
+def test_verb_like_filename_does_not_activate_output_limiter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    document = tmp_path / "check"
+    document.write_text("#####\nDoc\n#####\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "refs", "--max-output-lines", "2", "check"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    captured = capsys.readouterr()
+    assert exc.value.code == 2
+    assert "unrecognized arguments: --max-output-lines" in captured.err
+    assert "output limited" not in captured.out
 
 
 @pytest.mark.integration

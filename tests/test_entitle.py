@@ -388,6 +388,25 @@ def test_cli_entitle_apply_writes_and_reports(
 
 
 @pytest.mark.integration
+def test_cli_entitle_refuses_non_rst_before_reading_or_writing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = tmp_path / "notes.md"
+    original = b"\xff not UTF-8 and not RST\n"
+    path.write_bytes(original)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "entitle", "New Title", str(path), "--apply"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert path.read_bytes() == original
+    assert f"{path}: expected an .rst file" in capsys.readouterr().out
+
+
+@pytest.mark.integration
 def test_cli_entitle_apply_quiet_suppresses_confirmation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

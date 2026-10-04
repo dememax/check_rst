@@ -236,6 +236,35 @@ def test_config_dedicated_file_wins_over_pyproject(
 
 
 @pytest.mark.integration
+def test_empty_dedicated_config_stops_discovery_and_selects_heuristic_mode(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A dedicated file is an intentional discovery boundary even when it
+    contains only comments; pyproject must not silently enable conf.py."""
+    (rst_repo / ".check_rst.toml").write_text("# Deliberately heuristic.\n", encoding="utf-8")
+    (rst_repo / "pyproject.toml").write_text('[tool.check_rst]\nsphinx-src = "."\n', encoding="utf-8")
+    marker = rst_repo / "conf-ran"
+    (rst_repo / "conf.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\nproject = 't'\n",
+        encoding="utf-8",
+    )
+    document = rst_repo / "index.rst"
+    document.write_text(_GOOD_BLOCK, encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(document)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "config: .check_rst.toml — no Sphinx settings applied" in out
+    assert "Phase 3: Sphinx build — skipped" in out
+    assert not marker.exists()
+
+
+@pytest.mark.integration
 def test_config_echo_suppressed_when_quiet(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,

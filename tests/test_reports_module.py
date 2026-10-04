@@ -557,7 +557,7 @@ def test_cli_footer_top_prose_words(
         "product server again.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -591,7 +591,7 @@ def test_cli_footer_top_prose_words_excludes_english_stopwords(
         "communicate again. product server run again.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -636,7 +636,7 @@ def test_cli_footer_top_prose_words_excludes_russian_stopwords(
         f"{data} {in_} {network}.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -666,7 +666,7 @@ def test_cli_footer_top_prose_words_excludes_french_stopwords(
         "Le capteur et le serveur échangent des données.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -691,7 +691,7 @@ def test_cli_footer_top_words_stem_grouping_shows_surface_form(
         "\u041f\u0440\u043e\u0431\u043b\u0435\u043c\u044b \u0438 \u043f\u0440\u043e\u0431\u043b\u0435\u043c\u044b \u0434\u0430\u044e\u0442 \u043f\u0440\u043e\u0431\u043b\u0435\u043c\u0430.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -780,7 +780,7 @@ def test_cli_footer_rare_words_with_sibling_annotation(
         "One procesess appears here; zebra abc123def.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -873,7 +873,7 @@ def test_prose_grouping_detects_french_documents(
         "#######\nTitre\n#######\n\nLe serveur vérifie la connexion; il faut vérifier; elle est vérifiée.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -901,7 +901,7 @@ def test_cli_rare_words_catches_the_confessed_mistake(
         f"#########\nTitle\n#########\n\n{ok} {dav}. {ok} {dav}. {ok} {dav}. {bad} {dav}.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -924,7 +924,7 @@ def test_cli_rare_words_annotates_once_vs_once_pair(
         "#######\nTitle\n#######\n\nDetect the JS frameworks today.\n\nSee the fameworks page again.\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -975,7 +975,7 @@ def test_prose_statistics_on_realistic_journal_note(
         "   16-15 HTML and JS fameworks of restserver\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
@@ -1074,7 +1074,7 @@ def test_cli_footer_explicit_warning_when_stopwords_unavailable(
         raise _types.StopwordsUnavailable("sphinx.search.en has neither X nor Y")
 
     monkeypatch.setattr(_reports, "_stopword_sets", _boom)
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--quiet", "--verbose", str(p)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "check", "--verbose", str(p)])
     with pytest.raises(SystemExit) as exc_info:
         cli.main()
     assert exc_info.value.code == 0  # a broken cosmetic stat must not fail the run

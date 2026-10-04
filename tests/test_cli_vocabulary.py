@@ -91,11 +91,22 @@ def test_hierarchy_remap_finding_names_the_fix_command(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
-def test_heuristic_phase2_names_the_outline_command(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    "source",
+    [
+        "#####\nTitle\n#####\n",
+        "#####\nTitle\n#####\n\n.. code-block:: python\n\n   print('ok')\n",
+    ],
+)
+def test_heuristic_phase2_reports_absence_of_findings_not_directives(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    source: str,
 ) -> None:
-    _code, out = _run(monkeypatch, capsys, "check", str(_rst(tmp_path, "#####\nTitle\n#####\n")))
-    assert "(nothing to check — run outline to see the resolved structure)" in out
+    _code, out = _run(monkeypatch, capsys, "check", str(_rst(tmp_path, source)))
+    assert "(no Python code-block findings — run outline to see the resolved structure)" in out
+    assert "no Python code-block directives found" not in out
 
 
 @pytest.mark.integration

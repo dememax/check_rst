@@ -1302,6 +1302,32 @@ def test_cli_list_table_invalid_utf8_is_a_clean_per_file_error(
     assert "1 file(s) checked, 1 error(s)" in out
 
 
+@pytest.mark.unit
+def test_list_item_first_content_grid_is_located_and_rendered_at_content_column() -> None:
+    lines = [
+        "     - +-----+-----+",
+        "       | A   | B   |",
+        "       +=====+=====+",
+        "       | 1   | 2   |",
+        "       +-----+-----+",
+    ]
+    entry = _types.TableEntry(1, 1, "grid", (2, 2), None, "A B 1 2", 5)
+
+    candidate = _list_table._evaluate_list_table_candidate(lines, entry)
+
+    assert candidate.refusal is None
+    assert candidate.parsed is not None
+    rendered = _list_table._render_list_table(
+        candidate.parsed,
+        candidate.caption,
+        candidate.options,
+        candidate.indent,
+        candidate.first_prefix,
+    )
+    assert rendered.startswith("     - .. list-table::\n")
+    assert "       :widths:" in rendered
+
+
 @pytest.mark.integration
 def test_cli_list_table_read_failure_is_a_clean_per_file_error(
     tmp_path: Path,

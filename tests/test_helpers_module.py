@@ -312,7 +312,7 @@ def test_cli_bare_repository_uses_clean_no_worktree_diagnostic(
     assert exc.value.code == 1
     output = capsys.readouterr().out
     assert "not a git repository" in output
-    assert "name files explicitly or use --recursive" in output
+    assert "run Git-dependent commands inside a worktree" in output
 
 
 @pytest.mark.integration

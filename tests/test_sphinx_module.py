@@ -16,12 +16,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from _support import _GOOD_BLOCK, BuildSphinxEnv, _build_multi_file_env
+from _support import _GOOD_BLOCK, BuildSphinxEnv, _build_multi_file_env, _git
 from docutils.parsers.rst import directives as docutils_directives
 from docutils.parsers.rst.directives.misc import Include as DocutilsInclude
 
 from check_rst import cli
-from check_rst.cli import _composition, _document, _formatting, _helpers, _lint, _reports, _sphinx, _types
+from check_rst.cli import _composition, _document, _formatting, _helpers, _lint, _pipeline, _reports, _sphinx, _types
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -476,6 +476,34 @@ def _verified_run(
 
 
 @pytest.mark.integration
+def test_verified_outline_and_context_use_source_title_spelling(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Sphinx SmartQuotes must not alter the navigation key readers copy."""
+    source_title = '*Vue* d\'ensemble -- "test"'
+    display_title = 'Vue d\'ensemble -- "test"'
+    adornment = "#" * (len(source_title) + 2)
+    doc = _write_verified_doc(
+        tmp_path,
+        f".. _vue-label:\n\n{adornment}\n{source_title}\n{adornment}\n\nBody.\n",
+    )
+
+    outline_code, outline = _verified_run(tmp_path, monkeypatch, capsys, "outline", str(doc))
+    context_code, context = _verified_run(tmp_path, monkeypatch, capsys, "context", display_title, str(doc))
+
+    assert outline_code == 0
+    assert display_title in outline
+    assert source_title not in outline
+    assert "Vue d\u2019ensemble" not in outline
+    assert "labels: vue-label@1" in outline
+    assert context_code == 0
+    assert display_title in context
+    assert "labels: vue-label@1" in context
+
+
+@pytest.mark.integration
 def test_skip_fixable_keeps_surviving_level_skip_beside_a_fixable_defect(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -793,6 +821,7 @@ def test_verified_sphinx_findings_keep_legacy_presentation(
             "source": None,
             "fixable": False,
             "location_exact": True,
+            "scope": "source",
             "code": "sphinx.inconsistent-title-style",
         }
     ]
@@ -902,6 +931,240 @@ def test_build_sphinx_env_reemits_persistent_warning_with_cached_build_dir(
     assert "Inconsistent title style" in first_warning_text
     assert "Inconsistent title style" in second_warning_text
     assert read_log.read_text(encoding="utf-8").splitlines() == ["index"]
+
+
+@pytest.mark.integration
+def test_run_sphinx_rewrites_selected_document_with_persistent_build_dir(tmp_path: Path) -> None:
+    """Write-phase warnings belong to the checked result on every run.
+
+    Supplying the selected source operands asks Sphinx to write those pages
+    even when its persistent environment considers them unchanged, without
+    the project-wide work of ``-a``.
+    """
+    (tmp_path / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
+    checked = tmp_path / "index.rst"
+    checked.write_text("Index\n=====\n\n.. code-block:: nosuchlexer\n\n   x\n", encoding="utf-8")
+    other = tmp_path / "other.rst"
+    other.write_text("Other\n=====\n", encoding="utf-8")
+    build_dir = tmp_path / "_build"
+
+    first = _sphinx.run_sphinx([checked], build_dir, tmp_path, tmp_path)
+    other_output = build_dir / "other.html"
+    second = _sphinx.run_sphinx([checked], build_dir, tmp_path, tmp_path)
+
+    assert any("nosuchlexer" in finding.text for finding in first)
+    assert any("nosuchlexer" in finding.text for finding in second)
+    assert not other_output.exists()
+
+
+@pytest.mark.integration
+def test_verified_git_scope_omits_old_phase2_and_phase3_findings(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The changed-line promise applies to verified rules and Sphinx too."""
+    (rst_repo / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
+    document = rst_repo / "index.rst"
+    document.write_text(
+        "#######\nIndex\n#######\n\nnotes.txt\n\nBroken :doc:`missing`.\n",
+        encoding="utf-8",
+    )
+    (rst_repo / "notes.txt").write_text("notes\n", encoding="utf-8")
+    _git(rst_repo, "add", ".")
+    _git(rst_repo, "commit", "-m", "base warnings")
+    document.write_text(document.read_text(encoding="utf-8") + "\nChanged prose.\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "--build-dir",
+            str(rst_repo / "_build"),
+            "check",
+            "--git-scope",
+            str(document),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "notes.txt names a real local asset" not in output
+    assert "unknown document" not in output
+
+
+@pytest.mark.integration
+def test_verified_git_scope_keeps_line_zero_sphinx_warning_as_project_wide(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A diagnostic with no physical line cannot be proved outside a changed hunk."""
+    (rst_repo / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
+    (rst_repo / "index.rst").write_text("#######\nIndex\n#######\n", encoding="utf-8")
+    _git(rst_repo, "add", ".")
+    _git(rst_repo, "commit", "-m", "base")
+    document = rst_repo / "new.rst"
+    document.write_text("#####\nNew\n#####\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "--sphinx-src", str(rst_repo), "check", "--git-scope", str(document)],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "document isn't included in any toctree" in output
+    assert "project-wide" in output
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "check",
+            "--format=json",
+            "--git-scope",
+            str(document),
+        ],
+    )
+    with pytest.raises(SystemExit) as json_exit:
+        cli.main()
+
+    assert json_exit.value.code == 0
+    report = json.loads(capsys.readouterr().out)
+    warning = next(
+        finding for finding in report["sphinx_findings"] if "document isn't included in any toctree" in finding["text"]
+    )
+    assert warning["scope"] == "project-wide"
+    assert not warning["text"].startswith("[project-wide]")
+
+
+@pytest.mark.unit
+def test_phase2_included_finding_uses_outer_include_line_for_scope(tmp_path: Path) -> None:
+    root = tmp_path / "root.rst"
+    document = _document.Document(root, tmp_path, source_text="")
+    document.__dict__["ranges"] = [(5, 5)]
+    finding = _types.Finding(
+        20,
+        _types.Severity.WARNING,
+        "included warning",
+        source="fragment.rst",
+        code=_types.FindingCode.REFERENCE_BARE_FILENAME,
+        order=(5, 1),
+    )
+
+    assert _pipeline._root_finding_in_scope(finding, document, whole_file=False)
+    document.__dict__["ranges"] = [(6, 6)]
+    assert not _pipeline._root_finding_in_scope(finding, document, whole_file=False)
+
+
+@pytest.mark.unit
+def test_phase3_included_diagnostic_uses_include_line_for_scope(tmp_path: Path) -> None:
+    root = tmp_path / "root.rst"
+    fragment = tmp_path / "fragment.rst"
+    document = _document.Document(root, tmp_path, source_text="")
+    document.__dict__["ranges"] = [(5, 5)]
+    document.__dict__["includes"] = [_types.IncludeEntry(5, 1, "fragment.rst", "fragment.rst", "parsed")]
+    finding = _types.Finding(
+        20,
+        _types.Severity.WARNING,
+        "fragment.rst:20: WARNING: included warning",
+        code=_types.FindingCode.SPHINX_DIAGNOSTIC,
+        sphinx=_types.SphinxSource(fragment, "included warning"),
+    )
+
+    assert _pipeline._sphinx_finding_in_scope(finding, {root: document}, whole_file=False)
+    document.__dict__["ranges"] = [(6, 6)]
+    assert not _pipeline._sphinx_finding_in_scope(finding, {root: document}, whole_file=False)
+
+
+@pytest.mark.integration
+def test_verified_run_checks_outside_rst_in_phase1_with_visible_mode(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    docs = rst_repo / "docs"
+    docs.mkdir()
+    (docs / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
+    inside = docs / "index.rst"
+    inside.write_text("#######\nIndex\n#######\n", encoding="utf-8")
+    outside = rst_repo / "CHANGES.rst"
+    outside.write_text("#########\nChanges\n#########\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "--sphinx-src", str(docs), "check", str(inside), str(outside)],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert f"{outside}: outside sphinx-src — Phase 0/1 only" in output
+    assert "not part of --sphinx-src" not in output
+
+
+@pytest.mark.integration
+def test_reader_commands_label_file_outside_sphinx_source(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    docs = rst_repo / "docs"
+    docs.mkdir()
+    (docs / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
+    outside = rst_repo / "CHANGES.rst"
+    outside.write_text("#########\nChanges\n#########\n", encoding="utf-8")
+    prefix = ["check_rst.py", "--sphinx-src", str(docs)]
+
+    monkeypatch.setattr("sys.argv", [*prefix, "outline", str(outside)])
+    with pytest.raises(SystemExit) as outline_exit:
+        cli.main()
+    outline = capsys.readouterr().out
+
+    monkeypatch.setattr("sys.argv", [*prefix, "context", "Changes", str(outside)])
+    with pytest.raises(SystemExit) as context_exit:
+        cli.main()
+    context = capsys.readouterr().out
+
+    assert outline_exit.value.code == 0
+    assert context_exit.value.code == 0
+    assert "outside sphinx-src — Phase 0/1 only" in outline
+    assert "outside sphinx-src — Phase 0/1 only" in context
+    assert "no --sphinx-src given" not in outline
+
+
+@pytest.mark.integration
+def test_json_marks_outside_sphinx_file_as_heuristic(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    docs = rst_repo / "docs"
+    docs.mkdir()
+    (docs / "conf.py").write_text('project = "t"\nextensions = []\n', encoding="utf-8")
+    outside = rst_repo / "CHANGES.rst"
+    outside.write_text("#########\nChanges\n#########\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "--sphinx-src", str(docs), "check", "--format=json", str(outside)],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["files"][0]["mode"] == "heuristic"
 
 
 @pytest.mark.integration
@@ -2548,7 +2811,6 @@ def test_cli_verified_outline_and_json_expose_composition_controls(
             "--sphinx-src",
             str(tmp_path),
             "outline",
-            "--quiet",
             "--verbose",
             "--with-findings",
             str(index),
