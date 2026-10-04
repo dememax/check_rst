@@ -1457,6 +1457,7 @@ def run_sphinx(
             "html",
             str(sphinx_src),
             str(build_dir),
+            *(str(path) for path in files),
         ],
         capture_output=True,
         text=True,

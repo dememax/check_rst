@@ -36,6 +36,7 @@ from ._types import (
     _INLINE_CONTAINER_TYPES,
     Finding,
     FindingCode,
+    FindingLocation,
     Severity,
 )
 
@@ -255,11 +256,22 @@ def check_directives(
     # must own those nodes: promoting one to a section cannot restore the inner
     # styling that docutils discarded.
     nested_strong_ids = set(document.nested_inline_by_node)
+    rubric_cursors: dict[tuple[str, tuple[int, ...]], int] = {}
 
-    def warn(node: docutils.nodes.Node, code: FindingCode, text: str, *, comment: bool = False) -> None:
-        location = (
-            document.comment_finding_location(node) if comment else document.finding_location(node, _node_line(node))
-        )
+    def warn(
+        node: docutils.nodes.Node,
+        code: FindingCode,
+        text: str,
+        *,
+        comment: bool = False,
+        location: FindingLocation | None = None,
+    ) -> None:
+        if location is None:
+            location = (
+                document.comment_finding_location(node)
+                if comment
+                else document.finding_location(node, _node_line(node))
+            )
         # Scope in root coordinates: included content is selected through
         # its outermost include directive, never through its own lines.
         if _in_scope(ranges, location.scope_line, location.scope_line):
@@ -273,6 +285,32 @@ def check_directives(
                 order=location.order,
             )
             findings.append((finding, location.occurrence))
+
+    def rubric_location(node: docutils.nodes.Node) -> FindingLocation:
+        """Locate the directive marker; Docutils 0.22 points one line later."""
+        base = document.finding_location(node, _node_line(node))
+        _hint, lines, _provenance = document.source_context(node)
+        key = (base.source or str(path), base.occurrence)
+        after = rubric_cursors.get(key, 0)
+        lineno = next(
+            (
+                candidate
+                for candidate in range(after + 1, len(lines) + 1)
+                if re.match(r"^[ \t]*\.\.[ \t]+rubric::(?:[ \t]|$)", lines[candidate - 1]) is not None
+            ),
+            None,
+        )
+        if lineno is None:
+            return base
+        rubric_cursors[key] = lineno
+        return FindingLocation(
+            lineno,
+            base.source,
+            base.occurrence,
+            lineno if base.source is None else base.scope_line,
+            True,
+            base.order,
+        )
 
     def section_clause(node: docutils.nodes.Node) -> str:
         title = _enclosing_section_title(node)
@@ -341,6 +379,7 @@ def check_directives(
                     f"'.. rubric:: {node.astext()}' detected {section_clause(node)} — "
                     "verify it is not substituting a section title (rubric is "
                     "excluded from the ToC and cannot be :ref:-ed)",
+                    location=rubric_location(node),
                 )
             else:
                 warn(
@@ -348,6 +387,7 @@ def check_directives(
                     FindingCode.PSEUDO_HEADING_RUBRIC,
                     "'.. rubric::' detected — verify it is not substituting a section "
                     "title (rubric is excluded from the ToC and cannot be :ref:-ed)",
+                    location=rubric_location(node),
                 )
 
         def visit_strong(self, node: docutils.nodes.Node) -> None:

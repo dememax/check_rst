@@ -49,6 +49,7 @@ CALL_COUNTS: collections.Counter[str] = collections.Counter()
 
 
 _JSON_SCHEMA_VERSION = 1
+_CLI_CONTRACT_VERSION = 1
 _MIN_PYGIT2_VERSION = (1, 20, 0)
 
 
@@ -215,7 +216,8 @@ def _repo_for_root(project_root: pathlib.Path | None) -> pygit2.Repository:
     if repo is None or repo.workdir is None:
         print(
             "check_rst: not a git repository — bare invocation auto-detects "
-            "changed files via git; name files explicitly or use --recursive"
+            "changed files via git; run Git-dependent commands inside a worktree, "
+            "or name files explicitly for commands that support standalone files"
         )
         raise SystemExit(1)
     return repo

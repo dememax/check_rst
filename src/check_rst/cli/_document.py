@@ -174,7 +174,6 @@ class _DocumentCore:
     def _table_cell_view(
         self,
         node: docutils.nodes.Node,
-        owner: docutils.nodes.Node | None,
         lines: list[str],
     ) -> tuple[list[str], range, tuple[int, int, int]] | None:
         """Return a physical-coordinate view of the table cell holding *node*.
@@ -193,9 +192,11 @@ class _DocumentCore:
         entry = _nearest_ancestor(node, docutils.nodes.entry)
         table = _nearest_ancestor(entry, docutils.nodes.table) if entry is not None else None
         row = entry.parent if entry is not None else None
-        if entry is None or row is None or table is None or table is not owner or not isinstance(table.line, int):
+        if entry is None or row is None or table is None:
             return None
-        top = self.composition.physical_line(table, table.line)
+        top = self._table_source_top(table, lines)
+        if top is None:
+            return None
         located = _table_block(lines, top)
         if located is None:
             return None
@@ -228,6 +229,34 @@ class _DocumentCore:
         for index, text in enumerate(cell_lines):
             view[first - 1 + index] = f"{' ' * indent}{text}" if text.strip() else ""
         return view, range(first, first + len(cell_lines)), (id(table), row_index, cell_index)
+
+    def _table_source_top(self, table: docutils.nodes.table, lines: list[str]) -> int | None:
+        """Locate a table even when the supported Docutils floor omits metadata."""
+        if isinstance(table.line, int):
+            return self.composition.physical_line(table, table.line)
+
+        candidates: list[int] = []
+        top = 1
+        while top <= len(lines):
+            located = _table_block(lines, top)
+            if located is None:
+                top += 1
+                continue
+            block, _indent = located
+            parser = tableparser.GridTableParser() if block[0].startswith("+") else tableparser.SimpleTableParser()
+            try:
+                parser.parse(StringList(block))
+            except tableparser.TableMarkupError:
+                top += 1
+                continue
+            candidates.append(top)
+            top += len(block)
+
+        tables = list(self.doctree.findall(docutils.nodes.table))
+        ordinal = next((index for index, candidate in enumerate(tables) if candidate is table), None)
+        if ordinal is None or ordinal >= len(candidates):
+            return None
+        return candidates[ordinal]
 
     @property
     def _comment_source_contexts(self) -> dict[int, tuple[int, list[str], SourceProvenance | None]]:
@@ -273,7 +302,7 @@ class _DocumentCore:
                 continue
 
             first = node.astext().split("\n", 1)[0]
-            cell = self._table_cell_view(node, owner, lines)
+            cell = self._table_cell_view(node, lines)
             if cell is not None:
                 view, cell_lines, cell_key = cell
                 after = cell_cursors.get(cell_key, cell_lines.start - 1)
@@ -584,6 +613,19 @@ def build_outline(
     def lines_for(provenance: SourceProvenance | None) -> list[str]:
         return composition.source_lines(provenance, path, document.lines)
 
+    source_titles: dict[tuple[str | None, int], str] = {}
+    for source_title_node in document.doctree.findall(docutils.nodes.title):
+        if not isinstance(source_title_node.parent, (docutils.nodes.document, docutils.nodes.section)):
+            continue
+        source_line = source_title_node.line
+        if not isinstance(source_line, int):
+            continue
+        source_provenance = document.composition.provenance(source_title_node)
+        physical_underline = document.composition.physical_line(source_title_node, source_line)
+        source_titles[(source_provenance.source if source_provenance else None, physical_underline - 1)] = (
+            source_title_node.astext()
+        )
+
     raw: list[tuple[int, int, str, str, int, int, SourceProvenance | None, list[str]]] = []
     for sec in tree.findall(docutils.nodes.section):
         title_node = sec.children[0]
@@ -630,7 +672,16 @@ def build_outline(
             and not candidate_is_prior_underline
         )
         block_start = title_row - 1 if has_overline else title_row
-        raw.append((title_row, depth, char, title_node.astext(), children, block_start, provenance, lines))
+        raw_source_title = lines[title_row - 1].strip() if 0 < title_row <= len(lines) else title_node.astext()
+        source_title = (
+            title_node.astext()
+            if provenance is not None and not provenance.exact
+            else source_titles.get(
+                (provenance.source if provenance else None, title_row),
+                raw_source_title,
+            )
+        )
+        raw.append((title_row, depth, char, source_title, children, block_start, provenance, lines))
 
     # Extents: a section runs to the line before the next same-or-shallower
     # section's block (findall order is document order), or to EOF; trailing

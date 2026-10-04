@@ -519,8 +519,8 @@ What ``fix`` computes for you
 * Adornment geometry: display-width+2 lengths on both sides, overline
   synthesis for placeholder underlines, and insertion of a missing blank
   separator around a title block.
-* Hierarchy: remaps adornment characters so first-appearance order
-  matches the project ranking — the check and the remap are the same
+* Hierarchy: remaps adornment styles so their established nesting depths
+  match the project ranking — the check and the remap are the same
   computation, so a clean check guarantees ``fix`` changes nothing.
 
 Repeated blank separators are intentionally absent from that default list.
@@ -603,8 +603,10 @@ is replaced with one ASCII space.  Leading and trailing whitespace,
 indentation, tabs, non-breaking or other Unicode spaces, and newlines are not
 candidates.  Literal and inline-literal text, raw content, code, math, and
 substitution payloads are protected.  RST syntax such as list-marker spacing
-and aligned-table geometry is proposed by the source scanner only to be
-rejected by the semantic gate because it is not eligible visible text.
+and aligned-table geometry is protected by the source scanner.  Ordinary
+paragraph text inside a valid simple-table cell remains eligible; only the
+cell's visible text changes, while borders and inter-column padding remain
+byte-stable.  The semantic gate still proves the complete result.
 
 The gate is a permitted-delta proof over complete before/after docutils trees.
 It requires identical node shape, attributes, targets, and generated ids after
@@ -639,8 +641,11 @@ worktree root even when invoked from a subdirectory.  Adornment geometry is
 scoped to the same hunks as ``git diff -U0 HEAD``.  Two
 document-level policies are deliberately wider: Phase 0 byte hygiene
 (BOM/line-ending/control/trailing-whitespace normalization) is whole-file, and
-hierarchy character remapping is whole-document because a heading
-character's rank has no per-hunk meaning.
+hierarchy style remapping is whole-document because a heading style's
+character and overline presence have no per-hunk meaning.  A heading rewritten
+by that remap receives one complete canonical block in the same plan, including
+its length and overline form; headings whose style is not remapped remain
+outside the hunk-local geometry pass.
 
 Hunks are root-file coordinates, so they never select an included fragment's
 lines directly.  A scoped semantic finding from included content — a
@@ -656,16 +661,14 @@ representation, including the status and diff APIs used here.  ``check_rst``
 checks that minimum version at startup even when installation metadata was
 bypassed.  The installed command does not require a ``git`` executable.
 
-That byte-preserving contract continues through human-readable output.  When
-standard output is an ordinary strict text stream, CLI startup changes only
-its error handler to ``surrogateescape``; a caller's explicit non-strict
-policy remains untouched.  A language locale and the C/POSIX UTF-8 mode
-therefore both emit the original filename bytes instead of crashing, and a
-``diff`` preview retains the real path in its patch headers.  Standard error
-keeps Python's protective ``backslashreplace`` policy.  JSON is deliberately
-different: it remains valid UTF-8 text and represents an undecodable filename
-byte through a reversible ``\uDC80``--``\uDCFF`` escape rather than writing the
-raw byte.
+That byte-preserving contract continues through human-readable output.  CLI
+startup changes a strict UTF-8 stream to ``surrogateescape``, preserving raw
+filename bytes in diff headers.  A strict non-UTF-8 stream uses
+``backslashreplace`` so ordinary Unicode text remains printable.  A caller's
+explicit non-strict policy remains untouched, including an explicitly selected
+non-UTF-8 ``surrogateescape`` policy.  JSON is written as UTF-8 bytes
+independently of the locale stream and represents an undecodable filename byte
+through a reversible ``\uDC80``--``\uDCFF`` escape.
 
 Every explicitly selected blank-line or editorial-spacing modifier is also a
 whole-document policy.  Git scope limits which files may change; it does not
@@ -682,15 +685,16 @@ positional files are an allowlist intersected with Git's
 changed/untracked ``.rst`` set: unchanged names are ignored, files outside
 the selected worktree are rejected before any write, and selected tracked
 files keep bare mode's ``git diff -U0 HEAD`` adornment scope.  The same two
-document-level exceptions still apply: byte hygiene and hierarchy remap
+document-level exceptions still apply: byte hygiene and hierarchy-style remap
 operate on the whole selected document.  Use this mode when the worktree
 contains other RST edits that do not belong to the current task.
 
 Before any phase or fixer starts, one atomic preflight validates the
 complete selected set: every explicit input is a regular file, an
-existing ``--build-dir`` is a directory, files paired with
-``--sphinx-src`` live under that source tree, and Git reports no
-unresolved merge entries.  One invalid input aborts the whole operation;
+existing ``--build-dir`` is a directory, and Git reports no unresolved merge
+entries.  A selected file outside ``--sphinx-src`` is valid Phase 0/1 input
+and is labeled as heuristic; only files inside that tree enter Phases 2 and 3.
+One invalid input aborts the whole operation;
 valid siblings are not partially modified.  In particular, conflict
 separators such as ``=======`` are also legal RST adornments and could
 otherwise be promoted/remapped as headings, so an unmerged file fails
@@ -908,6 +912,9 @@ padding are regenerated without trailing whitespace.  Source outside the
 exact selected block, including its CRLF/LF convention, remains byte-for-byte
 untouched.
 
+Conversion preserves the grid cell's existing logical line breaks.  It does
+not reflow prose to a new width; reflow is a separate editorial operation.
+
 The guarantee mirrors "Why you can trust fix" above: a whole-file
 canonical-tree comparison (not ``astext()``, not a visual diff) gates each
 table candidate, and a final comparison gates the combined write.  Deriving
@@ -1116,10 +1123,10 @@ commands answer a query.  Their exit statuses therefore mean different things:
      - The file or ``--target`` label is not part of the project, or verified
        mode is missing
    * - ``hierarchy``
-     - Always
-     - Never
+     - The report was produced
+     - A semantic incompatibility or runtime failure was detected
 
-Every command returns 2 for a command-line usage error.
+Every command returns 2 only for an argparse command-line syntax error.
 
 ====================================
 ``outline``: the structural oracle
@@ -1451,7 +1458,9 @@ every line the tool prints belongs to exactly one level.
        everything needed to judge promote-vs-leave with no file read
        at all)
 
-The ``levels:`` legend is the one deliberate exception folded *into*
+``--quiet`` and ``--verbose`` are mutually exclusive; argparse rejects their
+combination with exit status 2.  The ``levels:`` legend is the one deliberate
+exception folded *into*
 the default rather than promoted out of it: section structure and its
 next free character are core information an AI orients by on every read,
 not verbose detail — the legend was already unconditional whenever
@@ -1476,14 +1485,16 @@ Real output, same file, three levels::
 
     $ check_rst check --quiet station.rst
       (bold paragraph opener: AI documents often use this pattern as an
-      informal heading; consider a proper section title)
+      informal heading; consider a proper section title or restructure the
+      surrounding group)
     station.rst:11: WARNING: bold paragraph opener 'Note:'
     check_rst: 1 file(s) checked, 0 error(s), 1 warning(s), 719 char(s)
       (87 distinct, 31 once), 835 byte(s), 112 space(s) (16%)
 
     $ check_rst check --quiet --word-samples 3 station.rst
       (bold paragraph opener: AI documents often use this pattern as an
-      informal heading; consider a proper section title)
+      informal heading; consider a proper section title or restructure the
+      surrounding group)
     station.rst:11: WARNING: bold paragraph opener 'Note:'
     check_rst: 1 file(s) checked, 0 error(s), 1 warning(s), 719 char(s)
       (87 distinct, 31 once), 835 byte(s), 112 space(s) (16%)
@@ -1511,8 +1522,9 @@ A hard whole-report line budget
 Semantic selectors remain the first choice, but sometimes the real constraint
 is simply a caller's context window.  ``--max-output-lines N`` caps the emitted
 text report without stopping the checker or replacing its exit status.  ``N``
-has a minimum of two because the last two lines are permanently reserved for
-an output-limit statistics line and the authoritative final status::
+has a minimum of two.  When truncation is necessary, the last two lines are
+reserved for an output-limit statistics line and the authoritative final
+status::
 
     check_rst check --max-output-lines 40 --git-scope path/to/owned.rst
 
@@ -1521,9 +1533,9 @@ bare ``outline``, ``--sections-only``, ``--outline-depth``, and other
 semantic display controls have already acted.  The statistics line then says
 how many detail lines were shown and skipped, classifies suppressed
 ERROR/WARNING diagnostics and outline records, and gives the limit required
-for the complete current report.  It is present even when zero lines were
-suppressed, and short reports are never padded.  The status line is always
-last, including after verbose line/word statistics::
+for the complete current report.  When nothing is suppressed, no limiter
+trailer is printed and the normal status line remains last.  The status line is
+also last after truncated verbose line/word statistics::
 
     check_rst: output limited — 0 of 154 detail line(s) shown, 154 skipped (1 ERROR, 3 WARNING, 61 outline); full output requires 156 lines
     check_rst: 12 file(s) checked, 1 error(s), 4 warning(s), ...
@@ -1531,9 +1543,10 @@ last, including after verbose line/word statistics::
 The sink retains only the permitted prefix and counters; the validation itself
 continues to completion.  A diagnostic hidden past the limit therefore still
 changes the footer totals and exit status.  Input, configuration, and preflight
-failures receive the same bounded shape, with a rerun hint in the statistics
-line when no normal run summary was reached.  Counts refer to newline-delimited
-program output, not terminal-wrapped display rows.
+failures on commands that accept the option receive the same bounded shape
+when their output actually exceeds the limit.  Argparse errors on commands
+that do not accept the option remain ordinary stderr diagnostics.  Counts
+refer to newline-delimited program output, not terminal-wrapped display rows.
 
 The initial compatibility boundary protects formats whose completeness is
 part of their meaning.  ``check``, ``fix`` (bare or ``--fast``), and
@@ -2283,12 +2296,12 @@ structure behind ``outline`` (headings *and* code-blocks) is resolved
 exactly as a real build would resolve it, and Phase 3 runs
 ``sphinx-build`` for cross-reference integrity.  ``DIR`` must contain
 ``conf.py`` or the tool errors immediately — a typo'd path is a mistake
-worth failing loudly on, not silently degrading.  Every selected file
-must belong to that Sphinx source environment: a file from an unrelated
-directory is rejected before Phase 1 (and therefore before ``fix``);
-a path Sphinx itself excludes is rejected after environment
-construction.  Verified mode never builds one project while claiming
-another project's file was clean.
+worth failing loudly on, not silently degrading.  Selected files inside
+``DIR`` use verified Phases 2 and 3.  A selected ``.rst`` outside ``DIR`` is
+still checked or fixed by Phase 0/1, with an explicit ``outside sphinx-src —
+Phase 0/1 only`` label and heuristic mode in JSON.  A path under ``DIR`` that
+Sphinx excludes is rejected after environment construction.  Verified mode
+never attributes a Sphinx result to the outside file.
 
 The location is **never auto-detected**, even when a ``conf.py`` is
 sitting right there in the working directory.  This is deliberate: a

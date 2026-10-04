@@ -239,13 +239,16 @@ every warning in the changed scope an explicit disposition:
 * ``promote`` — it names an independently navigable concept, so convert it
   to a real section with a placeholder adornment.
 * ``retain`` — it is a meaningful label, identifier, field name, or one
-  member of a register, definition list, checklist, or other sequence whose
+  member of a register, checklist, or other sequence whose
   meaning depends on being read together; record that semantic reason in the
   project's ``.check_rst-retained.toml`` (see "Retained WARNINGs" in
   :doc:`guide`), so the reviewed WARNING no longer looks unreviewed.
 * ``rewrite`` — the emphasis has no structural job; remove it or fold the
   text into ordinary prose instead of preserving a warning that has no
   semantic justification.
+* ``restructure`` — it signals a real grouping problem that cannot be solved
+  by promoting this one line; reorganize the surrounding sections or list so
+  the intended hierarchy is explicit.
 
 "Matches the neighboring style" is not a sufficient retain reason by
 itself: the neighboring style may be the systematic defect the warning is

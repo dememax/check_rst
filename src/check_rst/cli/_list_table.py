@@ -40,6 +40,7 @@ from ._types import (
 )
 
 _TABLE_OPTION_VALUE_RE = re.compile(r"^[ \t]+:([\w-]+):[ \t]*(.*?)[ \t]*$")
+_LIST_ITEM_GRID_RE = re.compile(r"^([ \t]*(?:(?:[*+-]|\d+[.)])[ \t]+)+)(\+[-+=]+(?:\+[-+=]+)+\+)[ \t]*$")
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -72,6 +73,20 @@ class _UnlocatedAlignedTableSourceError(ValueError):
 
 def _leading_whitespace(line: str) -> str:
     return line[: len(line) - len(line.lstrip())]
+
+
+def _list_item_grid_prefix(line: str) -> tuple[str, str] | None:
+    """Return first-line marker prefix and continuation indent for a grid.
+
+    After an ancestor table becomes a list-table, a nested grid that was the
+    first content in its cell begins on the list marker's own physical line.
+    The marker is source framing, not part of the grid border.
+    """
+    match = _LIST_ITEM_GRID_RE.match(line)
+    if match is None:
+        return None
+    prefix = match.group(1)
+    return prefix, " " * len(prefix.expandtabs())
 
 
 def _table_directive_marker(line: str) -> tuple[re.Match[str], str, str] | None:
@@ -109,9 +124,16 @@ def _aligned_table_end(lines: list[str], start: int) -> int:
     table.  Keeping that predicate here fixes the information lost after
     parsing without inventing a different table grammar.
     """
-    if lines[start].lstrip().startswith("+"):
+    first = lines[start]
+    marker_grid = _list_item_grid_prefix(first)
+    if first.lstrip().startswith("+") or marker_grid is not None:
         cursor = start
-        while cursor < len(lines) and lines[cursor].lstrip().startswith(("+", "|")):
+        while cursor < len(lines):
+            candidate = lines[cursor]
+            if cursor == start and marker_grid is not None:
+                candidate = candidate[len(marker_grid[0]) :]
+            if not candidate.lstrip().startswith(("+", "|")):
+                break
             cursor += 1
         return cursor
 
@@ -209,6 +231,11 @@ def _locate_aligned_table_source(lines: list[str], entry: TableEntry) -> _Aligne
             tuple(options),
         )
 
+    list_item_grid = _list_item_grid_prefix(lines[start])
+    if list_item_grid is not None:
+        first_prefix, indent = list_item_grid
+        end = _aligned_table_end(lines, start)
+        return _AlignedTableSource(start, end, start, end, indent, first_prefix, None, ())
     if lines[start].lstrip().startswith("+") or _is_simple_table_rule(lines[start]):
         end = _aligned_table_end(lines, start)
         indent = _leading_whitespace(lines[start])
@@ -400,9 +427,16 @@ def _evaluate_list_table_candidate(lines: list[str], entry: TableEntry) -> ListT
             refusal_code="list-table.option-unsupported",
             refusal_category="unsupported",
         )
-    body_indent = _leading_whitespace(lines[source.body_start])
+    body_indent = (
+        source.indent
+        if source.body_start == source.start and source.first_prefix != source.indent
+        else _leading_whitespace(lines[source.body_start])
+    )
     body_lines = lines[source.body_start : source.body_end]
-    dedented = [line[len(body_indent) :] if line.startswith(body_indent) else line.lstrip() for line in body_lines]
+    dedented: list[str] = []
+    for offset, line in enumerate(body_lines):
+        prefix = source.first_prefix if offset == 0 and source.body_start == source.start else body_indent
+        dedented.append(line[len(prefix) :] if line.startswith(prefix) else line.lstrip())
     try:
         parsed = _parse_aligned_table(dedented)
     except (ApplicationError, IndexError, TypeError, ValueError) as exc:

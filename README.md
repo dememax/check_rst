@@ -31,11 +31,14 @@ Markdown source.
 
 ## Installation
 
-Requires Python 3.14 or newer. The shortest path from a clone to a working
-command is:
+Requires Python 3.14 or newer. Build ordinary installations from the tracked
+commit rather than the working tree, whose ignored build cache may contain
+stale modules:
 
 ```bash
-python3.14 -m pip install /path/to/check_rst
+cd /path/to/check_rst
+git archive --prefix=check_rst/ --output=/tmp/check_rst-source.tar HEAD
+python3.14 -m pip install /tmp/check_rst-source.tar
 check_rst --help
 ```
 
@@ -45,11 +48,10 @@ and its console entry point, along with its bounded dependencies (`docutils`,
 0.22.4 through 0.23: PyPI's Sphinx 9.1.0 resolves to docutils 0.22.4, while
 distributions such as Gentoo may provide a tested Sphinx build with docutils
 0.23.  Both runtime combinations run the same test suite.  To build the
-wheel explicitly instead:
+wheel explicitly from the same clean export instead:
 
 ```bash
-cd /path/to/check_rst
-python3.14 -m pip wheel --wheel-dir dist .
+python3.14 -m pip wheel --wheel-dir dist /tmp/check_rst-source.tar
 python3.14 -m pip install dist/check_rst-0.7.0-py3-none-any.whl
 ```
 
@@ -63,7 +65,8 @@ then install only `check_rst` into it:
 
 ```bash
 python3.14 -m venv --system-site-packages ~/opt/check_rst
-~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps /path/to/check_rst
+~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps \
+    /tmp/check_rst-source.tar
 ```
 
 This matters for verified mode: a consuming project's `conf.py` may load
@@ -106,7 +109,7 @@ The two validation hosts also differ by locale, not only by versions. An
 Ubuntu language locale such as `fr_FR.UTF-8` leaves Python's standard output
 on its strict error handler, while the Gentoo host's `C.utf8` enables Python's
 UTF-8 mode with `surrogateescape`, so identical code can crash on one host and
-not the other. The black-box tests select each regime explicitly with
+not the other without the CLI output policy. The black-box tests select each regime explicitly with
 `PYTHONIOENCODING`, independent of which locales a host has generated; run the
 suite on both hosts for any locale- or encoding-sensitive change.
 
@@ -119,11 +122,12 @@ python3.14 -m pip install --editable .
 
 Ordinary Python source edits then take effect without reinstalling. Reinstall
 after changing packaging metadata or console entry points in `pyproject.toml`.
-For a normal installation, use `python3.14 -m pip install --upgrade .`. For
-the Gentoo system-site model above, retain its dependency boundary:
+For a normal installation, upgrade from the clean archive created above. For
+the Gentoo system-site model, retain its dependency boundary:
 
 ```bash
-~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps --upgrade .
+~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps \
+    --upgrade /tmp/check_rst-source.tar
 ```
 
 The `pyproject.toml` console entry point installs `check_rst` in the

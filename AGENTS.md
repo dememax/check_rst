@@ -117,6 +117,20 @@ ruff check --no-cache src tests tools
 python3.14 -m mypy src tests tools
 ```
 
+For a release or a change that depends on Docutils node metadata, also run the
+complete suite at the declared Docutils floor.  Record both resolved versions
+in the log; a simulation that clears one node attribute is useful regression
+coverage but does not replace the real dependency lane:
+
+```bash
+floor_env=$(mktemp -d)
+python3.14 -m venv --system-site-packages "$floor_env"
+"$floor_env/bin/python" -m pip install 'docutils==0.22.4'
+"$floor_env/bin/python" -c \
+    'import docutils, sphinx; print(docutils.__version__, sphinx.__version__)'
+"$floor_env/bin/python" -m pytest
+```
+
 A test that asserts real standard-output or standard-error bytes — encoding
 errors, surrogate-escaped paths, byte-level truncation — must run the CLI in a
 subprocess (`tests/test_cli_black_box.py`'s `_run_cli`).  In-process capture

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import bisect
 import difflib
+import itertools
 import pathlib
 import re
 
@@ -34,7 +35,6 @@ from ._helpers import (
     _read_source,
     analyze_block,
     iter_title_blocks,
-    iter_underline_only,
 )
 from ._types import (
     Finding,
@@ -71,6 +71,57 @@ def fix_hygiene(path: pathlib.Path) -> bool:
     return True
 
 
+type _TitleStyle = tuple[str, bool]
+
+
+def _title_style_events(
+    lines: list[str],
+    doctree: docutils.nodes.document | None = None,
+) -> list[tuple[int, _TitleStyle]]:
+    """Return (0-based title-line index, style) for every title occurrence.
+
+    Docutils identifies a style by both its character and whether it has an
+    overline.  Collapsing those two styles into one character can silently
+    move a section when a document contains both forms.
+    """
+    multiline_paragraph_lines: set[int] = set()
+    if doctree is not None:
+        for paragraph in doctree.findall(docutils.nodes.paragraph):
+            start = paragraph.line
+            if not isinstance(start, int) or "\n" not in paragraph.rawsource:
+                continue
+            multiline_paragraph_lines.update(range(start - 1, start - 1 + len(paragraph.rawsource.splitlines())))
+    events: list[tuple[int, _TitleStyle]] = []
+    for block in iter_title_blocks(lines):
+        events.append((block.index, (block.over[0], True)))
+    for underline_index in range(1, len(lines)):
+        underline = lines[underline_index]
+        if not _is_adornment(underline) or len(underline) < _DOCUTILS_MIN_ADORNMENT_LEN:
+            continue
+        title_index = underline_index - 1
+        title = lines[title_index]
+        if not title.strip() or _is_adornment(title):
+            continue
+        if underline_index >= 2 and _is_adornment(lines[underline_index - 2]):
+            continue
+        if title_index in multiline_paragraph_lines:
+            continue
+        if (
+            doctree is None
+            and title_index > 0
+            and lines[title_index - 1].strip()
+            and re.match(r"^[ \t]*(?:[-+*]|(?:\d+|#)[.)])[ \t]+", lines[title_index - 1]) is None
+        ):
+            # Parser-free fix/diff must fail closed: without a blank separator,
+            # the apparent title can be the last line of a prose paragraph.
+            continue
+        if len(underline) < 4 and len(underline) < docutils.utils.column_width(title.strip()):
+            continue
+        events.append((title_index, (underline[0], False)))
+    events.sort(key=lambda event: event[0])
+    return events
+
+
 def _title_char_events(lines: list[str]) -> list[tuple[int, str]]:
     """Return (0-based line index, char) for EVERY title occurrence, in
     document order — full overline+title+underline blocks AND underline-only
@@ -83,21 +134,7 @@ def _title_char_events(lines: list[str]) -> list[tuple[int, str]]:
     first appearances, while the other follows every occurrence to recover
     established nesting depth.
     """
-    events: list[tuple[int, str]] = []  # (0-based line index, char)
-    for block in iter_title_blocks(lines):
-        events.append((block.index, block.over[0]))
-    for i in range(1, len(lines)):
-        adorn = lines[i]
-        if not _is_adornment(adorn) or len(adorn) < _DOCUTILS_MIN_ADORNMENT_LEN:
-            continue
-        prev = lines[i - 1]
-        if not prev.strip() or _is_adornment(prev):
-            continue
-        if i >= 2 and _is_adornment(lines[i - 2]):
-            continue  # underline of a full block, already counted above
-        events.append((i - 1, adorn[0]))  # i - 1: the title line's index
-    events.sort(key=lambda e: e[0])
-    return events
+    return [(index, style[0]) for index, style in _title_style_events(lines)]
 
 
 def _first_appearance_adornments(lines: list[str]) -> list[tuple[str, int]]:
@@ -156,16 +193,24 @@ def _established_depths(lines: list[str]) -> list[tuple[str, int, int]]:
     from _compute_hierarchy_remap's returned pairs), the not-yet-promoted
     one gets remapped onto it.
     """
-    established: dict[str, int] = {}
+    return [(style[0], lineno, depth) for style, lineno, depth in _established_style_depths(lines)]
+
+
+def _established_style_depths(
+    lines: list[str],
+    doctree: docutils.nodes.document | None = None,
+) -> list[tuple[_TitleStyle, int, int]]:
+    """Return each distinct Docutils title style and its established depth."""
+    established: dict[_TitleStyle, int] = {}
     current_depth = 0
-    result: list[tuple[str, int, int]] = []
-    for idx, char in _title_char_events(lines):
-        if char in established:
-            current_depth = established[char]
+    result: list[tuple[_TitleStyle, int, int]] = []
+    for idx, style in _title_style_events(lines, doctree):
+        if style in established:
+            current_depth = established[style]
         else:
             current_depth += 1
-            established[char] = current_depth
-            result.append((char, idx + 1, current_depth))
+            established[style] = current_depth
+            result.append((style, idx + 1, current_depth))
     return result
 
 
@@ -248,15 +293,19 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
         return Finding(lineno=lineno, severity=Severity.ERROR, text=text, fixable=True, code=code)
 
     findings: list[Finding] = []
+    modeled_titles = dict(_title_style_events(lines, doc.doctree))
 
     # Detect underline-only titles (overline is required).  Recognition
-    # rationale lives in iter_underline_only's docstring.
-    for cand in iter_underline_only(lines):
-        if _in_scope(ranges, cand.index, cand.index + 1):
+    # comes from Docutils; the lexical iterator only supplies source geometry.
+    for title_index, style in modeled_titles.items():
+        if style[1]:
+            continue
+        underline_index = title_index + 1
+        if _in_scope(ranges, underline_index, underline_index + 1):
             findings.append(
                 err(
                     FindingCode.ADORNMENT_UNDERLINE_ONLY,
-                    cand.index + 1,
+                    underline_index + 1,
                     "underline-only title — add matching overline (project rule: overline + underline required)",
                 )
             )
@@ -331,9 +380,10 @@ def _compute_adornment_fixes(lines: list[str], ranges: list[tuple[int, int]] | N
     # then process largest-first.  Only the indices are kept: the fix loop
     # below re-reads and re-validates against the mutating `result` list,
     # since an earlier insertion may have shifted a later pattern.
-    fixable: list[tuple[int, str]] = [(cand.index, "underline_only") for cand in iter_underline_only(lines)] + [
-        (block.index, "block") for block in iter_title_blocks(lines)
-    ]
+    modeled_titles = dict(_title_style_events(lines))
+    fixable: list[tuple[int, str]] = [
+        (title_index + 1, "underline_only") for title_index, style in modeled_titles.items() if not style[1]
+    ] + [(block.index, "block") for block in iter_title_blocks(lines)]
 
     fixable.sort(key=lambda x: x[0], reverse=True)
 
@@ -413,12 +463,16 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
     character at its first appearance — a style suggestion, independent
     of the ERROR-level order rule.
     """
-    lines = _resolve_document(path, doc).lines
-    remap = _compute_hierarchy_remap(lines)
+    document = _resolve_document(path, doc)
+    lines = document.lines
+    remap = _compute_hierarchy_remap(lines, document.doctree)
     findings: list[Finding] = []
 
-    for char, lineno, depth in _established_depths(lines):
-        if char not in PREFERRED_HIERARCHY:
+    warned: set[str] = set()
+    for style, lineno, depth in _established_style_depths(lines, document.doctree):
+        char = style[0]
+        if char not in PREFERRED_HIERARCHY and char not in warned:
+            warned.add(char)
             findings.append(
                 Finding(
                     lineno,
@@ -427,15 +481,17 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
                     code=FindingCode.HIERARCHY_NONPREFERRED_CHAR,
                 )
             )
-        if char in remap:
+        if style in remap:
+            target = remap[style]
             findings.append(
                 Finding(
                     lineno,
                     Severity.ERROR,
                     f"adornment {char!r} is this document's level {depth}, but "
-                    f"hierarchy level {depth} is {remap[char]!r} — established "
+                    f"hierarchy level {depth} is {target[0]!r} — established "
                     f"nesting depth must follow the hierarchy from '#' down "
-                    f"(fix remaps {char!r} to {remap[char]!r})",
+                    f"(fix remaps {char!r} to {target[0]!r}"
+                    + (" and adds an overline)" if not style[1] and target[1] else ")"),
                     fixable=True,
                     code=FindingCode.HIERARCHY_ORDER,
                 )
@@ -443,8 +499,11 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
     return findings
 
 
-def _compute_hierarchy_remap(lines: list[str]) -> dict[str, str]:
-    """Return a char→char mapping that corrects hierarchy violations.
+def _compute_hierarchy_remap(
+    lines: list[str],
+    doctree: docutils.nodes.document | None = None,
+) -> dict[_TitleStyle, _TitleStyle]:
+    """Return a source-style to target-style hierarchy mapping.
 
     Extracts each adornment char's ESTABLISHED NESTING DEPTH from *lines*
     (_established_depths — nesting-depth-aware, not the same as raw
@@ -475,7 +534,83 @@ def _compute_hierarchy_remap(lines: list[str]) -> dict[str, str]:
     was already established behavior for the preferred 6; this extends it
     uniformly rather than special-casing non-preferred characters).
     """
-    return {char: HIERARCHY[depth - 1] for char, _, depth in _established_depths(lines) if char != HIERARCHY[depth - 1]}
+    established = _established_style_depths(lines, doctree)
+    canonical_style: dict[int, _TitleStyle] = {}
+    for style, _lineno, depth in established:
+        if style[0] == HIERARCHY[depth - 1]:
+            canonical_style.setdefault(depth, style)
+    return {
+        style: canonical_style.get(depth, (HIERARCHY[depth - 1], True))
+        for style, _lineno, depth in established
+        if style != canonical_style.get(depth, (HIERARCHY[depth - 1], True))
+    }
+
+
+def _translated_ranges(
+    before: list[str],
+    after: list[str],
+    ranges: list[tuple[int, int]] | None,
+) -> list[tuple[int, int]] | None:
+    """Translate inclusive source ranges across deterministic line edits."""
+    if ranges is None:
+        return None
+    matcher = difflib.SequenceMatcher(a=before, b=after, autojunk=False)
+    opcodes = matcher.get_opcodes()
+    translated: list[tuple[int, int]] = []
+    for start, end in ranges:
+        old_start, old_end = start - 1, end
+        positions: list[int] = []
+        for tag, i1, i2, j1, j2 in opcodes:
+            overlap_start = max(old_start, i1)
+            overlap_end = min(old_end, i2)
+            if overlap_start >= overlap_end:
+                continue
+            if tag == "equal":
+                positions.extend(range(j1 + overlap_start - i1, j1 + overlap_end - i1))
+            elif j1 < j2:
+                positions.extend(range(j1, j2))
+            else:
+                positions.append(min(j1, max(0, len(after) - 1)))
+        if positions:
+            translated.append((min(positions) + 1, max(positions) + 1))
+    return translated
+
+
+def _apply_hierarchy_remap(lines: list[str], remap: dict[_TitleStyle, _TitleStyle]) -> list[str]:
+    """Apply a remap computed from the unchanged source title topology."""
+    current = list(lines)
+    for title_index, style in reversed(_title_style_events(lines)):
+        target = remap.get(style)
+        if target is None:
+            continue
+        target_char, target_overline = target
+        title, expected = _canonical_title(current[title_index])
+        if style[1]:
+            current[title_index] = title
+            current[title_index + 1] = target_char * expected
+            if target_overline:
+                current[title_index - 1] = target_char * expected
+                block_start = title_index - 1
+                underline_index = title_index + 1
+            else:
+                del current[title_index - 1]
+                block_start = title_index - 1
+                underline_index = title_index
+        else:
+            current[title_index] = title
+            current[title_index + 1] = target_char * expected
+            if target_overline:
+                current.insert(title_index, target_char * expected)
+                block_start = title_index
+                underline_index = title_index + 2
+            else:
+                block_start = title_index
+                underline_index = title_index + 1
+        if underline_index + 1 < len(current) and current[underline_index + 1] != "":
+            current.insert(underline_index + 1, "")
+        if block_start > 0 and current[block_start - 1] != "":
+            current.insert(block_start, "")
+    return current
 
 
 def _compute_structure_fixes(lines: list[str], ranges: list[tuple[int, int]] | None) -> list[str]:
@@ -491,28 +626,12 @@ def _compute_structure_fixes(lines: list[str], ranges: list[tuple[int, int]] | N
     but preserved wrong widths outside the diff scope; only the write
     itself pulled those lines into scope for a second pass.)
     """
-    current = _compute_adornment_fixes(lines, ranges)
-    # Adornment fixes and the remap feed each other: an in-scope
-    # underline-only title only becomes a block (visible to
-    # _first_appearance_adornments) once its overline is materialized, and
-    # a firing remap widens the scope for the next adornment pass.  Iterate
-    # to the fixpoint — each round makes at least one previously invisible
-    # block visible, so the round count is bounded by the block count.
-    for _ in range(len(lines) + 1):
-        remap = _compute_hierarchy_remap(current)
-        if not remap:
-            break
-        extra: list[tuple[int, int]] = []
-        for i, line in enumerate(current):
-            if _is_adornment(line) and line[0] in remap:
-                current[i] = remap[line[0]] * len(line)
-                # (i, i+1) covers the rewritten line under both conventions
-                # _in_scope is called with (0-based index and 1-based lineno).
-                extra.append((i, i + 1))
-        if ranges is not None:
-            ranges = ranges + extra
-        current = _compute_adornment_fixes(current, ranges)
-    return current
+    if ranges is None:
+        promoted = _compute_adornment_fixes(lines, None)
+        return _apply_hierarchy_remap(promoted, _compute_hierarchy_remap(promoted))
+    remapped = _apply_hierarchy_remap(lines, _compute_hierarchy_remap(lines))
+    translated_ranges = _translated_ranges(lines, remapped, ranges)
+    return _compute_adornment_fixes(remapped, translated_ranges)
 
 
 def fix_structure(
@@ -790,9 +909,10 @@ def _title_spans(lines: list[str]) -> list[tuple[int, int]]:
     and after fixing belong to the same title even when inserted overlines
     or blank lines shift every line number below it.
     """
-    spans = [(block.index, block.index + 2) for block in iter_title_blocks(lines)]
-    spans.extend((cand.index, cand.index + 1) for cand in iter_underline_only(lines))
-    return sorted(spans)
+    return [
+        (title_index, title_index + 2) if style[1] else (title_index + 1, title_index + 2)
+        for title_index, style in _title_style_events(lines)
+    ]
 
 
 def _diagnostics_by_title(
@@ -867,9 +987,17 @@ def _plan_fix(
     original = _read_source(path)
     normalized, _findings, counts = _normalize_source_detailed(original)
     ranges = None if whole_file or not include_structure else _changed_line_ranges(path, project_root)
+    # A malformed underline-only placeholder may not yet be a title node, so
+    # title-space evidence cannot classify it until the structural pass adds
+    # the required overline.  Materialize that structure first, collapse the
+    # now-proven title text, then rebuild geometry from the collapsed title in
+    # the same plan.  Reapplying this composition is a fixed point.
+    editorial_source = (
+        _apply_structure_to_text(normalized, ranges) if include_structure and collapse_title_spaces else normalized
+    )
     editorial_fixed, space_counts = _normalize_text_spaces(
         path,
-        normalized,
+        editorial_source,
         collapse_titles=collapse_title_spaces,
         single_space_prose=single_space_prose,
     )
@@ -882,7 +1010,10 @@ def _plan_fix(
         _changed_line_count(editorial_fixed, structure_fixed) if include_structure else 0
     )
 
+    convergence_ranges = _translated_ranges(normalized.splitlines(), fixed.splitlines(), ranges)
     converged, _findings, _counts = _normalize_source_detailed(fixed)
+    if include_structure and collapse_title_spaces:
+        converged = _apply_structure_to_text(converged, convergence_ranges)
     converged, _space_counts = _normalize_text_spaces(
         path,
         converged,
@@ -890,7 +1021,7 @@ def _plan_fix(
         single_space_prose=single_space_prose,
     )
     if include_structure:
-        converged = _apply_structure_to_text(converged, ranges)
+        converged = _apply_structure_to_text(converged, convergence_ranges)
     if include_blank_lines:
         converged, _removed = _normalize_blank_lines(path, converged)
     if converged != fixed:
@@ -1036,6 +1167,78 @@ _INTERNAL_ASCII_SPACES_RE = re.compile(r"(?<=\S) {2,}(?=\S)")
 _TEXT_NODE_SPACES_RE = re.compile(r" {2,}")
 
 
+def _grid_table_line_indexes(text: str) -> set[int]:
+    """Return source rows lexically owned by complete grid-table blocks."""
+    lines = text.splitlines()
+    owned: set[int] = set()
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].lstrip()
+        if not (stripped.startswith("+") and stripped.endswith("+") and "-" in stripped):
+            index += 1
+            continue
+        end = index
+        while end < len(lines) and lines[end].lstrip().startswith(("+", "|")):
+            end += 1
+        if end - index >= 3 and lines[end - 1].lstrip().startswith("+"):
+            owned.update(range(index, end))
+        index = max(end, index + 1)
+    return owned
+
+
+_LITERAL_DIRECTIVE_RE = re.compile(r"^\s*\.\.\s+(?:code|code-block|sourcecode|raw|parsed-literal|math)::(?:\s|$)")
+
+
+def _literal_block_line_indexes(text: str) -> set[int]:
+    """Return indented source rows owned by literal or fixed-text blocks."""
+    lines = text.splitlines()
+    owned: set[int] = set()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not (stripped.endswith("::") or _LITERAL_DIRECTIVE_RE.match(line)):
+            continue
+        base_indent = len(line) - len(line.lstrip())
+        content = index + 1
+        while content < len(lines) and not lines[content].strip():
+            content += 1
+        if content >= len(lines) or len(lines[content]) - len(lines[content].lstrip()) <= base_indent:
+            continue
+        end = content
+        while end < len(lines):
+            if lines[end].strip() and len(lines[end]) - len(lines[end].lstrip()) <= base_indent:
+                break
+            end += 1
+        owned.update(range(content, end))
+    return owned
+
+
+def _simple_table_protected_spans(text: str) -> dict[int, list[tuple[int, int]]]:
+    """Return structural column-padding spans for lexical simple tables."""
+    lines = text.splitlines()
+    protected: dict[int, list[tuple[int, int]]] = {}
+    open_rules: dict[tuple[tuple[int, int], ...], int] = {}
+    for index, line in enumerate(lines):
+        if not line.strip():
+            open_rules.clear()
+            continue
+        if re.fullmatch(r"\s*=+(?:\s+=+)+\s*", line) is None:
+            continue
+        runs = tuple(match.span() for match in re.finditer(r"=+", line))
+        start = open_rules.get(runs)
+        if start is not None:
+            gaps = [(left[1], right[0]) for left, right in itertools.pairwise(runs)]
+            for row_index in range(start, index + 1):
+                row = lines[row_index]
+                protected[row_index] = [(0, len(row))] if re.fullmatch(r"\s*=+(?:\s+=+)+\s*", row) is not None else gaps
+        open_rules[runs] = index
+    return protected
+
+
+def _fixed_text_line_indexes(text: str) -> set[int]:
+    """Return source rows whose repeated spaces are structural or literal."""
+    return _grid_table_line_indexes(text) | _literal_block_line_indexes(text)
+
+
 def _editable_text_scope(node: docutils.nodes.Text) -> str | None:
     """Return the permitted editorial owner for a visible Text node.
 
@@ -1109,9 +1312,7 @@ def _text_space_evidence(path: pathlib.Path, text: str) -> _TextSpaceEvidence:
 def _title_line_indexes(text: str) -> set[int]:
     """Return exact 0-based source lines owned by complete or short titles."""
     lines = text.splitlines()
-    indexes = {block.index for block in iter_title_blocks(lines)}
-    indexes.update(candidate.index - 1 for candidate in iter_underline_only(lines))
-    return indexes
+    return {title_index for title_index, _style in _title_style_events(lines)}
 
 
 def _text_space_edits(
@@ -1122,11 +1323,15 @@ def _text_space_edits(
 ) -> list[_TextSpaceEdit]:
     """Collect internal ASCII-space candidates with source ownership labels."""
     title_lines = _title_line_indexes(text)
+    fixed_lines = _fixed_text_line_indexes(text)
+    simple_table_spans = _simple_table_protected_spans(text)
     edits: list[_TextSpaceEdit] = []
     offset = 0
     for line_index, physical_line in enumerate(text.splitlines(keepends=True)):
         line = physical_line[:-1] if physical_line.endswith("\n") else physical_line
-        if line_index in title_lines:
+        if line_index in fixed_lines:
+            scope = None
+        elif line_index in title_lines:
             scope = "title" if collapse_titles else None
         else:
             scope = "prose" if single_space_prose else None
@@ -1134,6 +1339,10 @@ def _text_space_edits(
             edits.extend(
                 _TextSpaceEdit(offset + match.start(), offset + match.end(), scope)
                 for match in _INTERNAL_ASCII_SPACES_RE.finditer(line)
+                if not any(
+                    match.start() < protected_end and match.end() > protected_start
+                    for protected_start, protected_end in simple_table_spans.get(line_index, [])
+                )
             )
         offset += len(physical_line)
     return sorted(edits, key=lambda edit: edit.start, reverse=True)
@@ -1217,6 +1426,8 @@ def _normalize_text_spaces(
     single_space_prose: bool,
 ) -> tuple[str, TextSpaceCounts]:
     """Apply exactly the requested, structurally proven editorial deltas."""
+    if not collapse_titles and not single_space_prose:
+        return text, TextSpaceCounts()
     edits = _text_space_edits(
         text,
         collapse_titles=collapse_titles,

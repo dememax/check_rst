@@ -39,7 +39,8 @@ IMPORTANT OPTIONS
 ``--skip-fixable``
    Hide findings that ``fix`` can resolve while keeping WARNINGs and
    non-fixable ERRORs.  This is the recommended first pass before mutation.
-   The summary reports how many auto-fixable findings were suppressed.
+   The summary reports how many auto-fixable findings were suppressed;
+   ``--verbose`` also names their rule codes and lines.
 
 ``--no-warnings``
    Hide WARNING findings while continuing to count and report ERRORs.  The
@@ -65,7 +66,8 @@ IMPORTANT OPTIONS
    remain complete and valid.
 
 ``--quiet``, ``--verbose``, ``--word-samples N``
-   Control progress, supporting detail, and prose-word samples.
+   Control progress, supporting detail, and prose-word samples.  ``--quiet``
+   and ``--verbose`` are mutually exclusive.
 
 *************
 EXIT STATUS

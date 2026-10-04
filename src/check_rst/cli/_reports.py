@@ -143,7 +143,7 @@ def _runtime_metadata(verified: bool, word_samples: bool) -> dict[str, Any]:
         stemmer_runtime = {"version": stemmer_version}
 
     return {
-        "check_rst": {"version": __version__},
+        "check_rst": {"version": __version__, "contract_version": _helpers._CLI_CONTRACT_VERSION},
         "python": {
             "version": platform.python_version(),
             "executable": sys.executable,
@@ -891,12 +891,15 @@ def _run_context_query(
 
     env: sphinx.environment.BuildEnvironment | None = None
     sphinx_findings: list[Finding] = []
+    outside_sphinx = sphinx_src is not None and not path.resolve().is_relative_to(sphinx_src.resolve())
+    if outside_sphinx:
+        print(f"{path}: outside sphinx-src — Phase 0/1 only")
     keep_build = build_dir is not None
     actual_build_dir = (
         build_dir if build_dir is not None else pathlib.Path(tempfile.mkdtemp(prefix="check_rst_context_"))
     )
     try:
-        if sphinx_src is None:
+        if sphinx_src is None or outside_sphinx:
             local_docname = _docname_id(path, project_root)
             code_blocks = document.code_blocks_heuristic
             outline = document.outline
@@ -1160,6 +1163,8 @@ def _load_json_dump(path: pathlib.Path) -> dict[str, Any]:
                 schema_error(f"{label} missing {key!r}")
             if not isinstance(record[key], str):
                 schema_error(f"{label}.{key} must be a string")
+        if "scope" in record and record["scope"] not in {"source", "project-wide"}:
+            schema_error(f"{label}.scope must be 'source' or 'project-wide'")
 
     seen_paths: set[str] = set()
     for i, file_record in enumerate(data["files"]):

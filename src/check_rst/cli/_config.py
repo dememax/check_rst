@@ -52,6 +52,12 @@ def _config_table(
         table = tool.get("check_rst", {}) if isinstance(tool, dict) else {}
     else:
         table = data
+    if not table and path.name == ".check_rst.toml":
+        # The dedicated file is itself an explicit project decision.  An
+        # empty/comment-only file means "no Sphinx facts" and, critically,
+        # stops discovery before a pyproject.toml can silently enable verified
+        # mode and execute conf.py.
+        return {}
     if not table:
         if explicit:
             _config_error(source, "does not declare check_rst settings", explicit=True)

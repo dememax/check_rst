@@ -49,9 +49,28 @@ fixes, compatibility changes, observed RED/GREEN result, and validation.  For a
 breaking change it also states the distinctive downstream failure signature
 required by ``AGENTS.md``.
 
-Run the complete validation from ``AGENTS.md`` and build the wheel from the
-version-bump commit.  The built artifact must therefore contain the same source
-that the tag will identify.
+Increment the CLI contract version in the same release when an existing
+wrapper-visible command-line or JSON runtime contract becomes incompatible.
+An additive schema-1 JSON member does not require a bump because consumers are
+already required to tolerate additive members.  Record the decision either way
+in the release commit body so a downstream version gate can be updated from an
+explicit compatibility fact.
+
+Run the complete validation from ``AGENTS.md``.  Export the version-bump commit
+to a fresh directory and build the wheel there; never build a release artifact
+from the working tree, where an ignored ``build/lib`` cache can inject deleted
+modules.  The complete export, build, and verification sequence is::
+
+   release_tree=$(mktemp -d)
+   git archive <release-commit> | tar -x -C "$release_tree"
+   python3.14 -m pip wheel --no-deps --no-build-isolation \
+       --wheel-dir "$release_tree/dist" "$release_tree"
+   python3.14 "$release_tree/tools/verify_wheel_contents.py" \
+       "$release_tree/dist/check_rst-X.Y.Z-py3-none-any.whl" \
+       --source "$release_tree/src/check_rst"
+
+The built artifact must contain the same Python modules and source that the tag
+will identify.
 
 ***************************
 Create and verify the tag
@@ -66,12 +85,13 @@ backdate the tag:
    git var GIT_COMMITTER_IDENT
    test -z "${GIT_COMMITTER_DATE-}"
 
-Create the tag with ``--no-sign`` so host configuration cannot silently change
-the chosen unsigned-tag policy:
+Create the tag with ``--no-sign`` and a command-scoped identity override so
+host-specific Git identity conventions cannot change the release identity:
 
 .. code-block:: bash
 
-   git tag --no-sign -a vX.Y.Z -F <message-file> <release-commit>
+   git -c user.name='Maxime P. DEMENTYEV' -c user.email='dememax@hotmail.com' \
+       tag --no-sign -a vX.Y.Z -F <message-file> <release-commit>
 
 The message has this form:
 

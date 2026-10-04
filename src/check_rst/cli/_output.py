@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import collections
 import contextlib
+import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -47,8 +48,30 @@ def _configure_stdout_for_filesystem_paths(stream: TextIO) -> None:
     retained real stream owns the byte-preserving policy.
     """
     reconfigure = getattr(stream, "reconfigure", None)
-    if reconfigure is not None and getattr(stream, "errors", None) == "strict":
+    if reconfigure is None:
+        return
+    encoding = (getattr(stream, "encoding", None) or "").replace("-", "").replace("_", "").lower()
+    errors = getattr(stream, "errors", None)
+    if encoding == "utf8" and errors == "strict":
         reconfigure(errors="surrogateescape")
+    elif encoding != "utf8" and errors in {"strict", "surrogateescape"}:
+        configured_errors = os.environ.get("PYTHONIOENCODING", "").partition(":")[2]
+        if errors == "surrogateescape" and configured_errors == "surrogateescape":
+            return
+        reconfigure(errors="backslashreplace")
+
+
+def _write_utf8(stream: TextIO, text: str) -> None:
+    """Write a documented UTF-8 payload without consulting locale encoding."""
+    payload = text.encode("utf-8", errors="backslashreplace")
+    buffer = getattr(stream, "buffer", None)
+    if buffer is not None:
+        buffer.write(payload)
+        buffer.flush()
+    else:
+        # StringIO and similar test adapters have no byte layer.
+        stream.write(payload.decode("utf-8"))
+        stream.flush()
 
 
 class OutputBudgetSink:
@@ -113,6 +136,12 @@ class OutputBudgetSink:
         skipped = self.total - shown
         for line in self.prefix:
             self.target.write(f"{line}\n")
+
+        if skipped == 0:
+            if self.final_status is not None:
+                self.target.write(f"{self.final_status}\n")
+            self.target.flush()
+            return
 
         classification = [
             f"{count} {kind}" for kind in ("ERROR", "WARNING", "outline") if (count := self.skipped_by_kind[kind])
@@ -431,7 +460,7 @@ _FINDING_HINTS: dict[FindingCode, tuple[str, str]] = {
     ),
     FindingCode.PSEUDO_HEADING_BOLD_OPENER: (
         "bold paragraph opener",
-        "AI documents often use this pattern as an informal heading; consider a proper section title",
+        "AI documents often use this pattern as an informal heading; choose a reviewed disposition: promote, retain, rewrite, or restructure",
     ),
     FindingCode.PSEUDO_HEADING_STANDALONE_BOLD: (
         "standalone bold line",

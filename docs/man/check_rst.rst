@@ -21,6 +21,7 @@ SYNOPSIS
    check_rst [GLOBAL-OPTION]... COMMAND [COMMAND-OPTION]... [FILE]...
    check_rst --help
    check_rst --version
+   check_rst --contract-version
 
 *************
 DESCRIPTION
@@ -61,6 +62,13 @@ Global options precede the command, in the same style as Git.
 
 ``--version``
    Print the package version, copyright holder, and SPDX license expression.
+
+``--contract-version``
+   Print the integer CLI contract version for downstream wrappers.
+   Increment it when a wrapper-visible command-line or JSON runtime contract becomes incompatible.
+   Keep it stable for package releases whose existing wrapper contract remains
+   compatible; it is independent of the package version and the JSON
+   ``schema_version``.
 
 ****************
 FILE SELECTION

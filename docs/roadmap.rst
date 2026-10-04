@@ -73,6 +73,20 @@ Two concrete capabilities remain agreed but unimplemented:
   the staged order recorded under "Semantic-diff coverage below the section
   level".
 
+==================
+0.8.0 candidates
+==================
+
+The next minor release has four interface candidates:
+
+* cross-path snapshot pairing;
+* JSON output for further commands;
+* opt-in list-table reflow;
+* a byte-safe JSON path field.
+
+These are candidates rather than commitments; each still requires its own
+acceptance contract and RED tests.
+
 ===================================
 Workable through existing bridges
 ===================================
@@ -2473,13 +2487,13 @@ live probe found independent crashes in ordinary ``check``, ``outline``, and
 ``list-table`` reports.  Existing in-process coverage had hidden the defect
 because pytest's default ``capfd`` stream uses ``errors="replace"``.
 
-CLI startup now changes an ordinary strict standard-output stream to
-``surrogateescape`` before any output-budget adapter retains it.  This is one
-output-boundary policy rather than an audit of every ``print`` call; it matches
-the C/POSIX UTF-8 behavior that already worked and preserves exact filename
-bytes in unified-diff headers.  Standard error keeps Python's
-``backslashreplace`` policy, and an explicit non-strict standard-output policy
-is not overridden.
+CLI startup changes an ordinary strict UTF-8 standard-output stream to
+``surrogateescape`` before any output-budget adapter retains it.  A strict
+non-UTF-8 stream instead uses ``backslashreplace`` so regular Unicode output
+does not crash.  This is one output-boundary policy rather than an audit of
+every ``print`` call; it preserves exact filename bytes in UTF-8 unified-diff
+headers.  Standard error keeps Python's defensive policy, and an explicitly
+selected non-strict standard-output policy is not overridden.
 
 JSON remains a separate machine-readable contract: lone surrogates become
 ``\uDCXX`` escapes before printing, so the wire bytes remain valid UTF-8 while

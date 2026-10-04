@@ -8,6 +8,8 @@ import argparse
 import collections
 import contextlib
 import difflib
+import io
+import json
 import pathlib
 import shutil
 import sys
@@ -20,6 +22,7 @@ from . import _comparison, _formatting, _helpers, _output
 from ._config import LoadedConfig, _load_config
 from ._formatting import _plan_fix, diff_entitle, diff_fixes, fix_entitle
 from ._helpers import (
+    _CLI_CONTRACT_VERSION,
     HIERARCHY,
     PREFERRED_HIERARCHY,
     _atomic_write_bytes,
@@ -318,6 +321,9 @@ def _run_entitle(args: argparse.Namespace) -> NoReturn:
     exit-status contract already states: it answers whether the query
     resolved, not whether the document validates)."""
     path: pathlib.Path = args.file
+    if path.suffix != ".rst":
+        print(f"check_rst: {path}: expected an .rst file")
+        raise SystemExit(1)
     if not path.is_file():
         problem = "file not found" if not path.exists() else "not a regular file"
         print(f"check_rst: {path}: {problem}")
@@ -413,12 +419,16 @@ def _add_project_flags(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_no_toctree_flag(parser: argparse.ArgumentParser) -> None:
+def _add_no_toctree_flag(parser: argparse.ArgumentParser, *, check: bool = False) -> None:
     """--no-toctree — shared by every verb whose structure/model can recurse toctrees."""
     parser.add_argument(
         "--no-toctree",
         action="store_true",
-        help="don't recurse .. toctree:: directives in verified mode; default recurses fully",
+        help=(
+            "don't recurse .. toctree:: directives in verified mode; requires --format=json"
+            if check
+            else "don't recurse .. toctree:: directives in verified mode; default recurses fully"
+        ),
     )
 
 
@@ -434,6 +444,7 @@ def _add_scope_flags(parser: argparse.ArgumentParser, *, outline: bool = False) 
         action="store_true",
         help=(
             "select files through Git; show whole-document structure; findings use changed-line scope"
+            "; requires at least one file"
             if outline
             else "treat positional files as a Git allowlist; findings use changed-line scope"
         ),
@@ -462,12 +473,13 @@ def _add_quiet_flag(parser: argparse.ArgumentParser) -> None:
 
 def _add_quiet_verbose_words(parser: argparse.ArgumentParser) -> None:
     """--quiet/--verbose/--word-samples — shared by check/fix/diff/outline."""
-    parser.add_argument(
+    verbosity = parser.add_mutually_exclusive_group()
+    verbosity.add_argument(
         "--verbose",
         action="store_true",
         help="extra detail on bold/rubric WARNINGs, plus footer and outline statistics",
     )
-    _add_quiet_flag(parser)
+    verbosity.add_argument("--quiet", action="store_true", help=_QUIET_HELP)
     parser.add_argument(
         "--word-samples",
         type=int,
@@ -707,6 +719,12 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         version=_VERSION_BANNER,
         help="show version, copyright, and license, then exit",
     )
+    parser.add_argument(
+        "--contract-version",
+        action="version",
+        version=str(_CLI_CONTRACT_VERSION),
+        help="show the integer CLI contract version, then exit",
+    )
     _add_project_flags(parser)
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
@@ -727,7 +745,7 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         default="text",
         help="text (default) or json: complete document model as one object, nothing else on stdout",
     )
-    _add_no_toctree_flag(check_p)
+    _add_no_toctree_flag(check_p, check=True)
     _add_max_output_lines(check_p)
     check_p.set_defaults(**_CLI_ATTR_DEFAULTS)
 
@@ -751,7 +769,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         parents=[full, mutating],
         help="print unified diff of what fix would change",
         description=(
-            "Reviewer/auditor role, read-only: preview what fix would change. --fast stops after Phase 1.\n"
+            "Reviewer/auditor role, read-only: preview what fix would change. "
+            "--fast previews only byte hygiene and title structure.\n"
             "--max-output-lines is intentionally unavailable:\n"
             "a truncated patch could look complete or applicable; narrow the file scope instead."
         ),
@@ -1164,7 +1183,7 @@ def _git_section_dump(
     return {
         "schema_version": 1,
         "mode": "parser-effective",
-        "runtime": {},
+        "runtime": {"check_rst": {"version": __version__, "contract_version": _CLI_CONTRACT_VERSION}},
         "files": files,
         "summary": {"files_checked": len(files), "errors": 0, "warnings": 0},
     }
@@ -1454,14 +1473,6 @@ def _discover_and_validate_files(
             _print_fix_only_status(len(files), len(invalid_files), 0)
         sys.exit(1)
 
-    if not args.diff_only and args.sphinx_src is not None:
-        sphinx_root = args.sphinx_src.resolve()
-        foreign_files = [path for path in files if not path.resolve().is_relative_to(sphinx_root)]
-        if foreign_files:
-            for path in foreign_files:
-                print(f"check_rst: {path}: not part of --sphinx-src {args.sphinx_src}")
-            sys.exit(1)
-
     unmerged_files = _unmerged_files(files)
     if unmerged_files:
         for path in unmerged_files:
@@ -1659,14 +1670,18 @@ def _main() -> None:
         )
 
     if args.context is not None:
-        with _sphinx_build_lock(args.build_dir if args.sphinx_src is not None else None):
+        context_sphinx_src = args.sphinx_src
+        if context_sphinx_src is not None and not files[0].resolve().is_relative_to(context_sphinx_src.resolve()):
+            context_sphinx_src = None
+            print(f"{files[0]}: outside sphinx-src — Phase 0/1 only")
+        with _sphinx_build_lock(args.build_dir if context_sphinx_src is not None else None):
             sys.exit(
                 _run_context_query(
                     args.context,
                     files[0],
                     project_root,
-                    args.sphinx_src,
-                    args.build_dir,
+                    context_sphinx_src,
+                    args.build_dir if context_sphinx_src is not None else None,
                     args.no_toctree,
                 )
             )
@@ -1693,30 +1708,103 @@ def _main() -> None:
 
 def _requested_output_limit(argv: list[str]) -> int | None:
     """Return a valid bootstrap limit without replacing argparse validation."""
-    if "-h" in argv or "--help" in argv:
+    if any(option in argv for option in ("-h", "--help", "--version", "--contract-version")):
         return None
-    requested: int | None = None
-    for index, token in enumerate(argv):
-        if token == "--":
-            break
-        raw: str | None = None
-        if token == "--max-output-lines" and index + 1 < len(argv):
-            raw = argv[index + 1]
-        elif token.startswith("--max-output-lines="):
-            raw = token.partition("=")[2]
-        if raw is not None:
-            try:
-                limit = int(raw)
-            except ValueError:
-                return None
-            requested = limit
+    with contextlib.redirect_stderr(io.StringIO()):
+        try:
+            args = _build_cli_parser().parse_args(argv)
+        except SystemExit:
+            return None
+    if args.command not in {"check", "fix", "outline"}:
+        return None
+    requested = args.max_output_lines
     return requested if requested is not None and requested >= 2 else None
+
+
+def _json_check_requested(argv: list[str]) -> bool:
+    """Recognize check's JSON writer before project/config validation runs."""
+    if "-h" in argv or "--help" in argv:
+        return False
+    try:
+        command_index = argv.index("check")
+    except ValueError:
+        return False
+    tail = argv[command_index + 1 :]
+    return "--format=json" in tail or any(
+        token == "--format" and index + 1 < len(tail) and tail[index + 1] == "json" for index, token in enumerate(tail)
+    )
+
+
+def _json_failure_document(message: str, exit_code: int) -> dict[str, Any]:
+    """Return the schema-v1 result used before per-file state exists."""
+    errors = [] if exit_code == 0 else [{"kind": "command", "message": message}]
+    return {
+        "schema_version": 1,
+        "mode": "unavailable",
+        "runtime": {"check_rst": {"version": __version__, "contract_version": _CLI_CONTRACT_VERSION}},
+        "config": None,
+        "files": [],
+        "errors": errors,
+        "summary": {
+            "files_checked": 0,
+            "errors": len(errors),
+            "warnings": 0,
+            "suppressed": {"warnings": 0, "fixable": 0, "restatements": 0},
+            "retained": 0,
+            "lines": 0,
+            "empty_lines": 0,
+            "chars": 0,
+            "bytes": 0,
+        },
+        "stale_retentions": [],
+    }
+
+
+def _run_json_check() -> NoReturn:
+    """Make every recognizable JSON check produce exactly one JSON object."""
+    captured_stdout = io.StringIO()
+    captured_stderr = io.StringIO()
+    caught: SystemExit | None = None
+    exit_code = 0
+    with contextlib.redirect_stdout(captured_stdout), contextlib.redirect_stderr(captured_stderr):
+        try:
+            _main()
+        except SystemExit as exc:
+            caught = exc
+            exit_code = exc.code if isinstance(exc.code, int) else 1
+    captured_output = captured_stdout.getvalue()
+    report = captured_output.strip()
+    diagnostics = captured_stderr.getvalue()
+    data: Any | None = None
+    report_start = 0
+    decoder = json.JSONDecoder()
+    for candidate in (index for index, char in enumerate(captured_output) if char == "{"):
+        try:
+            decoded, end = decoder.raw_decode(captured_output, candidate)
+        except json.JSONDecodeError:
+            continue
+        if captured_output[end:].strip() == "":
+            data = decoded
+            report_start = candidate
+            break
+    if data is None:
+        message = "\n".join(part for part in (report, diagnostics.strip()) if part)
+        data = _json_failure_document(message, exit_code)
+    else:
+        noise = captured_output[:report_start]
+        if noise or diagnostics:
+            sys.stderr.write(noise + diagnostics)
+            sys.stderr.flush()
+    _output._write_utf8(sys.stdout, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    raise caught if caught is not None else SystemExit(exit_code)
 
 
 def main() -> None:
     """Run the CLI, installing the whole-report sink when requested."""
-    _output._configure_stdout_for_filesystem_paths(sys.stdout)
     _helpers._require_pygit2_version()
+    if _json_check_requested(sys.argv[1:]):
+        _run_json_check()
+    _output._configure_stdout_for_filesystem_paths(sys.stdout)
     limit = _requested_output_limit(sys.argv[1:])
     if limit is None:
         _main()

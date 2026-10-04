@@ -462,8 +462,8 @@ Version parity is not environment parity
 Assert the required result, not merely the absence of one failure signature
   ``"Traceback" not in stderr`` would also pass if a broad
   exception handler silently omitted the preview.  The strengthened regression
-  requires the expected exit status, empty standard error, exact byte-named
-  diff headers and body, and the authoritative final status line.  JSON
+  requires the expected exit status, empty standard error, the documented
+  escaped or byte-preserving diff headers and body, and the authoritative final status line.  JSON
   coverage additionally requires valid UTF-8, successful parsing, and recovery
   of the original filename byte.
 
@@ -475,11 +475,12 @@ One crashing print call may expose an output-boundary defect
   diff, human report, and JSON paths.
 
 Output channels do not necessarily share one encoding contract
-  Human reports and unified-diff headers need Unix filename bytes to
-  round-trip, so a strict standard output becomes ``surrogateescape``.  JSON
-  promises UTF-8 text, so the same low surrogate must instead become a
-  reversible JSON escape.  Standard error already uses Python's defensive
-  ``backslashreplace`` policy and did not need modification.
+  Human reports and unified-diff headers use visible ``backslashreplace``
+  escapes on a strict stream; an explicitly configured ``surrogateescape``
+  stream retains its byte-preserving policy.  JSON promises UTF-8 text, so the
+  low surrogate becomes a reversible JSON escape written through the byte
+  stream.  Standard error already uses Python's defensive ``backslashreplace``
+  policy and did not need modification.
 
 Presence is not positive evidence in a value-bearing mapping
   ``Counter[key] += 0`` still materializes ``key``.  An earlier
@@ -501,6 +502,15 @@ A modeled coordinate is not yet an editable range or an exact report
   closed when that physical predicate is not proven; before reporting, derive
   the location from physical evidence as well, and never present an unproven
   fallback as exact.
+
+A declared dependency floor needs a real dependency lane
+  Clearing the ``line`` and ``source`` attributes on a Docutils 0.23 table node
+  reproduced one 0.22.4 difference and protected the table-comment fix, but it
+  did not reproduce 0.22.4's one-line shift for rubric directives.  The full
+  suite in a disposable environment with Docutils 0.22.4 found the remaining
+  mismatch.  Compatibility claims therefore require the real minimum version,
+  with the resolved Docutils and Sphinx versions printed in the log; targeted
+  attribute simulation remains useful focused coverage rather than a substitute.
 
 Trace reachability before using a hypothetical as proof
   A direct ``sys.stdout.buffer`` write would bypass text adapters and was

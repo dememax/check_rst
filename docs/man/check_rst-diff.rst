@@ -30,9 +30,10 @@ parser-verified text policies have the same meaning as for ``fix``.
 
 On Unix, a filename may contain bytes that are not UTF-8.  When standard
 output would otherwise reject Python's surrogate-escaped representation,
-``check_rst`` selects the ``surrogateescape`` error handler so the unified
-diff headers retain the original filename bytes.  An explicitly selected
-non-strict output error policy remains under the caller's control.
+``check_rst`` selects ``backslashreplace`` so the unified diff headers show a
+stable ``\udcXX`` escape instead of crashing.  An explicitly selected
+non-strict output error policy, including ``surrogateescape``, remains under
+the caller's control.
 
 ``--max-output-lines`` is intentionally unavailable: a truncated patch could
 look complete or applicable.  Narrow the file scope with explicit files or

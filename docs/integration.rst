@@ -49,13 +49,13 @@ installation.  A distribution-built ``pygit2`` may link the system library
 instead.  The runtime provenance line reports the ``libgit2`` version actually
 linked, which is the authoritative answer on a given host.
 
-The console boundary preserves those paths too.  CLI startup changes a strict
-standard-output error handler to ``surrogateescape`` before installing any
-report sink, while leaving an explicit non-strict policy and standard error
-alone.  Human reports and unified diffs can therefore round-trip the original
-filename bytes.  The JSON interface instead writes a valid UTF-8 ``\uDCXX``
-escape for each undecodable byte; a surrogate-preserving parser plus the
-platform filesystem encoder recovers the physical path.
+The console boundary exposes those paths without crashing.  CLI startup
+changes a strict standard-output error handler to ``backslashreplace`` before
+installing any report sink, while leaving an explicit non-strict policy and
+standard error alone.  Human reports and unified diffs therefore show a stable
+``\udcXX`` escape under a strict locale.  The JSON interface writes UTF-8 bytes
+directly and uses a valid JSON ``\uDCXX`` escape; a surrogate-preserving parser
+plus the platform filesystem encoder recovers the physical path.
 
 The interpreter boundary must still include every Sphinx extension loaded by
 consumer ``conf.py`` files.  On Gentoo, the preferred host-wide installation

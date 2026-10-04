@@ -156,6 +156,7 @@ class Finding:
     text: str
     source: str | None = None
     fixable: bool = False
+    project_wide: bool = dataclasses.field(default=False, kw_only=True)
     code: FindingCode = dataclasses.field(kw_only=True)
     sphinx: SphinxSource | None = dataclasses.field(default=None, kw_only=True)
     location_exact: bool = dataclasses.field(default=True, kw_only=True)
@@ -170,7 +171,8 @@ class Finding:
 
     def __str__(self) -> str:
         marker = "" if self.location_exact else " (approximate line)"
-        return f"{self.lineno}: {self.severity}: {self.text}{marker}"
+        scope = "[project-wide] " if self.project_wide else ""
+        return f"{self.lineno}: {self.severity}: {scope}{self.text}{marker}"
 
     def __contains__(self, item: object) -> bool:
         """Support ``"substring" in finding`` for test assertions."""

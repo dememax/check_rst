@@ -30,7 +30,7 @@ from ._formatting import (
     check_single_top_level,
     diff_fixes,
 )
-from ._helpers import _JSON_SCHEMA_VERSION, _read_normalized, _relative_to_root
+from ._helpers import _JSON_SCHEMA_VERSION, _in_scope, _read_normalized, _relative_to_root
 from ._lint import check_directives, check_homoglyphs, check_nested_inline_markup
 from ._output import (
     _emit_final_status,
@@ -84,6 +84,7 @@ class _PipelineState:
     """
 
     total_errors: int = 0
+    whole_file: bool = True
     total_warnings: int = 0
     files_checked: int = 0
     documents: dict[pathlib.Path, Document] = dataclasses.field(default_factory=dict)
@@ -104,6 +105,9 @@ class _PipelineState:
     fixed_files: set[str] = dataclasses.field(default_factory=set)
     would_change: set[str] = dataclasses.field(default_factory=set)
     suppressed_fixable: collections.Counter[pathlib.Path] = dataclasses.field(default_factory=collections.Counter)
+    suppressed_fixable_details: dict[pathlib.Path, list[Finding]] = dataclasses.field(
+        default_factory=lambda: collections.defaultdict(list)
+    )
     # Findings a deliberate filter hid, kept apart from the visible totals so a
     # summary never presents "hidden" as "absent" (decided 2026-09-26).
     suppressed_warnings: int = 0
@@ -252,6 +256,49 @@ def _owned_findings_filter(
     return lambda findings: [finding for finding in findings if not owned_elsewhere(finding)]
 
 
+def _root_finding_in_scope(finding: Finding, document: Document, whole_file: bool) -> bool:
+    """Return whether a finding located in *document* is in changed scope.
+
+    Included-source ownership is handled separately through composition.  This
+    predicate covers root-owned Phase 2 findings and Sphinx diagnostics whose
+    structured physical path is the selected root.  An unlocated Sphinx build
+    failure is project-wide and must remain visible.
+    """
+    if whole_file:
+        return True
+    scope_line = finding.order[0] if finding.source is not None and finding.order else finding.lineno
+    return scope_line <= 0 or _in_scope(document.ranges, scope_line, scope_line)
+
+
+def _sphinx_finding_in_scope(
+    finding: Finding,
+    documents: dict[pathlib.Path, Document],
+    whole_file: bool,
+) -> bool:
+    """Apply changed-line scope to a structured Sphinx diagnostic."""
+    if whole_file or finding.sphinx is None or finding.sphinx.path is None:
+        return True
+    physical = finding.sphinx.path.resolve()
+    for path, document in documents.items():
+        if path.resolve() == physical:
+            return _root_finding_in_scope(finding, document, whole_file=False)
+        for include in document.includes:
+            included_path = pathlib.Path(include.resolved)
+            if not included_path.is_absolute():
+                included_path = document.project_root / included_path
+            if included_path.resolve() != physical:
+                continue
+            provenance = include.provenance
+            scope_line = (
+                provenance.include_chain[0].lineno
+                if provenance is not None and provenance.include_chain
+                else include.lineno
+            )
+            if _in_scope(document.ranges, scope_line, scope_line):
+                return True
+    return False
+
+
 def _run_phase1(
     args: argparse.Namespace,
     files: list[pathlib.Path],
@@ -265,7 +312,8 @@ def _run_phase1(
     # ------------------------------------------------------------------ Phase 1
     mode_tag = " [fix]" if args.fix else " [diff]" if args.diff else ""
     if not args.quiet:
-        print(f"Phase 1: RST rules{mode_tag}")
+        scope = "whole files" if whole_file else "changed Git hunks"
+        print(f"Phase 1: RST rules{mode_tag} ({scope})")
         print("-" * 40)
 
     for path in files:
@@ -283,6 +331,9 @@ def _run_phase1(
             continue
 
         pstr = str(path)
+        verified_path = args.sphinx_src is not None and path.resolve().is_relative_to(args.sphinx_src.resolve())
+        if args.sphinx_src is not None and not verified_path and not args.quiet:
+            print(f"{pstr}: outside sphinx-src — Phase 0/1 only")
         state.files_checked += 1
 
         # Phase 0 — byte hygiene, before anything parses the file.  Always
@@ -298,7 +349,12 @@ def _run_phase1(
         # not-a-git-repo case).
         document = Document(path, project_root)
         if args.json:
-            state.json_records[path] = {"path": pstr, "outline": [], "findings": []}
+            state.json_records[path] = {
+                "path": pstr,
+                "mode": "verified" if verified_path else "heuristic",
+                "outline": [],
+                "findings": [],
+            }
         try:
             hygiene_v = document.hygiene
         except UnicodeDecodeError as exc:
@@ -343,6 +399,7 @@ def _run_phase1(
         elif hygiene_v:
             if args.skip_fixable:
                 state.suppressed_fixable[path] += len(hygiene_v)
+                state.suppressed_fixable_details[path].extend(hygiene_v)
             else:
                 if args.diff:
                     state.would_change.add(pstr)  # fix_hygiene would rewrite this file
@@ -383,7 +440,7 @@ def _run_phase1(
             # Verified mode must use Sphinx's effective parse (extensions,
             # source mutation, includes, and HTML-resolved conditions), so its
             # single-title check runs in Phase 2 after the environment exists.
-            single_top_v = check_single_top_level(path, doc=document) if args.sphinx_src is None else []
+            single_top_v = check_single_top_level(path, doc=document) if not verified_path else []
             all_v = adornment_v + hierarchy_v + single_top_v
             adornments_clean = not all_v
             if args.skip_fixable:
@@ -393,7 +450,8 @@ def _run_phase1(
                 fixable_v = [finding for finding in all_v if finding.fixable]
                 phase1_v.extend(finding for finding in all_v if not finding.fixable)
                 state.suppressed_fixable[path] += len(fixable_v)
-                if fixable_v and args.sphinx_src is not None:
+                state.suppressed_fixable_details[path].extend(fixable_v)
+                if fixable_v and verified_path:
                     # Phase 3 may hide a Sphinx title diagnostic only as a
                     # proven restatement of what fix resolves for this exact
                     # file and scope; the proof needs this parse and scope.
@@ -442,6 +500,11 @@ def _run_phase1(
 
         if args.skip_fixable and state.suppressed_fixable[path] and not args.quiet:
             print(f"↷ {pstr}: {state.suppressed_fixable[path]} auto-fixable finding(s) suppressed")
+            if args.verbose:
+                details = ", ".join(
+                    f"{finding.code.value}@{finding.lineno}" for finding in state.suppressed_fixable_details[path]
+                )
+                print(f"  suppressed: {details}")
 
         # Footer statistics, from the same normalized read Phase 0 defines —
         # in fix mode this is the file's final, post-fix state.  Empty
@@ -494,6 +557,7 @@ def _run_phase1(
 def _run_sphinx_phases(
     args: argparse.Namespace,
     files: list[pathlib.Path],
+    whole_file: bool,
     project_root: pathlib.Path,
     word_samples: int,
     suppress_findings: bool,
@@ -503,15 +567,23 @@ def _run_sphinx_phases(
     # ------------------------------------------------------------ Phase 2 & 3
     if not args.quiet:
         print()
-    if args.sphinx_src is None:
+    verified_files = (
+        []
+        if args.sphinx_src is None
+        else [path for path in files if path.resolve().is_relative_to(args.sphinx_src.resolve())]
+    )
+    if args.sphinx_src is None or not verified_files:
         if not args.quiet:
+            reason = "no --sphinx-src given" if args.sphinx_src is None else "selected files are outside sphinx-src"
             print(
-                "Phase 2: Python Sphinx rules (heuristic — no --sphinx-src given: "
+                f"Phase 2: Python Sphinx rules (heuristic — {reason}: "
                 "code-block detection is best-effort text search, not a real Sphinx "
-                "parse; pass --sphinx-src for verified results)"
+                "parse; bare-filename and toctree checks are skipped; pass "
+                "--sphinx-src for verified results)"
             )
             print("-" * 40)
 
+        outside_sphinx = args.sphinx_src is not None and not verified_files
         if args.outline or args.json:
             for path in files:
                 # phase2_doc, not document: a fresh, independently-typed
@@ -558,7 +630,8 @@ def _run_sphinx_phases(
                         include_clusters,
                     )
                     with _report_kind("outline"):
-                        print(f"Outline: {path}")
+                        suffix = " (outside sphinx-src — Phase 0/1 only)" if outside_sphinx else ""
+                        print(f"Outline: {path}{suffix}")
                         _print_outline_entries(
                             heuristic_combined,
                             args.outline_depth,
@@ -566,11 +639,12 @@ def _run_sphinx_phases(
                             args.sections_only,
                         )
         elif not args.quiet:
-            print("  (nothing to check — run outline to see the resolved structure)")
+            print("  (no Python code-block findings — run outline to see the resolved structure)")
 
         if not args.quiet:
             print()
-            print("Phase 3: Sphinx build — skipped (no --sphinx-src given)")
+            skip_reason = "selected files are outside sphinx-src" if outside_sphinx else "no --sphinx-src given"
+            print(f"Phase 3: Sphinx build — skipped ({skip_reason})")
     else:
         keep_build = args.build_dir is not None
         build_dir = args.build_dir if keep_build else pathlib.Path(tempfile.mkdtemp(prefix="check_rst_"))
@@ -580,8 +654,8 @@ def _run_sphinx_phases(
                 print(f"Phase 2: Python Sphinx rules ({build_dir})")
                 print("-" * 40)
 
-            env, phase2_warning_text = _build_sphinx_env_checked(args.sphinx_src, build_dir, files=files)
-            unavailable = [path for path in files if _docname_for(env, path) is None]
+            env, phase2_warning_text = _build_sphinx_env_checked(args.sphinx_src, build_dir, files=verified_files)
+            unavailable = [path for path in verified_files if _docname_for(env, path) is None]
             if unavailable:
                 for path in unavailable:
                     print(f"check_rst: {path}: not part of the --sphinx-src environment")
@@ -591,7 +665,7 @@ def _run_sphinx_phases(
             # and Phase 3.  Merged into sphinx_v below and reported
             # together: same console-output shape, same "sphinx" prefix,
             # one combined print/count site.
-            phase2_v = _findings_from_sphinx_output(phase2_warning_text, files, project_root)
+            phase2_v = _findings_from_sphinx_output(phase2_warning_text, verified_files, project_root)
             # Computed once for the whole selection, not once per file below
             # (found by code review: check_multiple_toctree_parents used to
             # rebuild this same project-wide graph on every iteration of this
@@ -625,11 +699,16 @@ def _run_sphinx_phases(
                     )
                 # Not phase2_v: that name holds Phase 2's own Sphinx build
                 # warnings, which Phase 3 reports.
+                verified_candidates = [
+                    finding
+                    for finding in [*bare_filename_v, *single_top_v, *multiple_toctree_v]
+                    if _root_finding_in_scope(finding, bare_filename_doc, whole_file)
+                ]
                 verified_v = _apply_retentions(
                     state,
                     path,
                     bare_filename_doc,
-                    _in_source_order([*bare_filename_v, *single_top_v, *multiple_toctree_v]),
+                    _in_source_order(verified_candidates),
                     project_root,
                 )
                 verified_open_v = [finding for finding in verified_v if finding.retained is None]
@@ -780,7 +859,7 @@ def _run_sphinx_phases(
                                 args.sections_only,
                             )
             elif not args.quiet:
-                print("  (nothing to check — run outline to see the resolved structure)")
+                print("  (no Python code-block findings — run outline to see the resolved structure)")
 
             if not args.quiet:
                 print()
@@ -788,12 +867,19 @@ def _run_sphinx_phases(
                 print("-" * 40)
 
             sphinx_v = phase2_v + _sphinx.run_sphinx(
-                [f for f in files if f.exists()],
+                [f for f in verified_files if f.exists()],
                 build_dir,
                 args.sphinx_src,
                 project_root,
             )
             sphinx_v = [_attach_did_you_mean(f, env) for f in sphinx_v]
+            sphinx_v = [
+                finding for finding in sphinx_v if _sphinx_finding_in_scope(finding, state.documents, whole_file)
+            ]
+            sphinx_v = [
+                dataclasses.replace(finding, project_wide=True) if finding.lineno <= 0 else finding
+                for finding in sphinx_v
+            ]
             # Phase 2 and Phase 3 intentionally inspect the same checked
             # state.documents.  A diagnostic can therefore appear in both streams;
             # Findings are frozen/hashable, so preserve first-seen order while
@@ -838,7 +924,7 @@ def _run_sphinx_phases(
                 if hidden:
                     print(f"↷ sphinx: {hidden} warning(s) suppressed by --no-warnings")
                 if not sphinx_v and not restatements:
-                    print("✓ no warnings or errors in the checked files")
+                    print("✓ Sphinx: no warnings or errors in the checked files")
             state.total_errors += e
             state.total_warnings += w
         finally:
@@ -883,6 +969,7 @@ def _finding_record(finding: Finding) -> dict[str, Any]:
         "source": finding.source,
         "fixable": finding.fixable,
         "location_exact": finding.location_exact,
+        "scope": "project-wide" if finding.project_wide else "source",
         "code": finding.code,
     }
     # Additive retained-WARNING members: the digest an author copies into
@@ -915,6 +1002,7 @@ def _emit_json_result(
     data: dict[str, Any] = {
         "schema_version": _JSON_SCHEMA_VERSION,
         "mode": "verified" if args.sphinx_src is not None else "heuristic",
+        "scope": "whole-files" if state.whole_file else "changed-git-hunks",
         "runtime": runtime_metadata,
         # The config-visibility honesty condition holds in JSON too:
         # when a per-repo config supplied values, say which and what.
@@ -1158,14 +1246,14 @@ def _run_check_pipeline(
     if not args.quiet:
         print(_format_runtime(runtime_metadata))
 
-    state = _PipelineState(retained=retained)
+    state = _PipelineState(retained=retained, whole_file=whole_file)
 
     if args.fix:
         _plan_normal_fixes(args, files, whole_file, project_root, state)
 
     _run_phase1(args, files, whole_file, project_root, word_samples, suppress_findings, state)
     with _sphinx._sphinx_build_lock(args.build_dir if args.sphinx_src is not None else None):
-        _run_sphinx_phases(args, files, project_root, word_samples, suppress_findings, state)
+        _run_sphinx_phases(args, files, whole_file, project_root, word_samples, suppress_findings, state)
     _report_stale_retentions(args, suppress_findings, state)
     if args.json:
         _emit_json_result(
