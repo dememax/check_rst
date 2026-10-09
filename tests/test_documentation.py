@@ -179,3 +179,39 @@ def test_source_distribution_contains_manual_sources(tmp_path: Path) -> None:
     assert contains(Path("docs/man/check_rst-formats.rst"))
     assert contains(Path("tests/fixtures/combined_sphinx/.check_rst.toml"))
     assert contains(Path("tests/fixtures/combined_sphinx/guide.rst"))
+
+
+def _quoted_hints(text: str, label: str) -> list[tuple[str, str]]:
+    """Return (preceding line, joined hint text) for each "(label: ...)" quote."""
+    lines = text.splitlines()
+    quotes: list[tuple[str, str]] = []
+    for index, line in enumerate(lines):
+        if not line.strip().startswith(f"({label}: "):
+            continue
+        parts = [line.strip()]
+        cursor = index
+        while not parts[-1].endswith(")") and cursor + 1 < len(lines):
+            cursor += 1
+            parts.append(lines[cursor].strip())
+        quotes.append((lines[index - 1].strip() if index else "", " ".join(parts)))
+    return quotes
+
+
+@pytest.mark.unit
+def test_documented_finding_hints_match_real_output() -> None:
+    """A finding's shared explanation is quoted in the docs as real output.
+
+    It must be today's text, and it must follow a finding it explains,
+    because the CLI prints it after the first such finding (CR-31).
+    """
+    from check_rst.cli._output import _FINDING_HINTS
+
+    checked = 0
+    for page in sorted(DOCS_DIR.rglob("*.rst")):
+        text = page.read_text(encoding="utf-8")
+        for label, hint in _FINDING_HINTS.values():
+            for preceding, quote in _quoted_hints(text, label):
+                checked += 1
+                assert quote == f"({label}: {hint})", (page.name, quote)
+                assert f": {label}" in preceding, (page.name, preceding)
+    assert checked
