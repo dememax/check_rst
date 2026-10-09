@@ -1063,8 +1063,18 @@ def _compute_entitle_lines(lines: list[str], name: str) -> list[str]:
         raise ValueError("every adornment character is already in use — cannot add a new top-level title")
     insertion = _entitle_insertion(lines)
     separator = [""] if insertion > 0 and lines[insertion - 1] else []
-    new_lines = [*lines[:insertion], *separator, name, char * 9, "", *lines[insertion:]]
-    return _compute_structure_fixes(new_lines, None)
+    inserted = [*separator, name, char * 9, ""]
+    new_lines = [*lines[:insertion], *inserted, *lines[insertion:]]
+    fixed, refusals = _structure_plan(new_lines, None)
+    if refusals:
+        # A refused plan changes nothing, which would leave the inserted
+        # title raw and nothing demoted; refuse instead, at the line of the
+        # original file.  The inserted title uses a free character and its
+        # own blank lines, so it is never the ambiguity itself.
+        first = refusals[0]
+        lineno = first.lineno - len(inserted) if first.lineno - 1 >= insertion + len(inserted) else first.lineno
+        raise ValueError(f"title structure is ambiguous at line {lineno} ({first.code}): {first.text}")
+    return fixed
 
 
 def _compute_entitle_text(source: str, name: str) -> str:

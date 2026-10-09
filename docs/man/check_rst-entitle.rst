@@ -38,7 +38,10 @@ command is self-contained: it reads and writes exactly the one named file, with
 no project or Sphinx settings involved.  A top-level ``include`` directive is
 outside that one-file safety boundary and is refused before preview or write;
 included or transformed top-level titles require composition-aware manual
-restructuring.
+restructuring.  A file whose titles ``fix`` would refuse to renormalize, such as
+one that uses a character both with and without an overline, is refused the
+same way; the message names the line and the ambiguity, and the guide's
+"Refused fixes" section explains how to resolve it.
 
 ***********
 PLACEMENT
@@ -61,9 +64,9 @@ EXIT STATUS
 *************
 
 Return ``0`` after a successful preview or a successful ``--apply``;
-return ``1`` for a rejected ``NAME``, a top-level ``include`` directive, a file
-that cannot be read or written, an unresolved Git merge conflict, or an
-incompatible option combination.  ``2`` is reserved for an argparse-level
+return ``1`` for a rejected ``NAME``, a top-level ``include`` directive, an
+ambiguous title structure, a file that cannot be read or written, an
+unresolved Git merge conflict, or an incompatible option combination.  ``2`` is reserved for an argparse-level
 syntax error (see :manpage:`check_rst(1)`, EXIT STATUS).  Unlike
 ``list-table``/``diff``,
 a successful preview always exits ``0``: entitle always changes
