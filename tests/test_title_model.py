@@ -157,7 +157,15 @@ def _assert_contract(
         assert "fix refused" in diff_out
         assert fast_exit == 1
         assert "fix refused" in fast_out, fast_out
+        # Full fix and diff report the same explanation as their Phase 1
+        # ERROR, without the fast paths' "fix refused" prefix.
         assert full_exit == 1
+        assert refusals[0]["text"] in full_out, full_out
+        path.write_bytes(before)
+        full_diff_exit, full_diff_out = _run(monkeypatch, capsys, "diff", *_scope_args(scope))
+        assert full_diff_exit == 1
+        assert "@@" not in full_diff_out, full_diff_out
+        assert refusals[0]["text"] in full_diff_out, full_diff_out
         # Topology safety: the refused file keeps its bytes on every path.
         assert fast_bytes == before
         assert full_bytes == before
@@ -175,11 +183,18 @@ def _assert_contract(
     assert diff_exit == (1 if fixed != original else 0)
     changed = _changed_lines(original, fixed)
     fixable = [finding for finding in findings if finding["fixable"]]
-    for finding in fixable:
-        window = set(range(finding["lineno"] - 2, finding["lineno"] + 3))
+    # A finding owns its title block: the anchor line and the adornment and
+    # separator lines up to two lines away.
+    owned = [set(range(finding["lineno"] - 2, finding["lineno"] + 3)) for finding in fixable]
+    for finding, window in zip(fixable, owned, strict=True):
         assert window & changed, (finding, sorted(changed))
     if not fixable:
         assert fixed == original
+    # Without a level-wide remap, which one hierarchy finding announces for
+    # every title of a style, every change belongs to some finding.
+    if not any(finding["code"] == "hierarchy.order" for finding in fixable):
+        unowned = changed - set().union(*owned) if owned else changed
+        assert not unowned, (sorted(unowned), fixable)
     # Topology safety: the accepted fix yields the declared section tree.
     assert _tree(fixed) == case.tree
     # Idempotence: check is clean and a second fix changes nothing.
