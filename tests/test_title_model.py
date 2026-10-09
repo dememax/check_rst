@@ -176,3 +176,72 @@ def test_shared_adornment_line_is_refused(
     overline: Docutils reads the underline, the placeholder convention the
     overline, so fix must not turn the text line into a heading (CR-40)."""
     _assert_contract(rst_repo, SHARED_LINE, scope, monkeypatch, capsys)
+
+
+_AFTER_COMMENT = "##########\n Top\n##########\n\n.. a comment\nSub title\n*********\n\nBody text.\n"
+_AFTER_FIELD_LIST = "##########\n Top\n##########\n\n:field: value\nSub title\n*********\n\nBody text.\n"
+_REWRITES_CORRECT_HEADING = textwrap.dedent("""\
+    #####
+    Top
+    #####
+
+    :field: value
+    Sub
+    ***
+
+    Body.
+
+    =======
+    Deeper
+    =======
+
+    More body.
+    """)
+
+UNSEPARATED_TITLES = (
+    Case("title directly after a comment", None, _AFTER_COMMENT, "adornment.unseparated-title"),
+    Case("title directly after a field list", None, _AFTER_FIELD_LIST, "adornment.unseparated-title"),
+    Case("unseparated title beside a correct heading", None, _REWRITES_CORRECT_HEADING, "adornment.unseparated-title"),
+)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("scope", SCOPES)
+@pytest.mark.parametrize("case", UNSEPARATED_TITLES, ids=lambda case: case.name)
+def test_unseparated_title_blocks_structural_fixes(
+    rst_repo: Path,
+    case: Case,
+    scope: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Docutils reads a title right after a field list or comment, but the
+    parser-free model cannot prove it.  Check used to call it fixable while
+    fix ignored it, and fix rewrote a correct heading around it (CR-29)."""
+    _assert_contract(rst_repo, case, scope, monkeypatch, capsys)
+
+
+@pytest.mark.integration
+def test_unseparated_title_is_a_non_fixable_error_even_when_nothing_else_changes(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """With nothing else to fix there is nothing to refuse, but check still
+    reports the title fix cannot prove, and fix leaves the file alone."""
+    monkeypatch.chdir(rst_repo)
+    source = "#####\nTop\n#####\n\n.. a comment\nSub title\n*********\n\nBody text.\n"
+    path = rst_repo / "doc.rst"
+    path.write_text(source, encoding="utf-8")
+
+    check_exit, findings = _json_findings(monkeypatch, capsys, "explicit")
+    fix_exit, fix_out = _run(monkeypatch, capsys, "fix", "--fast", "doc.rst")
+
+    assert check_exit == 1
+    assert [(f["lineno"], f["code"], f["severity"], f["fixable"]) for f in findings] == [
+        (6, "adornment.unseparated-title", "ERROR", False)
+    ]
+    assert "Docutils reads 'Sub title' as a section title" in findings[0]["text"]
+    assert fix_exit == 0
+    assert "fix refused" not in fix_out
+    assert path.read_text(encoding="utf-8") == source
