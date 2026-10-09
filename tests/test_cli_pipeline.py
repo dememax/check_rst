@@ -1437,3 +1437,30 @@ def test_word_samples_rejects_negative(
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "--word-samples must be >= 0" in out
+
+
+@pytest.mark.integration
+def test_diff_fast_reports_an_unconvergent_plan_without_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """fix --fast already reports a plan that fails its convergence check as
+    an ERROR; diff --fast must do the same instead of raising (CR-08 left
+    this path uncaught; CR-42's split level reached it)."""
+    path = tmp_path / "doc.rst"
+    path.write_text("#####\nTop\n#####\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    def unconvergent(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("deterministic fix plan did not converge in one pass")
+
+    monkeypatch.setattr(cli, "_plan_fix", unconvergent)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "diff", "--fast", "doc.rst"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert f"check_rst: {path.name}: ERROR: deterministic fix plan did not converge in one pass" in (
+        capsys.readouterr().out
+    )
