@@ -245,3 +245,54 @@ def test_unseparated_title_is_a_non_fixable_error_even_when_nothing_else_changes
     assert fix_exit == 0
     assert "fix refused" not in fix_out
     assert path.read_text(encoding="utf-8") == source
+
+
+_AFTER_PARAGRAPH = _NOTES_BASE + "Second section\n*********\n\nMore text.\n"
+
+PARAGRAPH_CANDIDATE_BLOCKING = Case(
+    name="title directly after a paragraph line, with another fix pending",
+    base=None,
+    edited=_AFTER_PARAGRAPH.replace("*******\nFirst\n*******", "***\nFirst\n***"),
+    refusal="adornment.unseparated-title",
+)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("scope", SCOPES)
+def test_paragraph_read_candidate_blocks_a_pending_fix(
+    rst_repo: Path,
+    scope: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """While it blocks a fix, a candidate Docutils reads as paragraph text is
+    a refusal like any other unseparated title (refused since CR-29)."""
+    _assert_contract(rst_repo, PARAGRAPH_CANDIDATE_BLOCKING, scope, monkeypatch, capsys)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("scope", SCOPES)
+def test_paragraph_read_candidate_is_a_visible_warning(
+    rst_repo: Path,
+    scope: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A section written right under a paragraph line is silently lost to
+    Docutils.  Check must say so in its own words, not through an unrelated
+    nested-bold warning about the adornment line (CR-41)."""
+    monkeypatch.chdir(rst_repo)
+    case = Case("title directly after a paragraph line", _NOTES_BASE, _AFTER_PARAGRAPH, None)
+    path = _prepare(rst_repo, case)
+
+    check_exit, findings = _json_findings(monkeypatch, capsys, scope)
+    fix_exit, fix_out = _run(monkeypatch, capsys, "fix", "--fast", *_scope_args(scope))
+
+    assert [(f["lineno"], f["code"], f["severity"], f["fixable"]) for f in findings] == [
+        (10, "adornment.unseparated-title", "WARNING", False)
+    ]
+    assert "Docutils reads them as paragraph text" in findings[0]["text"]
+    assert check_exit == 0
+    assert fix_exit == 0
+    assert "fix refused" not in fix_out
+    assert path.read_text(encoding="utf-8") == _AFTER_PARAGRAPH
