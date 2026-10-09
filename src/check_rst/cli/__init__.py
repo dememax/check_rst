@@ -715,13 +715,48 @@ def _validate_full_scope_args(args: argparse.Namespace) -> None:
             _cli_fail("--git-scope requires at least one file")
 
 
+class _TopLevelParser(argparse.ArgumentParser):
+    """The top-level parser, which names a global option written after COMMAND.
+
+    Global options are defined only before COMMAND.  Written after it,
+    argparse reports them as unrecognized arguments and may have consumed
+    their value as a FILE, so its own message points at valid arguments
+    (CR-35).  The hint is appended to argparse's message; the exit status
+    stays 2.
+    """
+
+    def error(self, message: str) -> NoReturn:
+        prefix = "unrecognized arguments: "
+        if message.startswith(prefix):
+            global_options = {
+                option
+                for action in self._actions
+                if not isinstance(action, argparse._HelpAction | argparse._SubParsersAction)
+                for option in action.option_strings
+            }
+            misplaced = list(
+                dict.fromkeys(
+                    token.partition("=")[0]
+                    for token in message[len(prefix) :].split()
+                    if token.partition("=")[0] in global_options
+                )
+            )
+            if misplaced:
+                names = " and ".join(misplaced) if len(misplaced) <= 2 else ", ".join(misplaced)
+                verb, noun, pronoun = (
+                    ("is", "a global option", "it") if len(misplaced) == 1 else ("are", "global options", "them")
+                )
+                message = f"{message} — {names} {verb} {noun}: write {pronoun} before COMMAND"
+        super().error(message)
+
+
 def _build_cli_parser() -> argparse.ArgumentParser:
     """Build the subcommand argparse parser.
 
     Every subparser is backfilled with _CLI_ATTR_DEFAULTS so the untouched
     _main() pipeline body can read any args.<name> regardless of verb.
     """
-    parser = argparse.ArgumentParser(
+    parser = _TopLevelParser(
         prog="check_rst",
         description=_TOP_LEVEL_HELP,
         epilog=_TOP_LEVEL_EPILOG,
@@ -740,7 +775,9 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         help="show the integer CLI contract version, then exit",
     )
     _add_project_flags(parser)
-    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    # Subcommands keep the plain parser: unrecognized arguments are reported
+    # by the top-level parser, whose error names misplaced global options.
+    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND", parser_class=argparse.ArgumentParser)
 
     full = _build_full_parent()
     outline_full = _build_full_parent(outline=True)
