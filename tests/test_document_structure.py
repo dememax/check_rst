@@ -2725,3 +2725,64 @@ def test_cli_outline_section_bracket_cumulative_tables(
     out = capsys.readouterr().out
     root_line = next(ln for ln in out.splitlines() if "Root" in ln)
     assert "[1 subsection, 1 table]" in root_line
+
+
+_CELL_COMMENT_TABLE = textwrap.dedent("""\
+    +-------------------+-----+
+    | x                 | y   |
+    +-------------------+-----+
+    | .. code: bash     | z   |
+    |                   |     |
+    |    echo hi        |     |
+    +-------------------+-----+
+    """)
+_TOP = "#####\nTop\n#####\n\n"
+_TABLE_LOCATION_CASES = {
+    "after a literal-block table": (
+        _TOP
+        + "Example::\n\n   +-----+-----+\n   | a   | b   |\n   +-----+-----+\n\n"
+        + _CELL_COMMENT_TABLE
+        + "\nDone.\n",
+        14,
+    ),
+    "after a code-block copy of itself": (
+        _TOP + ".. code-block:: rst\n\n" + textwrap.indent(_CELL_COMMENT_TABLE, "   ") + "\n" + _CELL_COMMENT_TABLE,
+        18,
+    ),
+    "after a comment-body copy of itself": (
+        _TOP + "..\n" + textwrap.indent(_CELL_COMMENT_TABLE, "   ") + "\n" + _CELL_COMMENT_TABLE + "\nDone.\n",
+        17,
+    ),
+    "inside a table directive": (
+        _TOP
+        + "Example::\n\n   +-----+-----+\n   | a   | b   |\n   +-----+-----+\n\n.. table:: Caption\n\n"
+        + textwrap.indent(_CELL_COMMENT_TABLE, "   ")
+        + "\nDone.\n",
+        16,
+    ),
+}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
+@pytest.mark.parametrize("name", list(_TABLE_LOCATION_CASES))
+def test_table_cell_comment_is_located_by_evidence(tmp_path: Path, name: str, floor: bool) -> None:
+    """A cell comment's line comes from the physical table that holds it.
+
+    Docutils 0.22.x gives a table node no line, and pairing tables with
+    lexical blocks by position let a table drawn in a literal block, a
+    code-block or a comment shift the pairing: the line became approximate,
+    or exact but wrong (CR-30).  A table inside a directive must be found on
+    both lanes."""
+    source, expected = _TABLE_LOCATION_CASES[name]
+    path = tmp_path / "doc.rst"
+    path.write_text(source, encoding="utf-8")
+    document = _document.Document(path, tmp_path)
+    if floor:
+        for table in document.doctree.findall(docutils.nodes.table):
+            table.line = None
+            table.source = None
+
+    findings = _lint.check_directives(path, True, doc=document)
+
+    assert [(f.lineno, f.location_exact) for f in findings if f.code == "directive.mistyped"] == [(expected, True)]
