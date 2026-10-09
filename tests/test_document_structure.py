@@ -2848,3 +2848,60 @@ def test_table_cell_comment_is_exact_only_with_unique_evidence(tmp_path: Path, n
         assert all(line == expected for (line, exact), (expected, _) in zip(found, with_metadata, strict=True) if exact)
     else:
         assert found == with_metadata
+
+
+_CONTAINING_GRID = textwrap.dedent("""\
+    +-------------------+-------+
+    | prefix            | beta2 |
+    |                   |       |
+    | .. code: bash     |       |
+    +-------------------+-------+
+    """)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
+def test_cell_evidence_requires_equal_cells_not_containment(tmp_path: Path, floor: bool) -> None:
+    """A grid cell holding "prefix" and a comment merely contains a
+    list-table cell's comment; that is not the list-table's source.  Only
+    equal cell sources, in order and with their block boundaries, prove a
+    pairing (Codex review of checkpoint A, finding 1)."""
+    path = tmp_path / "doc.rst"
+    path.write_text(
+        _TOP + _CONTAINING_GRID + "\n.. list-table::\n\n   * - .. code: bash\n     - beta\n", encoding="utf-8"
+    )
+    document = _document.Document(path, tmp_path)
+    if floor:
+        for table in document.doctree.findall(docutils.nodes.table):
+            table.line = None
+            table.source = None
+
+    found = [(f.lineno, f.location_exact) for f in _lint.check_directives(path, True, doc=document)]
+
+    assert found[0] == (8, True)
+    assert found[1][1] is False
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
+def test_included_table_without_proven_source_stays_approximate(tmp_path: Path, floor: bool) -> None:
+    """Verbatim regions are recovered for the root document only; a table in
+    an included file cannot exclude a literal-block copy there, so its
+    evidence-based location must stay approximate (Codex review of
+    checkpoint A, finding 2)."""
+    (tmp_path / "fragment.rst").write_text(
+        "Example::\n\n   +---------------+---+\n   | .. code: bash | z |\n   +---------------+---+\n\n"
+        ".. list-table::\n\n   * - .. code: bash\n     - z\n",
+        encoding="utf-8",
+    )
+    path = tmp_path / "index.rst"
+    path.write_text(_TOP + ".. include:: fragment.rst\n", encoding="utf-8")
+    document = _document.Document(path, tmp_path)
+    if floor:
+        for table in document.doctree.findall(docutils.nodes.table):
+            table.line = None
+            table.source = None
+
+    found = [(f.lineno, f.location_exact) for f in _lint.check_directives(path, True, doc=document)]
+
+    assert [exact for _line, exact in found] == [False]
