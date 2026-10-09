@@ -685,3 +685,48 @@ def test_top_level_help_mentions_report_length_limiting() -> None:
     assert "--max-output-lines" in cli._TOP_LEVEL_HELP
     compact = " ".join(cli._TOP_LEVEL_HELP.split())
     assert "diff rejects it because a truncated patch could look complete or applicable" in compact
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (
+            ["check", "--skip-fixable", "--sphinx-src", ".", "--build-dir", "out", "a.rst"],
+            "--sphinx-src and --build-dir are global options: write them before COMMAND",
+        ),
+        (["check", "--sphinx-src", ".", "a.rst"], "--sphinx-src is a global option: write it before COMMAND"),
+        (["outline", "--no-config", "a.rst"], "--no-config is a global option: write it before COMMAND"),
+        (["check", "--config=x.toml", "a.rst"], "--config is a global option: write it before COMMAND"),
+    ],
+)
+def test_global_option_after_the_command_is_named_in_the_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+    expected: str,
+) -> None:
+    """argparse reports a global option written after COMMAND as an
+    unrecognized argument, and its value as a FILE; the error must say what
+    went wrong instead (CR-35).  Exit status 2 is unchanged."""
+    monkeypatch.setattr("sys.argv", ["check_rst", *argv])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 2
+    assert expected in capsys.readouterr().err
+
+
+@pytest.mark.integration
+def test_ordinary_unrecognized_argument_error_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("sys.argv", ["check_rst", "check", "--no-such-option", "a.rst"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    err = capsys.readouterr().err
+    assert exc.value.code == 2
+    assert "check_rst: error: unrecognized arguments: --no-such-option" in err
+    assert "global option" not in err
