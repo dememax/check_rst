@@ -9,10 +9,11 @@ Worked demonstration: one file, both halves of the contract
 Everything below is real, captured output — one invented 38-line file
 exercising the writing workflow and the reading oracle, extended
 2026-07-20 with a ``list-table`` to also demonstrate that same day's
-``outline`` enrichment.  The draft is written the way this page
-prescribes: placeholder underlines, no computed syntax — and with two
-typos planted the way real drafts plant them accidentally (``sensro``,
-``batery``).
+``outline`` enrichment.  The draft is written the way the guide's
+placeholder workflow allows for a brand-new file: every title with a
+placeholder underline only, one character per level, no computed syntax —
+and with two typos planted the way real drafts plant them accidentally
+(``sensro``, ``batery``).
 
 ***********
 The draft

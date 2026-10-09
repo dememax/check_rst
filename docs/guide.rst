@@ -66,7 +66,8 @@ entire guide in terminal output.
 .. important::
 
    If you read nothing else: writing, declare a new section with a
-   9-character placeholder underline and no overline, then run
+   9-character placeholder in the form of its sibling titles — in this
+   project's convention, the same line above and below the title — then run
    ``check_rst check --skip-fixable`` (review non-fixable findings) → ``check_rst fix
    --fast`` (bare form when the whole dirty RST set is yours) →
    ``check_rst check`` (confirm clean).  In a shared dirty worktree, add the
@@ -168,31 +169,51 @@ The placeholder workflow
 Never write finished adornments.  Declare that a section exists and let
 ``fix`` compute everything else::
 
+    *********
     Sensors
     *********
 
-That 9-character underline (no overline) is not syntax — it is metadata
-meaning "a new section starts here".  ``check_rst fix`` converts it
-into a correct overline+underline pair, exactly two columns wider than
-the title's display width.  Nine characters is the convention because
-the tool needs at least 4 to recognize an underline attempt at all, and
-9 is unambiguous for any real title.  (This is the actual placeholder
-used by :doc:`example`, before ``fix`` ever touched it.)
+Those two 9-character lines are not finished syntax — they are metadata
+meaning "a new section starts here, at this level".  ``check_rst fix``
+turns them into a correct overline and underline, exactly two columns wider
+than the title's display width.  Nine characters is the convention because it
+needs no counting and the tool needs at least 4 to recognize an adornment
+attempt at all.  A title longer than the lines draws a "Title overline too
+short" warning from Docutils until ``fix`` runs; ``--skip-fixable`` suppresses
+it as a proven restatement of the fixable geometry.
 
-The split of responsibility is precise: the *length* is always the
-tool's job, but the *character* is your declaration of which level the
-section belongs to — pick the one your target level already uses in
-this document (check ``outline``), same as matching the surrounding
-sections.  ``fix`` remaps characters only when the document's
-first-appearance order deviates from the project ranking; it cannot
-read your mind about intended depth — that is the semantic half of the
-contract, and it stays yours.
+The split of responsibility is precise: the *length* is always the tool's
+job, but the *character and form* are your declaration of which level the
+section belongs to.  Write the placeholder exactly like the sibling titles at
+the target level (check ``outline``):
 
-When creating a whole new multi-level file, write every title this way,
-choosing underline characters in the order the levels first appear
-(``#`` for the page title, then ``*``, ``=``, ``-``, ``^``, ``"``); the
-lengths never matter.  This very page was written exactly so and fixed by
-the tool.
+* when they have an overline, as this project's convention requires, write
+  the same line above and below the title;
+* when they have only an underline, as in a page that has not been
+  normalized yet, write only the underline.
+
+For a genuinely new depth, use the next free section character that
+``outline`` reports.  Leave a blank line before and after the placeholder: an
+overline written directly under a text line is also that line's underline.
+
+Never use one character both with and without an overline in a file.  The
+reStructuredText specification reads the two forms as two different levels,
+so a title in the other form lands at another level than its siblings;
+``fix`` refuses such a file rather than guess (see `Refused fixes`_).
+Earlier versions of this guide recommended an underline-only placeholder
+even below overlined siblings.  That form is exactly this ambiguity:
+check_rst 0.7.1 resolved it by nesting the new section one or two levels too
+deep, and later versions refuse it.
+
+``fix`` remaps characters only when the document's first-appearance order
+deviates from the project ranking; it cannot read your mind about intended
+depth — that is the semantic half of the contract, and it stays yours.
+
+When creating a whole new multi-level file, you may write every title with
+an underline only, choosing characters in the order the levels first appear
+(``#`` for the page title, then ``*``, ``=``, ``-``, ``^``, ``"``): with no
+overlined title yet, no character appears in both forms.  The lengths never
+matter.  :doc:`example` shows such a draft before ``fix`` ever touched it.
 
 ==============================================
 Source verbosity buys geometry and retrieval
@@ -409,14 +430,16 @@ once after the splice, never per-fragment) — but the subtree's *own old
 characters* were assigned relative to a document that no longer exists
 after the splice, and reusing one of the host's already-established
 characters at a different true depth is exactly the risk :doc:`rules`
-describes. The reliable recipe: before pasting, strip the incoming
-subtree's headings back to bare 9-character placeholders (title text
-kept, adornments erased) — the same placeholder this page opened with —
-so nothing about the pasted content can collide with anything the host
-already owns. Paste that neutralized form at the intended position, then
-run ``fix`` once on the combined file; the fixer has nothing left to
-misinterpret, only fresh titles to size and letter correctly for
-wherever they physically landed.
+describes. The reliable recipe: before pasting, rewrite the incoming
+subtree's headings as placeholders that declare their levels in the host
+(title text kept, old adornments erased) — the same placeholder this page
+opened with, using the host's character and form for each level where a
+heading lands, or a character the host does not use yet for a level it does
+not have.  Then nothing about the pasted content can collide with anything
+the host already owns. Paste that neutralized form at the intended
+position, then run ``fix`` once on the combined file; the fixer has nothing
+left to misinterpret, only fresh titles to size correctly for wherever they
+physically landed.
 
 ================================================
 Titles should carry information, not structure

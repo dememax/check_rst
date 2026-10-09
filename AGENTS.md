@@ -205,9 +205,13 @@ concept independently. If yes, make it a real section rather than a bold
 paragraph opener or a list item with a bold pseudo-heading. Use lists for
 true sequences, classifications, and compact co-equal registers.
 
-Declare new RST sections with a nine-character placeholder underline and let
-the worktree `check_rst fix --fast` computation materialize adornment
-geometry. Do not count adornment characters manually.
+Declare new RST sections with a nine-character placeholder in the form of
+their sibling titles: this repository's titles all have an overline, so write
+the same line above and below the title, with a blank line before and after.
+Let the worktree `check_rst fix --fast` computation materialize adornment
+geometry. Do not count adornment characters manually, and never use one
+character both with and without an overline in a file: `fix` refuses that
+ambiguity (`docs/guide.rst`, "Refused fixes").
 
 Navigate this repository's own `docs/` with the worktree implementation: use
 `check_rst outline` when the target structure is unknown and `check_rst

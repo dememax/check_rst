@@ -2574,6 +2574,53 @@ still matched despite line shifts throughout the document, the 5 genuinely new
 constructs stayed open, and the 12 decisions whose text had changed or been
 removed surfaced as stale for review.
 
+====================================
+Ambiguous title models are refused
+====================================
+
+*Current status: implemented for 0.7.2 (2026-10-09).*
+
+Accepted on 2026-10-09 after review of the 0.7.1 correction set.  check_rst
+0.7.1 modeled a title style as a character plus the presence of an overline,
+as the reStructuredText specification does, while its placeholder convention
+still told authors to write an underline-only title below overlined siblings.
+Bare ``fix`` resolved that conflict as ordinary RST and silently nested new
+sections one or two levels too deep; whole-file ``fix``, in 0.7.0 and 0.7.1
+alike, resolved it the other way and flattened pages that use the two forms as
+real levels.  Related defects let ``check`` and ``fix`` recognise different
+titles, read one adornment line as two titles' lines, lose a title written
+under a paragraph line without notice, and split an underline-only level when
+one of its titles received an overline.
+
+The decision: ``fix`` never chooses between two readings of the same source.
+It refuses a file, with a non-fixable ERROR that ``check`` reports and ``fix``
+and ``diff`` repeat as ``fix refused``, when a character appears both with and
+without an overline anywhere in the document, when one adornment line is both
+an underline and an overline, or, if anything would change, when a title
+directly follows a non-blank line.  ``check`` derives every fixable finding
+from the same parser-free model, and the doctree only words what that model
+cannot prove.  Every level's target style has an overline, so an
+underline-only level gains it on all its titles at once.  The placeholder
+convention became "write the placeholder in the form of its siblings", which
+in this project's documents means the title-block form.
+
+Rejected alternatives:
+
+* Adding overlines before computing levels in every scope fixed the
+  placeholder case but broke pages that genuinely use one character in both
+  forms.
+* Inferring a placeholder from Git history fails for a first occurrence, a
+  new file, and a page changing its convention.
+* Preserving the parser's reading by default reproduces the 0.7.1 regression
+  for every author who follows the old convention.
+* Refusing only titles inside the changed lines leaves the document-wide
+  remap free to rewrite ambiguous titles outside them.
+
+The measured cost was small: across about 1,700 RST files in four adopting
+repositories, 6 mix one character's two forms, 3 have a title directly after a
+non-blank line, and none shares an adornment line.  Each needs one manual
+edit, which the refusal message describes.
+
 =====================================
 Release labels and deferred tooling
 =====================================

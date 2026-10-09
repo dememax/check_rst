@@ -30,8 +30,12 @@ or ``refs --target LABEL`` for exact label users.
 DECLARE STRUCTURE
 *******************
 
-For a new RST section, write the title with a nine-character placeholder
-underline and let ``fix --fast`` materialize the correct adornment geometry.
+For a new RST section, write the title as a nine-character placeholder in the
+form of its sibling titles — the same line above and below the title when they
+have an overline, an underline only when they do not — with a blank line before
+and after, and let ``fix --fast`` materialize the correct adornment geometry.
+Never use one character both with and without an overline in a file; ``fix``
+refuses that ambiguity (guide, "Refused fixes").
 Semantic choices—wording, nesting intent, and whether a WARNING represents a
 real defect—remain with the author or reviewer.
 

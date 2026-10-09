@@ -504,12 +504,14 @@ blind spot rather than a shipped finding, and it may not be catchable at all
 without knowing the author's intent, which lives nowhere in the file.
 
 The only mitigation available today lives in the workflow, not the
-tool: neutralize a subtree's headings back to bare placeholders before
-splicing it into a host that already has its own established
-characters (:doc:`guide`, "Insert a subtree into an *existing*,
-already-populated document") — placeholders cannot collide with
-anything, because they have not yet been assigned a character to
-collide with.  Diffing ``outline`` before and after any subtree
+tool: rewrite a subtree's headings as placeholders that declare their
+levels in the host before splicing it into a host that already has its own
+established characters (:doc:`guide`, "Insert a subtree into an *existing*,
+already-populated document") — each placeholder uses the host's character
+and form for its level, so the pasted headings carry no character assigned
+relative to the document they came from.  One character in both forms is
+refused outright (:doc:`guide`, "Refused fixes").  Diffing ``outline`` before
+and after any subtree
 splice is the only way to notice a silent misplacement after the fact;
 nothing in a clean ``check_rst`` run distinguishes it from a correctly
 nested document.  The scanner fix that first exposed the asymmetry is recorded
