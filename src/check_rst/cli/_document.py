@@ -14,11 +14,13 @@ from typing import TYPE_CHECKING, cast
 import docutils.frontend
 import docutils.nodes
 import docutils.parsers.rst
+import docutils.parsers.rst.directives
 import docutils.parsers.rst.languages
 import docutils.parsers.rst.languages.en
 import docutils.parsers.rst.states
 import docutils.utils
 from docutils.parsers.rst import tableparser
+from docutils.parsers.rst.directives import admonitions, body, tables
 from docutils.statemachine import StringList
 
 from . import _helpers
@@ -61,39 +63,33 @@ _COMMENT_MARKER_RE = re.compile(r"^[ \t]*\.\.(?:[ \t]+(.*))?$")
 _SIMPLE_TABLE_BORDER_RE = re.compile(r"^=+(?: +=+)*$")
 
 
-# Directives whose body Docutils or Sphinx parses as reStructuredText, so a
-# table block in it produces a table node.  Any other directive's body is
-# opaque: a table drawn there is text, never a table (CR-30).  An unlisted
-# body-parsing directive only makes a location approximate, never wrong.
-_BODY_PARSING_DIRECTIVES = frozenset(
+# Docutils' own directive implementations that parse their body as
+# reStructuredText, so a table block in that body becomes a table node.  A
+# directive counts only when the active registry resolves its name to one of
+# these exact classes: a name alone proves nothing, since "only" is unknown to
+# plain Docutils and an extension may replace "note" with an implementation
+# that keeps its body out of the document (CR-30).  Anything else makes a
+# location approximate, never wrong.
+_BODY_PARSING_DIRECTIVE_CLASSES: frozenset[type[docutils.parsers.rst.Directive]] = frozenset(
     {
-        "table",
-        "admonition",
-        "attention",
-        "caution",
-        "danger",
-        "error",
-        "hint",
-        "important",
-        "note",
-        "tip",
-        "warning",
-        "seealso",
-        "versionadded",
-        "versionchanged",
-        "versionremoved",
-        "deprecated",
-        "container",
-        "topic",
-        "sidebar",
-        "only",
-        "ifconfig",
-        "compound",
-        "rst-class",
-        "class",
-        "epigraph",
-        "highlights",
-        "pull-quote",
+        admonitions.Admonition,
+        admonitions.Attention,
+        admonitions.Caution,
+        admonitions.Danger,
+        admonitions.Error,
+        admonitions.Hint,
+        admonitions.Important,
+        admonitions.Note,
+        admonitions.Tip,
+        admonitions.Warning,
+        body.Topic,
+        body.Sidebar,
+        body.Container,
+        body.Compound,
+        body.Epigraph,
+        body.Highlights,
+        body.PullQuote,
+        tables.RSTTable,
     }
 )
 _DIRECTIVE_MARKER = re.compile(r"^\s*\.\.\s+([A-Za-z0-9_:+-]+)::")
@@ -183,8 +179,21 @@ def _cells_match(evidence: tuple[tuple[_CellSignature, ...], ...], parsed_rows: 
     return True
 
 
+def _directive_parses_body(name: str) -> bool:
+    """Return whether the active registry runs *name* as a body-parsing directive."""
+    probe = docutils.utils.new_document("<directive probe>", _cell_parse_settings())
+    language = docutils.parsers.rst.languages.get_language(probe.settings.language_code, probe.reporter)
+    # types-docutils types this parameter as docutils.languages' general
+    # module, but directive() reads the RST parser language module's
+    # ``directives`` mapping, and Docutils' own parser passes exactly that
+    # module (RSTState.run_directive via memo.language).
+    directive_class, _messages = docutils.parsers.rst.directives.directive(name, language, probe)  # type: ignore[arg-type]
+    return directive_class in _BODY_PARSING_DIRECTIVE_CLASSES
+
+
 def _under_unparsed_directive(lines: list[str], top: int) -> bool:
-    """Return whether the block at *top* sits in an opaque directive body."""
+    """Return whether the block at *top* sits in a directive body that does
+    not provably become reStructuredText."""
     indent = len(lines[top - 1]) - len(lines[top - 1].lstrip())
     for index in range(top - 2, -1, -1):
         if indent == 0:
@@ -197,7 +206,7 @@ def _under_unparsed_directive(lines: list[str], top: int) -> bool:
             continue
         indent = line_indent
         marker = _DIRECTIVE_MARKER.match(line)
-        if marker is not None and marker.group(1).lower().rsplit(":", 1)[-1] not in _BODY_PARSING_DIRECTIVES:
+        if marker is not None and not _directive_parses_body(marker.group(1)):
             return True
     return False
 
