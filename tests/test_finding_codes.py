@@ -206,3 +206,13 @@ def test_json_findings_expose_rule_codes(
     with pytest.raises(SystemExit):
         cli.main()
     assert "pseudo-heading.bold-opener" not in capsys.readouterr().out
+
+
+@pytest.mark.integration
+def test_underline_only_finding_names_the_rule_as_check_rsts_own(tmp_path: Path) -> None:
+    """The overline rule is built in; no configuration can define it, so the
+    message must not send a reader looking for a project file (CR-36)."""
+    findings = _formatting.check_adornments(_rst(tmp_path, "Title\n=========\n\nText.\n"), whole_file=True)
+
+    texts = [finding.text for finding in findings if finding.code == "adornment.underline-only"]
+    assert texts == ["underline-only title — add matching overline (check_rst rule: overline + underline required)"]
