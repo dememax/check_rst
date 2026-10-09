@@ -1129,6 +1129,12 @@ def _run_diff_only(
             )
             errors += 1
             continue
+        except RuntimeError as exc:
+            # The same report fix --fast gives for a plan that fails its
+            # convergence check: an ERROR line, never a traceback.
+            _emit_report_line(f"check_rst: {path}: ERROR: {exc}", "ERROR")
+            errors += 1
+            continue
         errors += _report_refusals([plan])
         preview = render_plan_diff(plan)
         if preview:
