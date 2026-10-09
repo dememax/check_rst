@@ -37,8 +37,12 @@ not only Python's ``json`` module.
 TOP-LEVEL MEMBERS
 *******************
 
-``schema_version`` identifies the JSON schema.  ``mode`` is ``verified``,
-``heuristic``, or ``unavailable`` when failure precedes project selection.
+``schema_version`` identifies the JSON schema.  ``mode`` is the requested
+project mode, the Sphinx project context of the command: ``verified`` when a
+Sphinx source is configured or given, ``heuristic`` otherwise, or
+``unavailable`` when failure precedes project selection.  It does not say how
+each file was checked; a file outside the Sphinx source gets Phase 0/1 checks
+only, and its record's own ``mode`` says so.
 ``scope`` distinguishes ``whole-files`` from ``changed-git-hunks`` on normal
 reports.  ``runtime`` records versions that can affect results, including
 ``runtime.check_rst.contract_version`` for the integer CLI contract queried by
@@ -65,7 +69,9 @@ FILE RECORDS
 
 Each record names its path and findings and exposes structural arrays for the
 outline, toctrees, code blocks, block quotes, tables, admonitions, comments,
-and lists.  Outline IDs are stable document-and-title identities with an
+and lists.  Its ``mode`` states how that file was actually checked:
+``verified`` inside the Sphinx source, ``heuristic`` without one or for a file
+outside it.  It is the member to rely on for a file's own results.  Outline IDs are stable document-and-title identities with an
 occurrence suffix only when required.  Statistics distinguish unrequested
 word analysis from requested-but-unavailable analysis.
 
