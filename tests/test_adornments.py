@@ -2761,9 +2761,9 @@ def test_cli_bare_fix_tracks_ranges_when_remap_inserts_an_overline(
         Section
         -------
 
-        ====
+        ~~~~~
         Third
-        ====
+        ~~~~~
 
         Body old.
         """)

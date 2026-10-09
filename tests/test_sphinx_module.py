@@ -447,7 +447,11 @@ _LEVEL_SKIP_BESIDE_FIXABLE_DOC = _LEVEL_SKIP_DOC.replace("---------\nDeepest\n--
 # fix, "Padded" reuses the depth-4 over/underline style directly under a
 # depth-2 section: the skip survives as 2 to 4.  A same-title link would
 # wrongly call the pre-fix ERROR a restatement.
-_LEVEL_SKIP_ON_FIXABLE_TITLE_DOC = _LEVEL_SKIP_DOC.replace("---------\nSkipped\n---------", "Padded\n------")
+# The skipped title reuses the overlined "-" style of "Deepest" (level 4)
+# directly under level 2, with a too-short adornment as its fixable defect:
+# fix repairs the geometry, and the level skip survives.  An underline-only
+# "-" here would instead be a refused mixed style beside that overlined "-".
+_LEVEL_SKIP_ON_FIXABLE_TITLE_DOC = _LEVEL_SKIP_DOC.replace("---------\nSkipped\n---------", "----\nPadded\n----")
 
 # A genuine restatement: the over/underline characters differ (fixable in
 # Phase 1) and docutils reports the same mismatch as an ERROR.  After fix
@@ -536,7 +540,7 @@ def test_skip_fixable_keeps_level_skip_on_the_fixable_title_itself(
     code, out = _verified_run(tmp_path, monkeypatch, capsys, "check", "--skip-fixable", str(doc))
 
     assert code == 1
-    assert "sphinx:23: ERROR: doc.rst: Inconsistent title style: skip from level 2 to 5." in out
+    assert "sphinx:24: ERROR: doc.rst: Inconsistent title style: skip from level 2 to 4." in out
     assert "1 error(s)" in out
 
 

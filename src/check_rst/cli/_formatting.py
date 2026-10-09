@@ -704,6 +704,76 @@ def _apply_hierarchy_remap(lines: list[str], remap: dict[_TitleStyle, _TitleStyl
 _BLOCKED_SUFFIX = "; title fixes for this file wait until this is resolved"
 
 
+def _mixed_style_findings(lines: list[str], ranges: list[tuple[int, int]] | None) -> list[Finding]:
+    """Report every title whose character the document uses in both forms.
+
+    Candidate geometry: one adornment character used by at least one
+    overlined title and at least one underline-only title.  The
+    reStructuredText specification makes those two distinct styles, so
+    Docutils reads two levels; the former placeholder convention meant one.
+    The source cannot say which the author meant: a first occurrence, a new
+    file or a document changing conventions has no history to consult, and
+    the document-wide remap would rewrite such titles outside the changed
+    lines too.  So the whole document is refused, whatever the scope
+    (D4, CR-28, CR-39).
+
+    Every underline-only title of such a character is reported.  In hunk
+    scope an overlined title of it inside the changed lines is reported as
+    well, because the edit may be that title; whole-file scope reports only
+    the underline-only titles, which keeps a page with many overlined titles
+    readable.  Each message names both resolutions.
+    """
+    forms: dict[str, dict[bool, list[int]]] = {}
+    for title_index, (char, overline) in _title_style_events(lines):
+        forms.setdefault(char, {}).setdefault(overline, []).append(title_index)
+    free = _next_free_adornment_char(lines)
+    alternative = f" such as {free!r}" if free is not None else ""
+    findings: list[Finding] = []
+    for char, by_form in forms.items():
+        if len(by_form) < 2:
+            continue
+        overlined, underlined = by_form[True], by_form[False]
+        first_over, first_under = lines[overlined[0]].strip(), lines[underlined[0]].strip()
+        for title_index in underlined:
+            title = lines[title_index].strip()
+            findings.append(
+                Finding(
+                    lineno=title_index + 1,
+                    severity=Severity.ERROR,
+                    text=(
+                        f"underline-only title {title!r} uses {char!r}, which this document also uses with an "
+                        f"overline (line {overlined[0] + 1}: {first_over!r}); Docutils reads the two forms as "
+                        f"different levels, so fix cannot tell which level {title!r} belongs to — give "
+                        f"{title!r} an overline like {first_over!r} to put it at that level, or use another "
+                        f"adornment character{alternative} to keep it a level of its own"
+                    ),
+                    fixable=False,
+                    code=FindingCode.HIERARCHY_AMBIGUOUS_STYLE,
+                )
+            )
+        for title_index in overlined:
+            if ranges is None or not _in_scope(ranges, title_index - 1, title_index + 3):
+                continue
+            title = lines[title_index].strip()
+            findings.append(
+                Finding(
+                    lineno=title_index + 1,
+                    severity=Severity.ERROR,
+                    text=(
+                        f"title {title!r} uses {char!r} with an overline, while this document also uses "
+                        f"{char!r} without one (line {underlined[0] + 1}: {first_under!r}); Docutils reads "
+                        f"the two forms as different levels, so fix cannot tell which level {title!r} belongs "
+                        f"to — drop its overline to put it at {first_under!r}'s level, or use another "
+                        f"adornment character{alternative} to keep it a level of its own"
+                    ),
+                    fixable=False,
+                    code=FindingCode.HIERARCHY_AMBIGUOUS_STYLE,
+                )
+            )
+    findings.sort(key=lambda finding: finding.lineno)
+    return findings
+
+
 def _unseparated_title_findings(
     lines: list[str],
     doctree: docutils.nodes.document | None,
@@ -783,6 +853,9 @@ def _structure_plan(
     shared = _shared_adornment_findings(lines)
     if shared:
         return list(lines), tuple(shared)
+    mixed = _mixed_style_findings(lines, ranges)
+    if mixed:
+        return list(lines), tuple(mixed)
     fixed = _unblocked_structure_fixes(lines, ranges)
     if fixed != lines:
         unseparated = _unseparated_title_findings(lines, doctree, blocking=True)

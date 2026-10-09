@@ -97,6 +97,9 @@ class FindingCode(enum.StrEnum):
     HIERARCHY_ORDER = "hierarchy.order"
     HIERARCHY_NONPREFERRED_CHAR = "hierarchy.nonpreferred-char"
     HIERARCHY_SECOND_TITLE = "hierarchy.second-title"
+    # One character with and without an overline: two levels to Docutils, one
+    # level to the old placeholder convention.  Never fixable; refuses the fix.
+    HIERARCHY_AMBIGUOUS_STYLE = "hierarchy.ambiguous-style"
     # Semantic lint left to author judgment.
     TEXT_HOMOGLYPH = "text.homoglyph"
     INLINE_NESTED_MARKUP = "inline.nested-markup"

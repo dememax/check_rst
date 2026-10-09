@@ -541,23 +541,94 @@ title model of a file is ambiguous, ``check`` reports a non-fixable ERROR, so
 ``--skip-fixable`` keeps it visible.  ``fix`` and ``diff`` print ``fix
 refused`` with the same explanation and exit 1.  No title or adornment line of
 that file changes; byte hygiene still applies.  Resolve the ambiguity in the
-source, then run ``fix`` again.
+source as the message says, then run ``fix`` again.
 
-The ambiguities are:
+Choosing a reading would be unsafe because either choice can leave a clean
+``check`` behind.  check_rst 0.7.1 chose the ordinary reStructuredText reading
+in bare mode and silently nested new sections one or two levels too deep;
+whole-file ``fix`` chose the other reading and flattened pages whose titles
+used the two forms as real levels.  A refusal is visible, and it costs one
+edit.
 
-* An adornment line that is both the underline of the text line above it and
-  the overline of a title block below it (``adornment.shared-line``).  Docutils
-  reads it as an underline, so the text line would become a section title.  If
-  that line is text, add a blank line before the overline.
-* A title written directly after a non-blank line that is not a list item
-  (``adornment.unseparated-title``).  After a field list or a comment,
-  Docutils reads it as a section title; after a paragraph line, it reads
-  paragraph text.  The parser-free fix cannot tell which, and the rest of the
-  fix can depend on it, so the file is refused whenever ``fix`` would
-  otherwise change something.  Add a blank line before the title.  When
-  nothing else would change, ``check`` still reports a title that Docutils
-  reads this way as a non-fixable ERROR, because ``fix`` cannot complete it,
-  and a lost title that Docutils reads as paragraph text as a WARNING.
+--------------------------------------------
+One character with and without an overline
+--------------------------------------------
+
+The reStructuredText specification makes an underline-only title and an
+overline-and-underline title with the same character two different styles, so
+Docutils reads them as two levels.  check_rst's former placeholder convention
+used an underline-only title to mean the level of the overlined titles with
+that character.  The source cannot say which reading the author meant: a new
+title, a new file, or a document changing its convention has no history to
+consult, and the hierarchy remap would rewrite such titles outside the changed
+lines too.  So ``fix`` refuses every document that uses one character in both
+forms, whatever the scope of the edit (``hierarchy.ambiguous-style``).
+
+``check`` reports each underline-only title of that character.  In bare or
+``--git-scope`` mode it also reports an overlined title of that character
+inside the changed lines, because the edit may be that title.  Each message
+names a title of the other form.
+
+To resolve it, decide which level each reported title belongs to:
+
+* To put it at the level of the titles in the other form, write it in their
+  form.  To join overlined titles, add a copy of the underline above the
+  title; to join underline-only titles, delete the overline.
+* To give it a level of its own, give that level another adornment character,
+  for example the next free character that ``check_rst outline`` reports.
+  Replace the character in the title's adornment lines; their length can
+  stay.
+
+Lengths never matter here: ``fix`` computes them once the document is
+unambiguous.  For example, ``New`` below is underline-only ``*``, while
+``First`` is overlined ``*``::
+
+    *******
+    First
+    *******
+
+    Text.
+
+    New
+    *********
+
+To make ``New`` a sibling of ``First``, add the same line above it.  To make
+it a subsection of ``First``, use another character, such as ``=``, for its
+underline.
+
+----------------------------------------
+An adornment line shared by two titles
+----------------------------------------
+
+An adornment line can be both the underline of the text line above it and the
+overline of a title block below it (``adornment.shared-line``)::
+
+    Text.
+    *********
+    New section
+    *********
+
+Docutils reads it as an underline, so ``Text.`` would become a section title;
+the title-block placeholder convention means it as the overline of ``New
+section``.  If the line above is text, add a blank line before the overline.
+If it is a title, give it its own underline and a blank line.
+
+-----------------------------------------
+A title directly after a non-blank line
+-----------------------------------------
+
+A title written directly after a non-blank line that is not a list item
+(``adornment.unseparated-title``) has no proven reading.  After a field list
+or a comment, Docutils reads it as a section title; after a paragraph line, it
+reads paragraph text, and the section is lost.  The parser-free ``fix`` cannot
+tell which, and the rest of the fix can depend on it, so the file is refused
+whenever ``fix`` would otherwise change something.  Add a blank line before
+the title.
+
+When nothing else would change, there is nothing to refuse, and ``fix``
+leaves the file alone.  ``check`` still reports a title that Docutils reads
+this way as a non-fixable ERROR, because ``fix`` cannot complete it, and a
+lost title that Docutils reads as paragraph text as a WARNING.
 
 =================================================
 ``hierarchy``: inspect the live character order
