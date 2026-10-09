@@ -11,7 +11,9 @@ import re
 import types
 from typing import TYPE_CHECKING, cast
 
+import docutils.frontend
 import docutils.nodes
+import docutils.parsers.rst
 import docutils.parsers.rst.languages
 import docutils.parsers.rst.languages.en
 import docutils.parsers.rst.states
@@ -96,7 +98,9 @@ _BODY_PARSING_DIRECTIVES = frozenset(
 )
 _DIRECTIVE_MARKER = re.compile(r"^\s*\.\.\s+([A-Za-z0-9_:+-]+)::")
 
-type _CellEvidence = tuple[str, ...] | None
+# One cell child as (element name, source text, rendered text), whitespace
+# collapsed; a cell is the tuple of its children in order.
+type _CellSignature = tuple[tuple[str, str, str], ...]
 # Docutils' table parser: (morerows, morecols, first-line offset, cell lines),
 # or None for a position covered by a span.
 type _ParsedCell = tuple[int, int, int, list[str]] | None
@@ -107,51 +111,74 @@ def _collapsed(text: str) -> str:
     return " ".join(text.split())
 
 
-def _table_evidence(table: docutils.nodes.table) -> tuple[tuple[_CellEvidence, ...], ...] | None:
-    """Return each own row's per-cell source-text fragments, or None.
+def _cell_signature(children: list[docutils.nodes.Node]) -> _CellSignature:
+    """Return the ordered signature of a cell's child elements.
 
-    A cell's evidence is the source text Docutils kept on its children,
-    whitespace collapsed; an empty cell is ``()``.  A cell whose children keep
-    no source text, such as a bullet list, is ``None`` and is not compared.
-    None overall means no cell can be verified.
+    The element name, its source text and its rendered text together keep
+    the cell's block boundaries: one paragraph "a b" and two paragraphs "a"
+    and "b" differ.  System messages are left out on both sides.
     """
-    rows: list[tuple[_CellEvidence, ...]] = []
+    return tuple(
+        (child.tagname, _collapsed(child.rawsource), _collapsed(child.astext()))
+        for child in children
+        if isinstance(child, docutils.nodes.Element) and not isinstance(child, docutils.nodes.system_message)
+    )
+
+
+def _table_evidence(table: docutils.nodes.table) -> tuple[tuple[_CellSignature, ...], ...] | None:
+    """Return the signature of each cell of *table*'s own rows, or None.
+
+    None means no cell has content, so nothing could prove a pairing.
+    """
+    rows: list[tuple[_CellSignature, ...]] = []
     verified = False
     for row in table.findall(docutils.nodes.row):
         if _nearest_ancestor(row, docutils.nodes.table) is not table:
             continue
-        cells: list[_CellEvidence] = []
+        cells: list[_CellSignature] = []
         for entry in row.children:
             if not isinstance(entry, docutils.nodes.entry):
                 continue
-            children = [child for child in entry.children if isinstance(child, docutils.nodes.Element)]
-            if not children:
-                cells.append(())
-            elif all(child.rawsource for child in children):
-                cells.append(tuple(_collapsed(child.rawsource) for child in children))
-                verified = True
-            else:
-                cells.append(None)
+            signature = _cell_signature(list(entry.children))
+            verified = verified or bool(signature)
+            cells.append(signature)
         rows.append(tuple(cells))
     return tuple(rows) if verified else None
 
 
-def _cells_match(evidence: tuple[tuple[_CellEvidence, ...], ...], parsed_rows: list[list[_ParsedCell]]) -> bool:
-    """Return whether a parsed table block carries *evidence*, cell by cell."""
+@functools.cache
+def _cell_parse_settings() -> docutils.frontend.Values:
+    """Return quiet settings for re-parsing one table cell, as Docutils does."""
+    settings = docutils.frontend.get_default_settings(docutils.parsers.rst.Parser())
+    settings.halt_level = 5
+    settings.report_level = 5
+    settings.file_insertion_enabled = False
+    settings.raw_enabled = False
+    return settings
+
+
+def _parsed_cell_signature(cell_lines: list[str]) -> _CellSignature:
+    """Parse one table cell's text the way Docutils builds a table entry."""
+    document = docutils.utils.new_document("<table cell>", _cell_parse_settings())
+    docutils.parsers.rst.Parser().parse("\n".join(cell_lines), document)
+    return _cell_signature(list(document.children))
+
+
+def _cells_match(evidence: tuple[tuple[_CellSignature, ...], ...], parsed_rows: list[list[_ParsedCell]]) -> bool:
+    """Return whether a parsed table block produces exactly *evidence*.
+
+    Every cell must parse to the same ordered children, with equal source
+    and rendered text, as the table's entry: containing the text is not
+    enough.
+    """
     if len(parsed_rows) != len(evidence):
         return False
     for row_evidence, parsed in zip(evidence, parsed_rows, strict=True):
         cells = [cell for cell in parsed if cell is not None]
         if len(cells) != len(row_evidence):
             return False
-        for fragments, cell in zip(row_evidence, cells, strict=True):
-            if fragments is None:
-                continue
-            text = _collapsed(" ".join(cell[3]))
-            if not fragments:
-                if text:
-                    return False
-            elif not all(fragment in text for fragment in fragments):
+        for expected, cell in zip(row_evidence, cells, strict=True):
+            if _parsed_cell_signature(cell[3]) != expected:
                 return False
     return True
 
@@ -372,14 +399,21 @@ class _DocumentCore:
         Candidate geometry: every grid or simple table block that Docutils'
         own table parser accepts, outside verbatim nodes and outside a
         directive whose body is not parsed as reStructuredText.  Semantic
-        predicate: the block has the table's shape, and every cell whose
-        Docutils children keep their source text contains that text.  The
+        predicate: the block has the table's shape, and every cell parses to
+        the same children, with equal source and rendered text, as the
+        table's entry.  The
         pairing is exact only when exactly one block qualifies and exactly
         one table carries the same evidence; equal shapes or counts alone
         prove nothing (a list-table after a grid-shaped math block has no
-        grid at all).  Otherwise None, and the caller reports an approximate
-        line instead of a guessed one (CR-30).
+        grid at all), and neither does a cell that merely contains the
+        table's cell text.  A table in an included file is never paired here.
+        Otherwise None, and the caller reports an approximate line instead of
+        a guessed one (CR-30).
         """
+        if lines is not self.lines:
+            # Verbatim regions are recovered for the root document only, so
+            # a copy inside an included file could not be excluded.
+            return None
         evidence = _table_evidence(table)
         if evidence is None:
             return None
