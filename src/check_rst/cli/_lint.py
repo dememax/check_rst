@@ -30,6 +30,7 @@ from ._helpers import (
     _in_scope,
     _inline_node_line,
     _inline_source_line,
+    _is_adornment,
     _node_line,
 )
 from ._types import (
@@ -201,6 +202,11 @@ def check_nested_inline_markup(
     for outer in _findall_node_types(document.doctree, _INLINE_CONTAINER_TYPES):
         nested = document.nested_inline_by_node.get(id(outer), ())
         if not nested:
+            continue
+        if _is_adornment(str(outer.rawsource).strip()):
+            # A line made only of one adornment character is a title
+            # adornment Docutils absorbed into a paragraph, never authored
+            # nested markup; check_adornments reports the lost title (CR-41).
             continue
         exact_line = _inline_source_line(outer)
         location = document.finding_location(

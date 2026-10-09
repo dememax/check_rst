@@ -704,8 +704,9 @@ def _unseparated_title_findings(
     (after a field list or a comment) or as the end of a paragraph; the
     parser-free model fails closed and models neither.  Without a doctree
     (fix and diff) the explanation stays neutral; with one (check) it names
-    Docutils' reading.  Both are non-fixable ERRORs.  A candidate Docutils
-    reads as paragraph text is reported only while it blocks a fix.
+    Docutils' reading.  All are non-fixable.  A candidate Docutils reads as
+    paragraph text is a WARNING, because that paragraph is valid RST, unless
+    it blocks a fix; every other candidate is an ERROR.
     """
     docutils_titles: set[int] = set()
     if doctree is not None:
@@ -727,17 +728,19 @@ def _unseparated_title_findings(
                 f"Docutils reads {title!r} as a section title, but it directly follows a non-blank "
                 "line, so fix cannot prove it is one — add a blank line before it"
             )
-        elif blocking:
+        else:
+            # Docutils reads valid paragraph text, so on its own this is a
+            # WARNING; while it blocks a fix it is an ERROR (CR-41).
             text = (
                 f"{title!r} and the line under it directly follow a non-blank line, so Docutils reads "
                 f"them as paragraph text — add a blank line before {title!r} if it is a title"
             )
-        else:
-            continue
         findings.append(
             Finding(
                 lineno=title_index + 1,
-                severity=Severity.ERROR,
+                severity=Severity.ERROR
+                if blocking or doctree is None or title_index in docutils_titles
+                else Severity.WARNING,
                 text=text + (_BLOCKED_SUFFIX if blocking else ""),
                 fixable=False,
                 code=FindingCode.ADORNMENT_UNSEPARATED_TITLE,

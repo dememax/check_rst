@@ -551,7 +551,8 @@ The ambiguities are:
   fix can depend on it, so the file is refused whenever ``fix`` would
   otherwise change something.  Add a blank line before the title.  When
   nothing else would change, ``check`` still reports a title that Docutils
-  reads this way as a non-fixable ERROR, because ``fix`` cannot complete it.
+  reads this way as a non-fixable ERROR, because ``fix`` cannot complete it,
+  and a lost title that Docutils reads as paragraph text as a WARNING.
 
 =================================================
 ``hierarchy``: inspect the live character order
