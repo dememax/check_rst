@@ -9,8 +9,11 @@ import textwrap
 from typing import TYPE_CHECKING
 
 import docutils.nodes
+import docutils.parsers.rst
+import docutils.parsers.rst.directives
 import pytest
 from _support import _GOOD_BLOCK, _rst
+from docutils.parsers.rst.directives.admonitions import Note
 
 from check_rst import cli
 from check_rst.cli import _document, _formatting, _lint, _sphinx
@@ -2896,6 +2899,52 @@ def test_included_table_without_proven_source_stays_approximate(tmp_path: Path, 
     )
     path = tmp_path / "index.rst"
     path.write_text(_TOP + ".. include:: fragment.rst\n", encoding="utf-8")
+    document = _document.Document(path, tmp_path)
+    if floor:
+        for table in document.doctree.findall(docutils.nodes.table):
+            table.line = None
+            table.source = None
+
+    found = [(f.lineno, f.location_exact) for f in _lint.check_directives(path, True, doc=document)]
+
+    assert [exact for _line, exact in found] == [False]
+
+
+_GRID_AND_LIST_TABLE = (
+    "   +---------------+---+\n   | .. code: bash | z |\n   +---------------+---+\n\n"
+    ".. list-table::\n\n   * - .. code: bash\n     - z\n"
+)
+
+
+class _OpaqueNote(docutils.parsers.rst.Directive):
+    """A replacement "note" that renders its body elsewhere, as an extension
+    might: the body produces no node here at all."""
+
+    has_content = True
+
+    def run(self) -> list[docutils.nodes.Node]:
+        return []
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
+@pytest.mark.parametrize("opaque", ["unknown only", "replaced note"])
+def test_directive_body_counts_only_when_its_active_implementation_parses_it(
+    tmp_path: Path, request: pytest.FixtureRequest, floor: bool, opaque: str
+) -> None:
+    """A directive's name does not prove that its body becomes RST.  In plain
+    Docutils, "only" is unknown, and an extension may replace "note" with an
+    implementation that keeps the body as text; a grid there is no table,
+    so the list-table after it must stay approximate (Codex's second look at
+    checkpoint A)."""
+    if opaque == "replaced note":
+        docutils.parsers.rst.directives.register_directive("note", _OpaqueNote)
+        request.addfinalizer(lambda: docutils.parsers.rst.directives.register_directive("note", Note))
+        directive = ".. note::\n\n"
+    else:
+        directive = ".. only:: html\n\n"
+    path = tmp_path / "doc.rst"
+    path.write_text("Title\n=====\n\n" + directive + _GRID_AND_LIST_TABLE, encoding="utf-8")
     document = _document.Document(path, tmp_path)
     if floor:
         for table in document.doctree.findall(docutils.nodes.table):
