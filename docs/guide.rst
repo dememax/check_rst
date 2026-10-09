@@ -521,7 +521,12 @@ What ``fix`` computes for you
   separator after a title block or between two title blocks.
 * Hierarchy: remaps adornment styles so their established nesting depths
   match the project ranking — the check and the remap are the same
-  computation, so a clean check guarantees ``fix`` changes nothing.
+  computation, so a clean check guarantees ``fix`` changes nothing.  Every
+  level's target style has an overline.  When a level's titles have only an
+  underline, ``fix`` adds the overline to all of them at once, inside and
+  outside the changed lines: Docutils treats a character with and without an
+  overline as two styles, so an overline on one title alone would move that
+  title to a level of its own.
 
 Repeated blank separators are intentionally absent from that default list.
 They need the separate, parser-verified operation below because an empty source

@@ -3014,8 +3014,9 @@ def test_structure_remap_adds_canonical_overline_and_underline() -> None:
 
 
 @pytest.mark.unit
-def test_structure_remap_removes_overline_and_canonicalizes_underline() -> None:
-    """Removing a style overline still leaves canonical title geometry."""
+def test_structure_remap_gives_every_level_an_overlined_canonical_style() -> None:
+    """Every level's target style has an overline, so a remap never removes
+    one: underline-only levels gain it and the geometry is canonical (CR-42)."""
     lines = textwrap.dedent("""\
         ##########
         Root
@@ -3037,7 +3038,9 @@ def test_structure_remap_removes_overline_and_canonicalizes_underline() -> None:
 
     fixed = _formatting._compute_structure_fixes(lines, [(1, 3)])
 
-    assert "\n".join(fixed).endswith("Second\n" + "*" * 22 + "\n\nSecond child\n" + "=" * 14)
+    assert "\n".join(fixed).endswith(
+        "*" * 8 + "\nSecond\n" + "*" * 8 + "\n\n" + "=" * 14 + "\nSecond child\n" + "=" * 14
+    )
 
 
 @pytest.mark.integration

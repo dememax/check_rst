@@ -535,7 +535,8 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None, *, whole_fi
     """
     document = _resolve_document(path, doc)
     lines = document.lines
-    if _structure_refusals(lines, None if whole_file else document.ranges):
+    ranges = None if whole_file else document.ranges
+    if _structure_refusals(lines, ranges):
         # The remap depends on a reading fix refuses to choose; check_adornments
         # reports the ambiguity itself.
         return []
@@ -558,19 +559,31 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None, *, whole_fi
             )
         if style in remap:
             target = remap[style]
-            findings.append(
-                Finding(
-                    lineno,
-                    Severity.ERROR,
+            if target[0] == char:
+                if all(
+                    # The same window check_adornments scopes its finding by.
+                    _in_scope(ranges, title_index + 1, title_index + 2)
+                    for title_index, event_style in _title_style_events(lines)
+                    if event_style == style
+                ):
+                    # check_adornments already reports each of these titles
+                    # as underline-only; only titles outside the checked
+                    # lines need this level-wide announcement.
+                    continue
+                text = (
+                    f"underline-only {char!r} titles are this document's level {depth}, but the "
+                    f"hierarchy's level-{depth} style is {char!r} with an overline (fix adds the "
+                    f"overline to every {char!r} title of this level)"
+                )
+            else:
+                text = (
                     f"adornment {char!r} is this document's level {depth}, but "
                     f"hierarchy level {depth} is {target[0]!r} — established "
                     f"nesting depth must follow the hierarchy from '#' down "
                     f"(fix remaps {char!r} to {target[0]!r}"
-                    + (" and adds an overline)" if not style[1] and target[1] else ")"),
-                    fixable=True,
-                    code=FindingCode.HIERARCHY_ORDER,
+                    + (" and adds an overline)" if not style[1] and target[1] else ")")
                 )
-            )
+            findings.append(Finding(lineno, Severity.ERROR, text, fixable=True, code=FindingCode.HIERARCHY_ORDER))
     return findings
 
 
@@ -609,15 +622,15 @@ def _compute_hierarchy_remap(
     was already established behavior for the preferred 6; this extends it
     uniformly rather than special-casing non-preferred characters).
     """
-    established = _established_style_depths(lines, doctree)
-    canonical_style: dict[int, _TitleStyle] = {}
-    for style, _lineno, depth in established:
-        if style[0] == HIERARCHY[depth - 1]:
-            canonical_style.setdefault(depth, style)
+    # The canonical style of every level has an overline (the project rule).
+    # An underline-only style therefore always maps to an overlined target,
+    # and the remap gives every title of that style its overline at once,
+    # inside and outside the changed lines.  Promoting only the titles in
+    # scope would split one style into two Docutils levels (CR-42).
     return {
-        style: canonical_style.get(depth, (HIERARCHY[depth - 1], True))
-        for style, _lineno, depth in established
-        if style != canonical_style.get(depth, (HIERARCHY[depth - 1], True))
+        style: (HIERARCHY[depth - 1], True)
+        for style, _lineno, depth in _established_style_depths(lines, doctree)
+        if style != (HIERARCHY[depth - 1], True)
     }
 
 
