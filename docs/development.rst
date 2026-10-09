@@ -475,9 +475,10 @@ One crashing print call may expose an output-boundary defect
   diff, human report, and JSON paths.
 
 Output channels do not necessarily share one encoding contract
-  Human reports and unified-diff headers use visible ``backslashreplace``
-  escapes on a strict stream; an explicitly configured ``surrogateescape``
-  stream retains its byte-preserving policy.  JSON promises UTF-8 text, so the
+  Human reports and unified-diff headers keep raw filename bytes through
+  ``surrogateescape`` on a strict UTF-8 stream and use visible
+  ``backslashreplace`` escapes on a strict non-UTF-8 stream; an explicitly
+  configured ``surrogateescape`` stream retains its byte-preserving policy.  JSON promises UTF-8 text, so the
   low surrogate becomes a reversible JSON escape written through the byte
   stream.  Standard error already uses Python's defensive ``backslashreplace``
   policy and did not need modification.

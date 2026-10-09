@@ -50,12 +50,16 @@ instead.  The runtime provenance line reports the ``libgit2`` version actually
 linked, which is the authoritative answer on a given host.
 
 The console boundary exposes those paths without crashing.  CLI startup
-changes a strict standard-output error handler to ``backslashreplace`` before
-installing any report sink, while leaving an explicit non-strict policy and
-standard error alone.  Human reports and unified diffs therefore show a stable
-``\udcXX`` escape under a strict locale.  The JSON interface writes UTF-8 bytes
-directly and uses a valid JSON ``\uDCXX`` escape; a surrogate-preserving parser
-plus the platform filesystem encoder recovers the physical path.
+changes a strict UTF-8 standard output, such as an Ubuntu ``fr_FR.UTF-8``
+locale gives, to ``surrogateescape`` before installing any report sink:
+human reports and unified-diff headers then carry the filename's raw bytes.  A
+strict non-UTF-8 standard output uses ``backslashreplace`` instead and shows a
+visible ``\udcXX`` escape.  An explicit non-strict policy and standard error
+are left alone.  The JSON interface writes UTF-8 bytes directly and uses a
+valid JSON ``\uDCXX`` escape; a surrogate-preserving parser plus the platform
+filesystem encoder recovers the physical path.  The guide's "History
+protection: bare mode and selective Git scope" section is the normative
+statement.
 
 The interpreter boundary must still include every Sphinx extension loaded by
 consumer ``conf.py`` files.  On Gentoo, the preferred host-wide installation
