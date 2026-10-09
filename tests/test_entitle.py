@@ -556,3 +556,22 @@ def test_cli_entitle_result_reports_no_second_top_level_error(
         cli.main()
     out = capsys.readouterr().out
     assert "levels: 1 '#' (1), 2 '*' (2), 3 sections total" in out
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("source", "code"),
+    [
+        ("=========\n Manual\n=========\n\nIntro.\n\nInstall\n=======\n\nText.\n", "hierarchy.ambiguous-style"),
+        ("Old Title\n#########\n\n:field: value\nSub title\n*********\n\nBody.\n", "adornment.unseparated-title"),
+    ],
+    ids=["mixed-style", "unseparated-title"],
+)
+def test_entitle_refuses_an_ambiguous_title_model(source: str, code: str) -> None:
+    """Entitle renormalizes through the same structural plan as fix.  When
+    that plan is refused, a silent no-op would leave the inserted title
+    unnormalized and nothing demoted, so entitle refuses before writing."""
+    with pytest.raises(ValueError, match=r"title structure is ambiguous at line \d+") as refusal:
+        _formatting._compute_entitle_lines(source.splitlines(), "New Title")
+
+    assert code in str(refusal.value)
