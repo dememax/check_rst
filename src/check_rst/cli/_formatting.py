@@ -376,7 +376,7 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
                 err(
                     FindingCode.ADORNMENT_UNDERLINE_ONLY,
                     underline_index + 1,
-                    "underline-only title — add matching overline (project rule: overline + underline required)",
+                    "underline-only title — add matching overline (check_rst rule: overline + underline required)",
                 )
             )
 
@@ -622,7 +622,7 @@ def _compute_hierarchy_remap(
     was already established behavior for the preferred 6; this extends it
     uniformly rather than special-casing non-preferred characters).
     """
-    # The canonical style of every level has an overline (the project rule).
+    # The canonical style of every level has an overline (check_rst's rule).
     # An underline-only style therefore always maps to an overlined target,
     # and the remap gives every title of that style its overline at once,
     # inside and outside the changed lines.  Promoting only the titles in
