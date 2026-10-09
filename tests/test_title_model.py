@@ -338,3 +338,168 @@ def test_overline_is_added_to_a_whole_underline_only_level(
     text = (rst_repo / "doc.rst").read_text(encoding="utf-8")
     assert "*********\nOld one\n*********" in text
     assert "*********\nOld two\n*********" in text
+
+
+_SECTIONS_BASE = textwrap.dedent("""\
+    #######
+    Notes
+    #######
+
+    *******
+    First
+    *******
+
+    Text.
+
+    =====
+    Sub
+    =====
+
+    Sub text.
+    """)
+_SIBLINGS_BASE = textwrap.dedent("""\
+    #######
+    Notes
+    #######
+
+    *******
+    First
+    *******
+
+    Old text.
+
+    ********
+    Second
+    ********
+
+    Old second text.
+    """)
+_MIXED_PAGE_TITLE = (
+    "=========\n Manual\n=========\n\nIntro.\n\nInstall\n=======\n\nInstall text.\n\nUsage\n=====\n\nUsage text.\n"
+)
+_MIXED_DEEPER = "#########\nManual\n#########\n\n********\nChapter\n********\n\nText.\n\nTopic\n*****\n\nTopic text.\n"
+
+MIXED_STYLES = (
+    Case(
+        "underline-only placeholders appended after a section with children",
+        _SECTIONS_BASE,
+        _SECTIONS_BASE + "\nAppended\n*********\n\nAppended text.\n\nAppended child\n=========\n\nChild text.\n",
+        "hierarchy.ambiguous-style",
+    ),
+    Case(
+        "underline-only placeholder inserted between siblings",
+        _SIBLINGS_BASE,
+        _SIBLINGS_BASE.replace("Old text.\n", "Old text.\n\nNew\n*********\n\nNew text.\n"),
+        "hierarchy.ambiguous-style",
+    ),
+    Case(
+        "page title and sections share one character, unrelated edit",
+        _MIXED_PAGE_TITLE,
+        _MIXED_PAGE_TITLE.replace("Usage text.", "Usage text, edited."),
+        "hierarchy.ambiguous-style",
+    ),
+    Case("deeper level shares its parent's character", None, _MIXED_DEEPER, "hierarchy.ambiguous-style"),
+    Case(
+        "first underline-only section under an overlined page title",
+        "=========\n Manual\n=========\n\nIntro.\n",
+        "=========\n Manual\n=========\n\nIntro.\n\nInstall\n=======\n\nInstall text.\n",
+        "hierarchy.ambiguous-style",
+    ),
+    Case(
+        "title block added to a level whose titles have no overline",
+        _LEGACY_LOG,
+        _LEGACY_LOG + "\n*********\nNew three\n*********\n\nText three.\n",
+        "hierarchy.ambiguous-style",
+    ),
+)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("scope", SCOPES)
+@pytest.mark.parametrize("case", MIXED_STYLES, ids=lambda case: case.name)
+def test_one_character_with_and_without_overline_is_refused(
+    rst_repo: Path,
+    case: Case,
+    scope: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Ordinary RST reads a character with and without an overline as two
+    levels; the placeholder convention meant one.  Neither reading is safe,
+    whatever the edit's scope, so fix refuses (CR-28, CR-39)."""
+    _assert_contract(rst_repo, case, scope, monkeypatch, capsys)
+
+
+@pytest.mark.integration
+def test_ambiguous_style_finding_names_both_resolutions(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The refusal must say how to resolve it either way."""
+    monkeypatch.chdir(rst_repo)
+    _prepare(rst_repo, MIXED_STYLES[1])
+
+    _check_exit, findings = _json_findings(monkeypatch, capsys, "bare")
+
+    refusal = next(f for f in findings if f["code"] == "hierarchy.ambiguous-style")
+    assert refusal["lineno"] == 11
+    assert "'New'" in refusal["text"]
+    assert "'First'" in refusal["text"]
+    assert "give 'New' an overline like 'First'" in refusal["text"]
+    assert "use another adornment character such as '='" in refusal["text"]
+
+
+ACCEPTED_PLACEHOLDERS = (
+    Case(
+        "title-block placeholders appended after a section with children",
+        _SECTIONS_BASE,
+        _SECTIONS_BASE
+        + "\n*********\nAppended section with a long title\n*********\n\nAppended text.\n\n"
+        + "=========\nAppended child\n=========\n\nChild text.\n",
+        None,
+        (
+            (1, "Notes"),
+            (2, "First"),
+            (3, "Sub"),
+            (2, "Appended section with a long title"),
+            (3, "Appended child"),
+        ),
+    ),
+    Case(
+        "title-block placeholder inserted between siblings",
+        _SIBLINGS_BASE,
+        _SIBLINGS_BASE.replace("Old text.\n", "Old text.\n\n*********\nNew\n*********\n\nNew text.\n"),
+        None,
+        ((1, "Notes"), (2, "First"), (2, "New"), (2, "Second")),
+    ),
+    Case(
+        "underline-only title at a new depth",
+        _SIBLINGS_BASE,
+        _SIBLINGS_BASE + "\nDeep\n=========\n\nDeep text.\n",
+        None,
+        ((1, "Notes"), (2, "First"), (2, "Second"), (3, "Deep")),
+    ),
+    Case(
+        "title-block placeholder at a new depth",
+        _SIBLINGS_BASE,
+        _SIBLINGS_BASE + "\n=========\nDeep\n=========\n\nDeep text.\n",
+        None,
+        ((1, "Notes"), (2, "First"), (2, "Second"), (3, "Deep")),
+    ),
+)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("scope", SCOPES)
+@pytest.mark.parametrize("case", ACCEPTED_PLACEHOLDERS, ids=lambda case: case.name)
+def test_unambiguous_placeholders_get_their_declared_level(
+    rst_repo: Path,
+    case: Case,
+    scope: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A title-block placeholder declares its style explicitly, and a new
+    character at a new depth has one reading; both are fixed in place."""
+    _assert_contract(rst_repo, case, scope, monkeypatch, capsys)
