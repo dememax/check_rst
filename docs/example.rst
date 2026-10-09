@@ -67,16 +67,16 @@ Editing: review, fix, converge
 Step 1 (``--skip-fixable``) surfaces the single thing needing
 judgment::
 
-      (bold paragraph opener: AI documents often use this pattern as an
-      informal heading; consider a proper section title or restructure the
-      surrounding group)
     station.rst:9: WARNING: bold paragraph opener 'Note:'
+      (bold paragraph opener: AI documents often use this pattern as an
+      informal heading; choose a reviewed disposition: promote, retain,
+      rewrite, or restructure)
 
 No leading glyph and no ``path:line:``-shaped hint line by accident: the
 finding itself is bare ``path:line: WARNING: message`` — de-facto compiler
 output, the shape generic tooling (IDE problem matchers, editor jump-to-
 error) parses — and the shared rationale prints once per run, not once
-per finding, above the first finding it applies to (see "De-facto
+per finding, after the first finding it applies to (see "De-facto
 compiler output" in :doc:`guide`).
 
 The judgment is yours: here ``**Note:**`` is a legitimate note marker,

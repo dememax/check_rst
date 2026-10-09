@@ -1610,22 +1610,22 @@ model's old hardcoded 10 are now the one shared, flag-controlled value.
 Real output, same file, three levels::
 
     $ check_rst check --quiet station.rst
-      (bold paragraph opener: AI documents often use this pattern as an
-      informal heading; consider a proper section title or restructure the
-      surrounding group)
     station.rst:11: WARNING: bold paragraph opener 'Note:'
+      (bold paragraph opener: AI documents often use this pattern as an
+      informal heading; choose a reviewed disposition: promote, retain,
+      rewrite, or restructure)
     check_rst: 1 file(s) checked, 0 error(s), 1 warning(s), 719 char(s)
       (87 distinct, 31 once), 835 byte(s), 112 space(s) (16%)
 
     $ check_rst check --quiet --word-samples 3 station.rst
-      (bold paragraph opener: AI documents often use this pattern as an
-      informal heading; consider a proper section title or restructure the
-      surrounding group)
     station.rst:11: WARNING: bold paragraph opener 'Note:'
+      (bold paragraph opener: AI documents often use this pattern as an
+      informal heading; choose a reviewed disposition: promote, retain,
+      rewrite, or restructure)
     check_rst: 1 file(s) checked, 0 error(s), 1 warning(s), 719 char(s)
       (87 distinct, 31 once), 835 byte(s), 112 space(s) (16%)
-    top prose words: sensor (6 @11), датчик (4 @5), readings (3 @25) (yet 41 suppressed)
-    rare prose words: batery @14 ↔ battery @11, sensro @13 (~sensor 6x), about @11 (yet 35 suppressed)
+    top prose words: sensor (6 @11), датчик (4 @5), readings (3 @25) (yet 36 suppressed)
+    rare prose words: batery @14 ↔ battery @11, sensro @13 (~sensor 6x), advice @16 (yet 31 suppressed)
 
 Level 0 stayed level 0 — the summary line is identical in both runs —
 and one flag alone reached into it for exactly the one thing worth
