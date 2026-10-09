@@ -296,3 +296,45 @@ def test_paragraph_read_candidate_is_a_visible_warning(
     assert fix_exit == 0
     assert "fix refused" not in fix_out
     assert path.read_text(encoding="utf-8") == _AFTER_PARAGRAPH
+
+
+_LEGACY_LOG = textwrap.dedent("""\
+    #####
+    Log
+    #####
+
+    Old one
+    *******
+
+    Text one.
+
+    Old two
+    *******
+
+    Text two.
+    """)
+
+LEGACY_UNDERLINE_LEVEL = Case(
+    name="new section in a level whose titles have no overline",
+    base=_LEGACY_LOG,
+    edited=_LEGACY_LOG + "\nNew three\n*********\n\nText three.\n",
+    refusal=None,
+    tree=((1, "Log"), (2, "Old one"), (2, "Old two"), (2, "New three")),
+)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("scope", SCOPES)
+def test_overline_is_added_to_a_whole_underline_only_level(
+    rst_repo: Path,
+    scope: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Giving only the new title an overline would make it a style of its
+    own, one level below its siblings.  The overline is a property of the
+    level's style, so fix adds it to every title of that style (CR-42)."""
+    _assert_contract(rst_repo, LEGACY_UNDERLINE_LEVEL, scope, monkeypatch, capsys)
+    text = (rst_repo / "doc.rst").read_text(encoding="utf-8")
+    assert "*********\nOld one\n*********" in text
+    assert "*********\nOld two\n*********" in text
