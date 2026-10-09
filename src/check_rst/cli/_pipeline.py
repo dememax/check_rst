@@ -436,7 +436,7 @@ def _run_phase1(
         adornments_clean = False
         if not args.no_adornments:
             adornment_v = check_adornments(path, whole_file, doc=document)
-            hierarchy_v = check_hierarchy(path, doc=document)
+            hierarchy_v = check_hierarchy(path, doc=document, whole_file=whole_file)
             # Verified mode must use Sphinx's effective parse (extensions,
             # source mutation, includes, and HTML-resolved conditions), so its
             # single-title check runs in Phase 2 after the environment exists.

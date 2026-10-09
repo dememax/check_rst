@@ -518,7 +518,7 @@ What ``fix`` computes for you
   trailing whitespace on every source line (Unix LF policy, whole-file).
 * Adornment geometry: display-width+2 lengths on both sides, overline
   synthesis for placeholder underlines, and insertion of a missing blank
-  separator around a title block.
+  separator after a title block or between two title blocks.
 * Hierarchy: remaps adornment styles so their established nesting depths
   match the project ranking — the check and the remap are the same
   computation, so a clean check guarantees ``fix`` changes nothing.
@@ -526,6 +526,24 @@ What ``fix`` computes for you
 Repeated blank separators are intentionally absent from that default list.
 They need the separate, parser-verified operation below because an empty source
 line can be literal content rather than disposable geometry.
+
+===============
+Refused fixes
+===============
+
+``fix`` never chooses between two readings of the same source.  When the
+title model of a file is ambiguous, ``check`` reports a non-fixable ERROR, so
+``--skip-fixable`` keeps it visible.  ``fix`` and ``diff`` print ``fix
+refused`` with the same explanation and exit 1.  No title or adornment line of
+that file changes; byte hygiene still applies.  Resolve the ambiguity in the
+source, then run ``fix`` again.
+
+The ambiguities are:
+
+* An adornment line that is both the underline of the text line above it and
+  the overline of a title block below it (``adornment.shared-line``).  Docutils
+  reads it as an underline, so the text line would become a section title.  If
+  that line is text, add a blank line before the overline.
 
 =================================================
 ``hierarchy``: inspect the live character order

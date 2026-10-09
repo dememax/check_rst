@@ -20,7 +20,7 @@ from check_rst import DOCUMENTATION_URL, __copyright__, __license__, __version__
 
 from . import _comparison, _formatting, _helpers, _output
 from ._config import LoadedConfig, _load_config
-from ._formatting import _plan_fix, diff_entitle, diff_fixes, fix_entitle
+from ._formatting import _plan_fix, diff_entitle, fix_entitle, render_plan_diff
 from ._helpers import (
     _CLI_CONTRACT_VERSION,
     HIERARCHY,
@@ -157,6 +157,10 @@ def _run_fix_only(
         _print_fix_only_status(len(files), errors, 0)
         raise SystemExit(1)
 
+    # A refused title model leaves that file's titles untouched; the plan
+    # still applies its byte hygiene, and the refusal fails the run.
+    errors += _report_refusals(plans)
+
     results: list[FixResult] = []
     for plan in plans:
         try:
@@ -177,6 +181,16 @@ def _run_fix_only(
     fixed = sum(result.changed for result in results)
     _print_fix_only_status(len(files), errors, fixed)
     raise SystemExit(1 if errors else 0)
+
+
+def _report_refusals(plans: list[FixPlan]) -> int:
+    """Print every title-model refusal in *plans* and return how many there were."""
+    count = 0
+    for plan in plans:
+        for refusal in plan.refusals:
+            _emit_report_line(f"{plan.path}:{refusal.lineno}: ERROR: fix refused — {refusal.text}", "ERROR")
+            count += 1
+    return count
 
 
 def _run_list_table(
@@ -1106,15 +1120,7 @@ def _run_diff_only(
     errors = 0
     for path in files:
         try:
-            preview = diff_fixes(
-                path,
-                whole_file,
-                include_structure=not no_adornments,
-                include_blank_lines=False,
-                collapse_title_spaces=False,
-                single_space_prose=False,
-                project_root=project_root,
-            )
+            plan = _plan_fix(path, whole_file, include_structure=not no_adornments, project_root=project_root)
         except UnicodeDecodeError as exc:
             err_line = exc.object.count(b"\n", 0, exc.start) + 1
             _emit_report_line(
@@ -1123,6 +1129,8 @@ def _run_diff_only(
             )
             errors += 1
             continue
+        errors += _report_refusals([plan])
+        preview = render_plan_diff(plan)
         if preview:
             print(preview, end="")
             preview_changes += 1

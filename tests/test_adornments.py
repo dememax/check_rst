@@ -1073,13 +1073,19 @@ def test_fix_mismatched_chars(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 def test_fix_missing_blank_before_overline(tmp_path: Path) -> None:
-    """Missing blank line before the overline is inserted."""
+    """Missing blank line before the overline is inserted between glued blocks.
+
+    The line above the second overline is the first block's underline, so it
+    cannot also be read as an underline of its own (contrast
+    test_fix_refuses_block_glued_under_text)."""
     p = _rst(
         tmp_path,
         """\
-        Some text.
         #######
         Title
+        #######
+        #######
+        Other
         #######
 
         More text.
@@ -1087,6 +1093,27 @@ def test_fix_missing_blank_before_overline(tmp_path: Path) -> None:
     )
     _formatting.fix_structure(p, True)
     assert _formatting.check_adornments(p, True) == []
+
+
+@pytest.mark.integration
+def test_fix_refuses_block_glued_under_text(tmp_path: Path) -> None:
+    """A block's overline directly under a text line is also that line's
+    underline to Docutils; fix refuses rather than choose a reading (CR-40)."""
+    source = textwrap.dedent("""\
+        Some text.
+        #######
+        Title
+        #######
+
+        More text.
+        """)
+    p = tmp_path / "test.rst"
+    p.write_text(source, encoding="utf-8")
+
+    assert not _formatting.fix_structure(p, True)
+    assert p.read_text(encoding="utf-8") == source
+    findings = _formatting.check_adornments(p, True)
+    assert [(f.lineno, f.code, f.fixable) for f in findings] == [(2, _types.FindingCode.ADORNMENT_SHARED_LINE, False)]
 
 
 @pytest.mark.integration
@@ -1135,6 +1162,7 @@ def test_fix_combined_errors(tmp_path: Path) -> None:
         tmp_path,
         """\
         Some text.
+
         ######
          Title
         =======

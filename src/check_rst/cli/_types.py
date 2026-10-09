@@ -89,6 +89,9 @@ class FindingCode(enum.StrEnum):
     ADORNMENT_TITLE_SPACES = "adornment.title-spaces"
     ADORNMENT_BLANK_BEFORE = "adornment.blank-before"
     ADORNMENT_BLANK_AFTER = "adornment.blank-after"
+    # Title-model ambiguities: fix refuses to choose a reading, so these are
+    # never fixable and block every title or adornment change in the file.
+    ADORNMENT_SHARED_LINE = "adornment.shared-line"
     # Document-level section hierarchy.
     HIERARCHY_ORDER = "hierarchy.order"
     HIERARCHY_NONPREFERRED_CHAR = "hierarchy.nonpreferred-char"
@@ -246,6 +249,10 @@ class FixPlan:
     counts: FixCounts
     text_space_counts: TextSpaceCounts
     blank_lines_removed: int
+    # Title-model ambiguities that blocked every title and adornment change in
+    # this file.  The plan still carries byte hygiene and the other stages;
+    # the caller reports each refusal and exits 1.
+    refusals: tuple[Finding, ...] = ()
 
     @property
     def changed(self) -> bool:

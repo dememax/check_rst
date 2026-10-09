@@ -65,7 +65,8 @@ def test_hygiene_findings_name_each_normalization_rule() -> None:
         ("=======\nTitle\n-------\n\nText.\n", "adornment.char-mismatch"),
         ("####\nTitle\n####\n\nText.\n", "adornment.length"),
         ("#######\n Title\n#######\n\nText.\n", "adornment.title-spaces"),
-        ("Para.\n#######\nTitle\n#######\n\nText.\n", "adornment.blank-before"),
+        ("#######\nTitle\n#######\n#######\nOther\n#######\n\nText.\n", "adornment.blank-before"),
+        ("Para.\n#######\nTitle\n#######\n\nText.\n", "adornment.shared-line"),
         ("#######\nTitle\n#######\nText.\n", "adornment.blank-after"),
     ],
 )

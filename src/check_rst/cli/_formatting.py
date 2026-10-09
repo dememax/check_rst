@@ -74,15 +74,22 @@ def fix_hygiene(path: pathlib.Path) -> bool:
 type _TitleStyle = tuple[str, bool]
 
 
-def _title_style_events(
+def _underline_candidates(
     lines: list[str],
     doctree: docutils.nodes.document | None = None,
-) -> list[tuple[int, _TitleStyle]]:
-    """Return (0-based title-line index, style) for every title occurrence.
+) -> list[tuple[int, str]]:
+    """Return (0-based title-line index, status) for every underline-only candidate.
 
-    Docutils identifies a style by both its character and whether it has an
-    overline.  Collapsing those two styles into one character can silently
-    move a section when a document contains both forms.
+    ``status`` is ``"title"`` for a candidate the model accepts.  Two kinds are
+    held back instead of guessed:
+
+    * ``"shared"`` — the adornment line is also the overline of a complete
+      title block below it.  Each adornment line has one owner, and nothing
+      in the source says which one the author meant (see
+      _shared_adornment_findings).
+    * ``"unproven"`` — the parser-free model fails closed: without a blank
+      separator, the apparent title can be the last line of a prose
+      paragraph.  Only reported when no doctree is given.
     """
     multiline_paragraph_lines: set[int] = set()
     if doctree is not None:
@@ -91,9 +98,8 @@ def _title_style_events(
             if not isinstance(start, int) or "\n" not in paragraph.rawsource:
                 continue
             multiline_paragraph_lines.update(range(start - 1, start - 1 + len(paragraph.rawsource.splitlines())))
-    events: list[tuple[int, _TitleStyle]] = []
-    for block in iter_title_blocks(lines):
-        events.append((block.index, (block.over[0], True)))
+    block_overlines = {block.index - 1 for block in iter_title_blocks(lines)}
+    candidates: list[tuple[int, str]] = []
     for underline_index in range(1, len(lines)):
         underline = lines[underline_index]
         if not _is_adornment(underline) or len(underline) < _DOCUTILS_MIN_ADORNMENT_LEN:
@@ -106,20 +112,76 @@ def _title_style_events(
             continue
         if title_index in multiline_paragraph_lines:
             continue
+        if len(underline) < 4 and len(underline) < docutils.utils.column_width(title.strip()):
+            continue
+        if underline_index in block_overlines:
+            candidates.append((title_index, "shared"))
+            continue
         if (
             doctree is None
             and title_index > 0
             and lines[title_index - 1].strip()
             and re.match(r"^[ \t]*(?:[-+*]|(?:\d+|#)[.)])[ \t]+", lines[title_index - 1]) is None
         ):
-            # Parser-free fix/diff must fail closed: without a blank separator,
-            # the apparent title can be the last line of a prose paragraph.
+            candidates.append((title_index, "unproven"))
             continue
-        if len(underline) < 4 and len(underline) < docutils.utils.column_width(title.strip()):
-            continue
-        events.append((title_index, (underline[0], False)))
+        candidates.append((title_index, "title"))
+    return candidates
+
+
+def _title_style_events(
+    lines: list[str],
+    doctree: docutils.nodes.document | None = None,
+) -> list[tuple[int, _TitleStyle]]:
+    """Return (0-based title-line index, style) for every title occurrence.
+
+    Docutils identifies a style by both its character and whether it has an
+    overline.  Collapsing those two styles into one character can silently
+    move a section when a document contains both forms.  A shared adornment
+    line stays with the block that uses it as an overline; the underline-only
+    reading is reported as an ambiguity, never modeled.
+    """
+    events: list[tuple[int, _TitleStyle]] = [(block.index, (block.over[0], True)) for block in iter_title_blocks(lines)]
+    events.extend(
+        (title_index, (lines[title_index + 1][0], False))
+        for title_index, status in _underline_candidates(lines, doctree)
+        if status == "title"
+    )
     events.sort(key=lambda event: event[0])
     return events
+
+
+def _shared_adornment_findings(lines: list[str]) -> list[Finding]:
+    """Report each adornment line that is both an underline and an overline.
+
+    Candidate geometry: a text line, an adornment line, a title, an adornment
+    line, with no blank line between them.  Docutils reads the first
+    adornment line as the text line's underline; the explicit title-block
+    placeholder convention means it as the block's overline.  Neither
+    reading is safe to apply, so the finding is never fixable and blocks
+    every title change in the file.
+    """
+    findings: list[Finding] = []
+    for title_index, status in _underline_candidates(lines):
+        if status != "shared":
+            continue
+        shared = title_index + 1
+        text, block_title = lines[title_index].strip(), lines[shared + 1].strip()
+        findings.append(
+            Finding(
+                lineno=shared + 1,
+                severity=Severity.ERROR,
+                text=(
+                    f"line {shared + 1} is both the underline of {text!r} and the overline of "
+                    f"{block_title!r}; Docutils reads it as an underline, so {text!r} would become a "
+                    f"section title — if {text!r} is text, add a blank line before the overline; if it "
+                    "is a title, give it its own underline and a blank line"
+                ),
+                fixable=False,
+                code=FindingCode.ADORNMENT_SHARED_LINE,
+            )
+        )
+    return findings
 
 
 def _title_char_events(lines: list[str]) -> list[tuple[int, str]]:
@@ -292,6 +354,12 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
     def err(code: FindingCode, lineno: int, text: str) -> Finding:
         return Finding(lineno=lineno, severity=Severity.ERROR, text=text, fixable=True, code=code)
 
+    refusals = _structure_refusals(lines, ranges)
+    if refusals:
+        # Mutation fidelity: fix makes no title or adornment change to this
+        # file, so no finding here may claim to be fixable.
+        return list(refusals)
+
     findings: list[Finding] = []
     modeled_titles = dict(_title_style_events(lines, doc.doctree))
 
@@ -438,7 +506,7 @@ def _compute_adornment_fixes(lines: list[str], ranges: list[tuple[int, int]] | N
     return result
 
 
-def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Finding]:
+def check_hierarchy(path: pathlib.Path, doc: Document | None = None, *, whole_file: bool = True) -> list[Finding]:
     """Verify each adornment char's established nesting depth is a prefix
     of HIERARCHY.
 
@@ -465,6 +533,10 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None) -> list[Fin
     """
     document = _resolve_document(path, doc)
     lines = document.lines
+    if _structure_refusals(lines, None if whole_file else document.ranges):
+        # The remap depends on a reading fix refuses to choose; check_adornments
+        # reports the ambiguity itself.
+        return []
     remap = _compute_hierarchy_remap(lines, document.doctree)
     findings: list[Finding] = []
 
@@ -613,7 +685,34 @@ def _apply_hierarchy_remap(lines: list[str], remap: dict[_TitleStyle, _TitleStyl
     return current
 
 
+def _structure_plan(
+    lines: list[str],
+    ranges: list[tuple[int, int]] | None,
+) -> tuple[list[str], tuple[Finding, ...]]:
+    """Return the structural fix and the ambiguities that refuse it.
+
+    Fix never chooses between two readings of the same source.  When the
+    shared parser-free title model holds an ambiguity, the file keeps every
+    title and adornment line unchanged, and each ambiguity is returned as a
+    non-fixable ERROR for check to report and fix and diff to refuse with.
+    """
+    refusals = tuple(_shared_adornment_findings(lines))
+    if refusals:
+        return list(lines), refusals
+    return _unblocked_structure_fixes(lines, ranges), ()
+
+
+def _structure_refusals(lines: list[str], ranges: list[tuple[int, int]] | None) -> tuple[Finding, ...]:
+    """Return the title-model ambiguities that block this file's structural fix."""
+    return _structure_plan(lines, ranges)[1]
+
+
 def _compute_structure_fixes(lines: list[str], ranges: list[tuple[int, int]] | None) -> list[str]:
+    """Return the structural fix, or *lines* unchanged when it is refused."""
+    return _structure_plan(lines, ranges)[0]
+
+
+def _unblocked_structure_fixes(lines: list[str], ranges: list[tuple[int, int]] | None) -> list[str]:
     """Compose the hierarchy remap with adornment fixes — one converging pass.
 
     The remap is a whole-document property (a character's rank has no
@@ -869,19 +968,24 @@ def diff_fixes(
     changes (including trailing whitespace) visible instead of losing them
     behind ``_read_normalized``.
     """
-    plan = _plan_fix(
-        path,
-        whole_file,
-        include_structure=include_structure,
-        include_blank_lines=include_blank_lines,
-        collapse_title_spaces=collapse_title_spaces,
-        single_space_prose=single_space_prose,
-        project_root=project_root,
+    return render_plan_diff(
+        _plan_fix(
+            path,
+            whole_file,
+            include_structure=include_structure,
+            include_blank_lines=include_blank_lines,
+            collapse_title_spaces=collapse_title_spaces,
+            single_space_prose=single_space_prose,
+            project_root=project_root,
+        )
     )
+
+
+def render_plan_diff(plan: FixPlan) -> str:
+    """Return the raw-to-final unified diff of *plan*, or "" when unchanged."""
     if not plan.changed:
         return ""
-
-    pstr = str(path)
+    pstr = str(plan.path)
     return "".join(
         difflib.unified_diff(
             plan.original.splitlines(keepends=True),
@@ -1002,6 +1106,7 @@ def _plan_fix(
         single_space_prose=single_space_prose,
     )
     structure_fixed = _apply_structure_to_text(editorial_fixed, ranges) if include_structure else editorial_fixed
+    refusals = _structure_refusals(editorial_fixed.splitlines(), ranges) if include_structure else ()
     fixed = structure_fixed
     blank_lines_removed = 0
     if include_blank_lines:
@@ -1034,6 +1139,7 @@ def _plan_fix(
         counts=counts,
         text_space_counts=space_counts,
         blank_lines_removed=blank_lines_removed,
+        refusals=refusals,
     )
 
 
