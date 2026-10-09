@@ -59,6 +59,127 @@ _COMMENT_MARKER_RE = re.compile(r"^[ \t]*\.\.(?:[ \t]+(.*))?$")
 _SIMPLE_TABLE_BORDER_RE = re.compile(r"^=+(?: +=+)*$")
 
 
+# Directives whose body Docutils or Sphinx parses as reStructuredText, so a
+# table block in it produces a table node.  Any other directive's body is
+# opaque: a table drawn there is text, never a table (CR-30).  An unlisted
+# body-parsing directive only makes a location approximate, never wrong.
+_BODY_PARSING_DIRECTIVES = frozenset(
+    {
+        "table",
+        "admonition",
+        "attention",
+        "caution",
+        "danger",
+        "error",
+        "hint",
+        "important",
+        "note",
+        "tip",
+        "warning",
+        "seealso",
+        "versionadded",
+        "versionchanged",
+        "versionremoved",
+        "deprecated",
+        "container",
+        "topic",
+        "sidebar",
+        "only",
+        "ifconfig",
+        "compound",
+        "rst-class",
+        "class",
+        "epigraph",
+        "highlights",
+        "pull-quote",
+    }
+)
+_DIRECTIVE_MARKER = re.compile(r"^\s*\.\.\s+([A-Za-z0-9_:+-]+)::")
+
+type _CellEvidence = tuple[str, ...] | None
+# Docutils' table parser: (morerows, morecols, first-line offset, cell lines),
+# or None for a position covered by a span.
+type _ParsedCell = tuple[int, int, int, list[str]] | None
+
+
+def _collapsed(text: str) -> str:
+    """Return *text* with every whitespace run collapsed to one space."""
+    return " ".join(text.split())
+
+
+def _table_evidence(table: docutils.nodes.table) -> tuple[tuple[_CellEvidence, ...], ...] | None:
+    """Return each own row's per-cell source-text fragments, or None.
+
+    A cell's evidence is the source text Docutils kept on its children,
+    whitespace collapsed; an empty cell is ``()``.  A cell whose children keep
+    no source text, such as a bullet list, is ``None`` and is not compared.
+    None overall means no cell can be verified.
+    """
+    rows: list[tuple[_CellEvidence, ...]] = []
+    verified = False
+    for row in table.findall(docutils.nodes.row):
+        if _nearest_ancestor(row, docutils.nodes.table) is not table:
+            continue
+        cells: list[_CellEvidence] = []
+        for entry in row.children:
+            if not isinstance(entry, docutils.nodes.entry):
+                continue
+            children = [child for child in entry.children if isinstance(child, docutils.nodes.Element)]
+            if not children:
+                cells.append(())
+            elif all(child.rawsource for child in children):
+                cells.append(tuple(_collapsed(child.rawsource) for child in children))
+                verified = True
+            else:
+                cells.append(None)
+        rows.append(tuple(cells))
+    return tuple(rows) if verified else None
+
+
+def _cells_match(evidence: tuple[tuple[_CellEvidence, ...], ...], parsed_rows: list[list[_ParsedCell]]) -> bool:
+    """Return whether a parsed table block carries *evidence*, cell by cell."""
+    if len(parsed_rows) != len(evidence):
+        return False
+    for row_evidence, parsed in zip(evidence, parsed_rows, strict=True):
+        cells = [cell for cell in parsed if cell is not None]
+        if len(cells) != len(row_evidence):
+            return False
+        for fragments, cell in zip(row_evidence, cells, strict=True):
+            if fragments is None:
+                continue
+            text = _collapsed(" ".join(cell[3]))
+            if not fragments:
+                if text:
+                    return False
+            elif not all(fragment in text for fragment in fragments):
+                return False
+    return True
+
+
+def _under_unparsed_directive(lines: list[str], top: int) -> bool:
+    """Return whether the block at *top* sits in an opaque directive body."""
+    indent = len(lines[top - 1]) - len(lines[top - 1].lstrip())
+    for index in range(top - 2, -1, -1):
+        if indent == 0:
+            return False
+        line = lines[index]
+        if not line.strip():
+            continue
+        line_indent = len(line) - len(line.lstrip())
+        if line_indent >= indent:
+            continue
+        indent = line_indent
+        marker = _DIRECTIVE_MARKER.match(line)
+        if marker is not None and marker.group(1).lower().rsplit(":", 1)[-1] not in _BODY_PARSING_DIRECTIVES:
+            return True
+    return False
+
+
+def _stripped_block(lines: list[str]) -> str:
+    """Join *lines* with their surrounding whitespace removed, for text tests."""
+    return "\n".join(line.strip() for line in lines)
+
+
 def _nearest_ancestor[NodeT: docutils.nodes.Node](node: docutils.nodes.Node, node_type: type[NodeT]) -> NodeT | None:
     current = node.parent
     while current is not None and not isinstance(current, node_type):
@@ -231,11 +352,41 @@ class _DocumentCore:
         return view, range(first, first + len(cell_lines)), (id(table), row_index, cell_index)
 
     def _table_source_top(self, table: docutils.nodes.table, lines: list[str]) -> int | None:
-        """Locate a table even when the supported Docutils floor omits metadata."""
-        if isinstance(table.line, int):
-            return self.composition.physical_line(table, table.line)
+        """Locate a table's physical top border, or None when it is unproven.
 
-        candidates: list[int] = []
+        Docutils' own line is kept only when a table block really starts
+        there: Docutils 0.23 gives a table inside a "table" directive the
+        directive's line.  Otherwise, and always on the supported 0.22.x
+        floor, where a table has no line at all, the table is paired with a
+        lexical block by evidence (CR-30).
+        """
+        if isinstance(table.line, int):
+            top = self.composition.physical_line(table, table.line)
+            if top > 0 and _table_block(lines, top) is not None:
+                return top
+        return self._table_top_by_evidence(table, lines)
+
+    def _table_top_by_evidence(self, table: docutils.nodes.table, lines: list[str]) -> int | None:
+        """Pair *table* with the lexical table block that provably produced it.
+
+        Candidate geometry: every grid or simple table block that Docutils'
+        own table parser accepts, outside verbatim nodes and outside a
+        directive whose body is not parsed as reStructuredText.  Semantic
+        predicate: the block has the table's shape, and every cell whose
+        Docutils children keep their source text contains that text.  The
+        pairing is exact only when exactly one block qualifies and exactly
+        one table carries the same evidence; equal shapes or counts alone
+        prove nothing (a list-table after a grid-shaped math block has no
+        grid at all).  Otherwise None, and the caller reports an approximate
+        line instead of a guessed one (CR-30).
+        """
+        evidence = _table_evidence(table)
+        if evidence is None:
+            return None
+        if sum(1 for peer in self.doctree.findall(docutils.nodes.table) if _table_evidence(peer) == evidence) != 1:
+            return None
+        regions = self._non_table_regions
+        matches: list[int] = []
         top = 1
         while top <= len(lines):
             located = _table_block(lines, top)
@@ -245,18 +396,51 @@ class _DocumentCore:
             block, _indent = located
             parser = tableparser.GridTableParser() if block[0].startswith("+") else tableparser.SimpleTableParser()
             try:
-                parser.parse(StringList(block))
+                _colspecs, head_rows, body_rows = parser.parse(StringList(block))
             except tableparser.TableMarkupError:
                 top += 1
                 continue
-            candidates.append(top)
+            verbatim = any(first <= top <= last for first, last in regions)
+            if (
+                not verbatim
+                and not _under_unparsed_directive(lines, top)
+                and _cells_match(evidence, [*head_rows, *body_rows])
+            ):
+                matches.append(top)
             top += len(block)
+        return matches[0] if len(matches) == 1 else None
 
-        tables = list(self.doctree.findall(docutils.nodes.table))
-        ordinal = next((index for index, candidate in enumerate(tables) if candidate is table), None)
-        if ordinal is None or ordinal >= len(candidates):
-            return None
-        return candidates[ordinal]
+    @functools.cached_property
+    def _non_table_regions(self) -> list[tuple[int, int]]:
+        """Return the (first, last) physical lines of each verbatim node.
+
+        Docutils reports a "::" literal block at its first content line, but a
+        code-block literal or a comment at the line after its block, and a
+        math block at its directive line.  Of the two possible ranges, the
+        one whose physical lines carry exactly the node's text is the node;
+        when neither does, the node is left out, so a copy inside it can only
+        make the pairing approximate, never wrong.
+        """
+        regions: list[tuple[int, int]] = []
+        verbatim_types: tuple[type[docutils.nodes.Element], ...] = (
+            docutils.nodes.literal_block,
+            docutils.nodes.doctest_block,
+            docutils.nodes.raw,
+            docutils.nodes.math_block,
+            docutils.nodes.comment,
+        )
+        for verbatim_type in verbatim_types:
+            for node in self.doctree.findall(verbatim_type):
+                if not isinstance(node.line, int) or not node.rawsource:
+                    continue
+                source_lines = node.rawsource.splitlines()
+                text = _stripped_block(source_lines)
+                count = len(source_lines)
+                for first in (node.line, node.line - count):
+                    if first >= 1 and _stripped_block(self.lines[first - 1 : first - 1 + count]) == text:
+                        regions.append((first, first + count - 1))
+                        break
+        return regions
 
     @property
     def _comment_source_contexts(self) -> dict[int, tuple[int, list[str], SourceProvenance | None]]:
