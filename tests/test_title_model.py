@@ -32,6 +32,7 @@ import pytest
 from _support import _git
 
 from check_rst import cli
+from check_rst.cli import _formatting
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -190,11 +191,17 @@ def _assert_contract(
         assert window & changed, (finding, sorted(changed))
     if not fixable:
         assert fixed == original
-    # Without a level-wide remap, which one hierarchy finding announces for
-    # every title of a style, every change belongs to some finding.
-    if not any(finding["code"] == "hierarchy.order" for finding in fixable):
-        unowned = changed - set().union(*owned) if owned else changed
-        assert not unowned, (sorted(unowned), fixable)
+    # A hierarchy finding announces a level-wide remap at the style's first
+    # title; it owns the blocks of exactly that style's titles, wherever they
+    # are.  Every changed line must belong to some owned block.
+    events = _formatting._title_style_events(original.splitlines())
+    style_at = {index + 1: style for index, style in events}
+    for finding in fixable:
+        if finding["code"] == "hierarchy.order":
+            style = style_at[finding["lineno"]]
+            owned.extend(set(range(index - 1, index + 4)) for index, other in events if other == style)
+    unowned = changed - set().union(*owned)
+    assert not unowned, (sorted(unowned), fixable)
     # Topology safety: the accepted fix yields the declared section tree.
     assert _tree(fixed) == case.tree
     # Idempotence: check is clean and a second fix changes nothing.
