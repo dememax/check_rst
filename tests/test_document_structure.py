@@ -2786,3 +2786,62 @@ def test_table_cell_comment_is_located_by_evidence(tmp_path: Path, name: str, fl
     findings = _lint.check_directives(path, True, doc=document)
 
     assert [(f.lineno, f.location_exact) for f in findings if f.code == "directive.mistyped"] == [(expected, True)]
+
+
+_MATH_GRID = ".. math::\n\n   +-----+-----+\n   | a   | b   |\n   +-----+-----+\n\n"
+_LIST_TABLE = ".. list-table::\n\n   * - .. code: bash\n     - z\n"
+_TABLE_EVIDENCE_CASES: dict[str, tuple[str, list[tuple[int, bool]], list[bool]]] = {
+    # name: (source, findings with table metadata, exact flags without it)
+    "list-table after a grid-shaped math block": (
+        _TOP + _MATH_GRID + _LIST_TABLE,
+        [(11, False)],
+        [False],
+    ),
+    "list-table after a math grid with the same comment text": (
+        _TOP
+        + _MATH_GRID.replace("+-----+-----+", "+---------------+---+").replace("| a   | b   |", "| .. code: bash | b |")
+        + _LIST_TABLE,
+        [(11, False)],
+        [False],
+    ),
+    "inside an admonition": (
+        _TOP
+        + "Example::\n\n   +-----+-----+\n   | a   | b   |\n   +-----+-----+\n\n.. note::\n\n"
+        + textwrap.indent(_CELL_COMMENT_TABLE, "   ")
+        + "\nDone.\n",
+        [(16, True)],
+        [True],
+    ),
+    "two identical tables": (
+        _TOP + _CELL_COMMENT_TABLE + "\n" + _CELL_COMMENT_TABLE + "\nDone.\n",
+        [(8, True), (16, True)],
+        [False, False],
+    ),
+}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
+@pytest.mark.parametrize("name", list(_TABLE_EVIDENCE_CASES))
+def test_table_cell_comment_is_exact_only_with_unique_evidence(tmp_path: Path, name: str, floor: bool) -> None:
+    """Equal shapes and counts are not proof of which lexical block made a
+    table.  A list-table after a grid-shaped math block has no grid at all,
+    so its cell comment must stay approximate rather than point into the
+    math block; two identical tables cannot be told apart without Docutils'
+    table lines.  A table inside an admonition is still found (CR-30)."""
+    source, with_metadata, without_metadata = _TABLE_EVIDENCE_CASES[name]
+    path = tmp_path / "doc.rst"
+    path.write_text(source, encoding="utf-8")
+    document = _document.Document(path, tmp_path)
+    if floor:
+        for table in document.doctree.findall(docutils.nodes.table):
+            table.line = None
+            table.source = None
+
+    found = [(f.lineno, f.location_exact) for f in _lint.check_directives(path, True, doc=document)]
+
+    if floor:
+        assert [exact for _line, exact in found] == without_metadata
+        assert all(line == expected for (line, exact), (expected, _) in zip(found, with_metadata, strict=True) if exact)
+    else:
+        assert found == with_metadata
