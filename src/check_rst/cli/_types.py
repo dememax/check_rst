@@ -92,6 +92,7 @@ class FindingCode(enum.StrEnum):
     # Title-model ambiguities: fix refuses to choose a reading, so these are
     # never fixable and block every title or adornment change in the file.
     ADORNMENT_SHARED_LINE = "adornment.shared-line"
+    ADORNMENT_UNSEPARATED_TITLE = "adornment.unseparated-title"
     # Document-level section hierarchy.
     HIERARCHY_ORDER = "hierarchy.order"
     HIERARCHY_NONPREFERRED_CHAR = "hierarchy.nonpreferred-char"

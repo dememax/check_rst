@@ -354,17 +354,19 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
     def err(code: FindingCode, lineno: int, text: str) -> Finding:
         return Finding(lineno=lineno, severity=Severity.ERROR, text=text, fixable=True, code=code)
 
-    refusals = _structure_refusals(lines, ranges)
+    refusals = _structure_refusals(lines, ranges, doc.doctree)
     if refusals:
         # Mutation fidelity: fix makes no title or adornment change to this
         # file, so no finding here may claim to be fixable.
         return list(refusals)
 
-    findings: list[Finding] = []
-    modeled_titles = dict(_title_style_events(lines, doc.doctree))
+    # Mutation findings come from the same parser-free model fix uses; the
+    # doctree only words what that model cannot prove (CR-29).
+    findings: list[Finding] = _unseparated_title_findings(lines, doc.doctree, blocking=False)
+    modeled_titles = dict(_title_style_events(lines))
 
-    # Detect underline-only titles (overline is required).  Recognition
-    # comes from Docutils; the lexical iterator only supplies source geometry.
+    # Detect underline-only titles (overline is required) in the shared
+    # parser-free model, so every one reported here is one fix promotes.
     for title_index, style in modeled_titles.items():
         if style[1]:
             continue
@@ -537,11 +539,12 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None, *, whole_fi
         # The remap depends on a reading fix refuses to choose; check_adornments
         # reports the ambiguity itself.
         return []
-    remap = _compute_hierarchy_remap(lines, document.doctree)
+    # The same parser-free remap fix applies (CR-29).
+    remap = _compute_hierarchy_remap(lines)
     findings: list[Finding] = []
 
     warned: set[str] = set()
-    for style, lineno, depth in _established_style_depths(lines, document.doctree):
+    for style, lineno, depth in _established_style_depths(lines):
         char = style[0]
         if char not in PREFERRED_HIERARCHY and char not in warned:
             warned.add(char)
@@ -685,9 +688,68 @@ def _apply_hierarchy_remap(lines: list[str], remap: dict[_TitleStyle, _TitleStyl
     return current
 
 
+_BLOCKED_SUFFIX = "; title fixes for this file wait until this is resolved"
+
+
+def _unseparated_title_findings(
+    lines: list[str],
+    doctree: docutils.nodes.document | None,
+    *,
+    blocking: bool,
+) -> list[Finding]:
+    """Report each title candidate the parser-free model cannot prove.
+
+    Candidate geometry: an underline-only title directly after a non-blank
+    line that is not a list item.  Docutils may read it as a section title
+    (after a field list or a comment) or as the end of a paragraph; the
+    parser-free model fails closed and models neither.  Without a doctree
+    (fix and diff) the explanation stays neutral; with one (check) it names
+    Docutils' reading.  Both are non-fixable ERRORs.  A candidate Docutils
+    reads as paragraph text is reported only while it blocks a fix.
+    """
+    docutils_titles: set[int] = set()
+    if doctree is not None:
+        docutils_titles = {
+            title_index for title_index, status in _underline_candidates(lines, doctree) if status == "title"
+        }
+    findings: list[Finding] = []
+    for title_index, status in _underline_candidates(lines):
+        if status != "unproven":
+            continue
+        title = lines[title_index].strip()
+        if doctree is None:
+            text = (
+                f"{title!r} directly follows a non-blank line, so fix cannot tell whether it is a "
+                "section title — add a blank line before it if it is one"
+            )
+        elif title_index in docutils_titles:
+            text = (
+                f"Docutils reads {title!r} as a section title, but it directly follows a non-blank "
+                "line, so fix cannot prove it is one — add a blank line before it"
+            )
+        elif blocking:
+            text = (
+                f"{title!r} and the line under it directly follow a non-blank line, so Docutils reads "
+                f"them as paragraph text — add a blank line before {title!r} if it is a title"
+            )
+        else:
+            continue
+        findings.append(
+            Finding(
+                lineno=title_index + 1,
+                severity=Severity.ERROR,
+                text=text + (_BLOCKED_SUFFIX if blocking else ""),
+                fixable=False,
+                code=FindingCode.ADORNMENT_UNSEPARATED_TITLE,
+            )
+        )
+    return findings
+
+
 def _structure_plan(
     lines: list[str],
     ranges: list[tuple[int, int]] | None,
+    doctree: docutils.nodes.document | None = None,
 ) -> tuple[list[str], tuple[Finding, ...]]:
     """Return the structural fix and the ambiguities that refuse it.
 
@@ -695,16 +757,31 @@ def _structure_plan(
     shared parser-free title model holds an ambiguity, the file keeps every
     title and adornment line unchanged, and each ambiguity is returned as a
     non-fixable ERROR for check to report and fix and diff to refuse with.
+
+    A title candidate the model cannot prove refuses only a fix that would
+    change something: the remaining fix may depend on it (a correct heading
+    was remapped around one, CR-29), and nothing is left to protect when the
+    fix is empty.  *doctree* only words the findings; it never changes which
+    files are refused, so check and the parser-free fix agree.
     """
-    refusals = tuple(_shared_adornment_findings(lines))
-    if refusals:
-        return list(lines), refusals
-    return _unblocked_structure_fixes(lines, ranges), ()
+    shared = _shared_adornment_findings(lines)
+    if shared:
+        return list(lines), tuple(shared)
+    fixed = _unblocked_structure_fixes(lines, ranges)
+    if fixed != lines:
+        unseparated = _unseparated_title_findings(lines, doctree, blocking=True)
+        if unseparated:
+            return list(lines), tuple(unseparated)
+    return fixed, ()
 
 
-def _structure_refusals(lines: list[str], ranges: list[tuple[int, int]] | None) -> tuple[Finding, ...]:
+def _structure_refusals(
+    lines: list[str],
+    ranges: list[tuple[int, int]] | None,
+    doctree: docutils.nodes.document | None = None,
+) -> tuple[Finding, ...]:
     """Return the title-model ambiguities that block this file's structural fix."""
-    return _structure_plan(lines, ranges)[1]
+    return _structure_plan(lines, ranges, doctree)[1]
 
 
 def _compute_structure_fixes(lines: list[str], ranges: list[tuple[int, int]] | None) -> list[str]:

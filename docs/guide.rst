@@ -544,6 +544,14 @@ The ambiguities are:
   the overline of a title block below it (``adornment.shared-line``).  Docutils
   reads it as an underline, so the text line would become a section title.  If
   that line is text, add a blank line before the overline.
+* A title written directly after a non-blank line that is not a list item
+  (``adornment.unseparated-title``).  After a field list or a comment,
+  Docutils reads it as a section title; after a paragraph line, it reads
+  paragraph text.  The parser-free fix cannot tell which, and the rest of the
+  fix can depend on it, so the file is refused whenever ``fix`` would
+  otherwise change something.  Add a blank line before the title.  When
+  nothing else would change, ``check`` still reports a title that Docutils
+  reads this way as a non-fixable ERROR, because ``fix`` cannot complete it.
 
 =================================================
 ``hierarchy``: inspect the live character order
