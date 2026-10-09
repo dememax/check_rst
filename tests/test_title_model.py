@@ -21,6 +21,7 @@ The section-tree oracle is Docutils itself, never check_rst's own outline.
 from __future__ import annotations
 
 import dataclasses
+import difflib
 import json
 import textwrap
 from typing import TYPE_CHECKING, Any
@@ -101,6 +102,25 @@ def _json_findings(
     return code, [finding for record in data["files"] for finding in record["findings"]]
 
 
+def _diff_hunks(text: str) -> list[str]:
+    """Return a unified diff's lines from its first hunk on, without headers."""
+    lines = text.splitlines()
+    first = next((index for index, line in enumerate(lines) if line.startswith("@@")), len(lines))
+    # The CLI's own status lines follow the patch; keep only patch lines.
+    return [line for line in lines[first:] if line[:1] in {" ", "+", "-", "@", "\\"} or not line]
+
+
+def _changed_lines(before: str, after: str) -> set[int]:
+    """Return the 1-based lines of *before* that the edit replaces, deletes or
+    inserts next to."""
+    matcher = difflib.SequenceMatcher(a=before.splitlines(), b=after.splitlines(), autojunk=False)
+    changed: set[int] = set()
+    for tag, i1, i2, _j1, _j2 in matcher.get_opcodes():
+        if tag != "equal":
+            changed.update(range(i1 + 1, max(i2, i1 + 1) + 1))
+    return changed
+
+
 def _assert_contract(
     repo: Path,
     case: Case,
@@ -112,9 +132,16 @@ def _assert_contract(
     path = _prepare(repo, case)
     before = path.read_bytes()
 
+    def mutate(*argv: str) -> tuple[int, str, bytes]:
+        """Run one mutation path on a fresh copy of the edited fixture."""
+        path.write_bytes(before)
+        code, out = _run(monkeypatch, capsys, *argv, *_scope_args(scope))
+        return code, out, path.read_bytes()
+
     check_exit, findings = _json_findings(monkeypatch, capsys, scope)
     diff_exit, diff_out = _run(monkeypatch, capsys, "diff", "--fast", *_scope_args(scope))
-    fix_exit, fix_out = _run(monkeypatch, capsys, "fix", "--fast", *_scope_args(scope))
+    fast_exit, fast_out, fast_bytes = mutate("fix", "--fast")
+    full_exit, full_out, full_bytes = mutate("fix")
 
     if case.refusal is not None:
         refusals = [finding for finding in findings if finding["code"] == case.refusal]
@@ -124,24 +151,41 @@ def _assert_contract(
         assert all(f["severity"] == "ERROR" and not f["fixable"] for f in refusals)
         assert not [finding for finding in findings if finding["fixable"]], findings
         assert check_exit == 1
-        # diff and fix report the refusal instead of presenting a guess.
+        # diff and both fix paths report the refusal instead of a guess.
         assert diff_exit == 1
         assert "@@" not in diff_out, diff_out
         assert "fix refused" in diff_out
-        assert fix_exit == 1
-        assert "fix refused" in fix_out, fix_out
-        # Topology safety: the refused file keeps its bytes.
-        assert path.read_bytes() == before
+        assert fast_exit == 1
+        assert "fix refused" in fast_out, fast_out
+        assert full_exit == 1
+        # Topology safety: the refused file keeps its bytes on every path.
+        assert fast_bytes == before
+        assert full_bytes == before
         return
 
+    assert fast_exit == 0, fast_out
+    assert full_exit == 0, full_out
+    original, fixed = before.decode("utf-8"), fast_bytes.decode("utf-8")
+    # Mutation fidelity: every path writes the same bytes, diff previews them
+    # exactly, every fixable finding sits next to a changed line, and no
+    # fixable finding means no change.
+    assert full_bytes == fast_bytes
+    expected_diff = "".join(difflib.unified_diff(original.splitlines(keepends=True), fixed.splitlines(keepends=True)))
+    assert _diff_hunks(diff_out) == _diff_hunks(expected_diff), diff_out
+    assert diff_exit == (1 if fixed != original else 0)
+    changed = _changed_lines(original, fixed)
+    fixable = [finding for finding in findings if finding["fixable"]]
+    for finding in fixable:
+        window = set(range(finding["lineno"] - 2, finding["lineno"] + 3))
+        assert window & changed, (finding, sorted(changed))
+    if not fixable:
+        assert fixed == original
     # Topology safety: the accepted fix yields the declared section tree.
-    assert fix_exit == 0, fix_out
-    assert _tree(path.read_text(encoding="utf-8")) == case.tree
+    assert _tree(fixed) == case.tree
     # Idempotence: check is clean and a second fix changes nothing.
-    fixed = path.read_bytes()
     assert _run(monkeypatch, capsys, "check", *_scope_args(scope))[0] == 0
     assert _run(monkeypatch, capsys, "fix", "--fast", *_scope_args(scope))[0] == 0
-    assert path.read_bytes() == fixed
+    assert path.read_bytes() == fast_bytes
 
 
 _NOTES_BASE = textwrap.dedent("""\
