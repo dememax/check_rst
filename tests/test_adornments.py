@@ -2655,6 +2655,10 @@ def test_compute_structure_fixes_remapped_lines_join_geometry_scope() -> None:
     assert "#######\nTitle\n#######" in fixed
     assert "*********\nSection\n*********" in fixed
     assert "=======\nAdded\n=======" in fixed
+    # The wide source widths do not survive anywhere (restored after 0.7.1
+    # dropped them, CR-37).
+    assert "*" * 22 not in fixed
+    assert "=" * 22 not in fixed
 
 
 @pytest.mark.unit
