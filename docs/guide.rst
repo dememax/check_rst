@@ -561,9 +561,10 @@ Refused fixes
 
 ``fix`` never chooses between two readings of the same source.  When the
 title model of a file is ambiguous, ``check`` reports a non-fixable ERROR, so
-``--skip-fixable`` keeps it visible.  ``fix`` and ``diff`` print ``fix
-refused`` with the same explanation and exit 1.  No title or adornment line of
-that file changes; byte hygiene still applies.  Resolve the ambiguity in the
+``--skip-fixable`` keeps it visible.  ``fix --fast`` and ``diff --fast`` print
+``fix refused`` with the same explanation; full ``fix`` and ``diff`` report it
+as that Phase 1 ERROR.  Every path exits 1.  No title or adornment line of that
+file changes; byte hygiene still applies.  Resolve the ambiguity in the
 source as the message says, then run ``fix`` again.
 
 Choosing a reading would be unsafe because either choice can leave a clean
@@ -2149,9 +2150,17 @@ file should explain the local workflow without becoming a fork of
     shared dirty worktree use the same owned-file --git-scope allowlist on all
     three commands.
 
-    For a new heading, copy the depth character from outline, write a
-    nine-character underline without an overline, and let fix --fast compute
-    adornment geometry.
+    For a new heading, write a nine-character placeholder in the form of its
+    sibling titles: the same line above and below the title when they have
+    an overline, an underline only when they do not, with a blank line before
+    and after.  Copy the depth character from outline, or use outline's next
+    free section character for a new depth.  Let fix --fast compute the
+    adornment geometry; never count adornment characters, not even in a
+    scratch file.  Never use one character both with and without an overline
+    in a file: fix refuses that ambiguity.
+
+    Global options such as --sphinx-src and --no-config go before the
+    command: check_rst --no-config check FILE.
 
     For a cold reader, use check_rst outline FILE when the structure or target
     is unknown and check_rst context ENTRY FILE for one known entry or
