@@ -17,6 +17,7 @@ import docutils.parsers.rst
 import docutils.parsers.rst.directives
 import docutils.parsers.rst.languages
 import docutils.parsers.rst.languages.en
+import docutils.parsers.rst.roles
 import docutils.parsers.rst.states
 import docutils.utils
 from docutils.parsers.rst import tableparser
@@ -155,6 +156,32 @@ def _cell_parse_settings() -> docutils.frontend.Values:
     return settings
 
 
+_CELL_DIRECTIVE_NAME = re.compile(r"\.\.\s+(?:\|[^|]+\|\s+)?([A-Za-z0-9_:+-]+)::")
+_CELL_ROLE_NAME = re.compile(r":([A-Za-z0-9_:+.-]+):`")
+
+
+def _names_third_party_code(cell_lines: list[str]) -> bool:
+    """Return whether re-parsing these cell lines could run third-party code.
+
+    Docutils resolves a directive or role name through its registries;
+    register_directive() and register_*_role() write the private mappings
+    read here.  A name registered to code outside Docutils, such as an
+    extension's directive or role, already ran during the document parse
+    and must not run again for a location lookup (Codex's fifth look at
+    checkpoint A).  Unregistered names resolve only to Docutils' own
+    implementations or to nothing.
+    """
+    text = "\n".join(cell_lines)
+    directive_registry: dict[str, object] = vars(docutils.parsers.rst.directives)["_directives"]
+    role_registry: dict[str, object] = vars(docutils.parsers.rst.roles)["_roles"]
+    names = [(directive_registry, name) for name in _CELL_DIRECTIVE_NAME.findall(text)]
+    names += [(role_registry, name) for name in _CELL_ROLE_NAME.findall(text)]
+    return any(
+        not getattr(registry.get(name.lower()), "__module__", "docutils.").startswith("docutils.")
+        for registry, name in names
+    )
+
+
 def _parsed_cell_signature(cell_lines: list[str]) -> _CellSignature:
     """Parse one table cell's text the way Docutils builds a table entry."""
     return _cell_signature(list(_parse_fragment("\n".join(cell_lines)).children))
@@ -174,7 +201,7 @@ def _cells_match(evidence: tuple[tuple[_CellSignature, ...], ...], parsed_rows: 
         if len(cells) != len(row_evidence):
             return False
         for expected, cell in zip(row_evidence, cells, strict=True):
-            if _parsed_cell_signature(cell[3]) != expected:
+            if _names_third_party_code(cell[3]) or _parsed_cell_signature(cell[3]) != expected:
                 return False
     return True
 
@@ -228,26 +255,40 @@ def _parse_fragment(text: str) -> docutils.nodes.document:
     return document
 
 
-def _block_produces_table(
-    lines: list[str],
-    owner: int,
-    evidence: tuple[tuple[_CellSignature, ...], ...],
-) -> bool:
-    """Return whether the directive block starting at 0-based *owner*, parsed
-    on its own, produces a table carrying *evidence*.
+_PROBE_TOKEN = "checkrstpositionprobe"
 
-    A class that parses bodies does not prove that this invocation did:
+
+def _position_parses_tables(lines: list[str], owners: list[int], top: int) -> bool:
+    """Return whether a table at *top*, inside exactly these owners, becomes a
+    table node.
+
+    A class that parses bodies does not prove that one invocation did:
     Docutils rejects an invocation with an unknown option, for example,
-    before parsing its content.  Re-parsing the concrete block follows every
-    rejection path the parser has, without listing them.
+    before parsing its content, and an inner owner can be rejected inside a
+    valid outer one.  The probe is the owners' own header lines, outermost
+    first and nested as in the source, around a sentinel grid at the
+    candidate's indentation; sibling content is left out, so no unrelated
+    directive runs again.  The candidate counts only when the sentinel
+    itself becomes a table, which ties the proof to this position rather
+    than to any table nearby.  The caller has already checked that every
+    owner is still Docutils' own body-parsing class, so the probe runs no
+    third-party code.
     """
-    indent = len(lines[owner]) - len(lines[owner].lstrip())
-    end = owner + 1
-    while end < len(lines) and (not lines[end].strip() or len(lines[end]) - len(lines[end].lstrip()) > indent):
-        end += 1
-    block = [line[indent:] if line.strip() else "" for line in lines[owner:end]]
-    probe = _parse_fragment("\n".join(block))
-    return any(_table_evidence(table) == evidence for table in probe.findall(docutils.nodes.table))
+    chain = list(reversed(owners))
+    base = len(lines[chain[0]]) - len(lines[chain[0]].lstrip())
+    probe: list[str] = []
+    for position, owner in enumerate(chain):
+        stop = chain[position + 1] if position + 1 < len(chain) else top - 1
+        end = owner + 1
+        while end < stop and lines[end].strip():
+            end += 1
+        probe.extend(line[base:] for line in lines[owner:end])
+        probe.append("")
+    pad = " " * (len(lines[top - 1]) - len(lines[top - 1].lstrip()) - base)
+    rule = f"{pad}+{'-' * (len(_PROBE_TOKEN) + 2)}+"
+    probe.extend([rule, f"{pad}| {_PROBE_TOKEN} |", rule, ""])
+    tables = _parse_fragment("\n".join(probe)).findall(docutils.nodes.table)
+    return any(_PROBE_TOKEN in table.astext() for table in tables)
 
 
 def _stripped_block(lines: list[str]) -> str:
@@ -364,15 +405,21 @@ class _DocumentCore:
         parse must not have changed it: an implementation that replaces or
         restores a registration while it runs could otherwise hide what
         parsed the body.  A name the parse never loaded proves nothing.
-        Trust assumption: a registration swapped and restored within the
-        parse itself is not detected; check_rst's own parse runs no
-        third-party code outside a trusted Sphinx project.
+        The registration must also be unchanged now, because the position
+        probe parses the directive again.  Trust assumption: a registration
+        swapped and restored within the parse itself is not detected;
+        check_rst's own parse runs no third-party code outside a trusted
+        Sphinx project.
         """
         _ = self.doctree
         before, after = self._parse_directive_registry
         key = name.lower()
         parsed_with = after.get(key)
         if parsed_with is None or before.get(key, parsed_with) is not parsed_with:
+            return False
+        # The position probe parses this directive again; the registration
+        # must still be the class the document parse used.
+        if _directive_registry().get(key) is not parsed_with:
             return False
         return parsed_with in _BODY_PARSING_DIRECTIVE_CLASSES
 
@@ -512,7 +559,7 @@ class _DocumentCore:
             if (
                 owners is not None
                 and _cells_match(evidence, [*head_rows, *body_rows])
-                and (not owners or _block_produces_table(lines, owners[-1], evidence))
+                and (not owners or _position_parses_tables(lines, owners, top))
             ):
                 matches.append(top)
             top += len(block)
