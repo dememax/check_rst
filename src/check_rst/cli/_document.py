@@ -157,9 +157,7 @@ def _cell_parse_settings() -> docutils.frontend.Values:
 
 def _parsed_cell_signature(cell_lines: list[str]) -> _CellSignature:
     """Parse one table cell's text the way Docutils builds a table entry."""
-    document = docutils.utils.new_document("<table cell>", _cell_parse_settings())
-    docutils.parsers.rst.Parser().parse("\n".join(cell_lines), document)
-    return _cell_signature(list(document.children))
+    return _cell_signature(list(_parse_fragment("\n".join(cell_lines)).children))
 
 
 def _cells_match(evidence: tuple[tuple[_CellSignature, ...], ...], parsed_rows: list[list[_ParsedCell]]) -> bool:
@@ -192,19 +190,22 @@ def _directive_registry() -> dict[str, object]:
     return dict(registry)
 
 
-def _under_unparsed_directive(lines: list[str], top: int, parses_body: Callable[[str], bool]) -> bool:
-    """Return whether the block at *top* sits in an explicit-markup body that
-    does not provably become reStructuredText.
+def _directive_owners(lines: list[str], top: int, parses_body: Callable[[str], bool]) -> list[int] | None:
+    """Return the 0-based lines of the directives that own the block at *top*,
+    innermost first, or None when an owner does not provably parse its body.
 
     Every less-indented explicit-markup line on the way out owns the block:
     a directive, a substitution definition, a comment, a footnote, a citation
-    or a target.  Only an ordinary directive that *parses_body* proves is
-    transparent; every other owner fails closed (CR-30).
+    or a target.  Only an ordinary directive that *parses_body* proves can be
+    transparent; every other owner fails closed (CR-30).  A transparent
+    owner still proves only its class, not this invocation: the caller
+    re-parses the outermost owner's block (_block_produces_table).
     """
+    owners: list[int] = []
     indent = len(lines[top - 1]) - len(lines[top - 1].lstrip())
     for index in range(top - 2, -1, -1):
         if indent == 0:
-            return False
+            break
         line = lines[index]
         if not line.strip():
             continue
@@ -215,8 +216,38 @@ def _under_unparsed_directive(lines: list[str], top: int, parses_body: Callable[
         if _EXPLICIT_MARKUP.match(line):
             marker = _DIRECTIVE_MARKER.match(line)
             if marker is None or not parses_body(marker.group(1)):
-                return True
-    return False
+                return None
+            owners.append(index)
+    return owners
+
+
+def _parse_fragment(text: str) -> docutils.nodes.document:
+    """Parse *text* on its own, quietly, as Docutils parses a document body."""
+    document = docutils.utils.new_document("<fragment probe>", _cell_parse_settings())
+    docutils.parsers.rst.Parser().parse(text, document)
+    return document
+
+
+def _block_produces_table(
+    lines: list[str],
+    owner: int,
+    evidence: tuple[tuple[_CellSignature, ...], ...],
+) -> bool:
+    """Return whether the directive block starting at 0-based *owner*, parsed
+    on its own, produces a table carrying *evidence*.
+
+    A class that parses bodies does not prove that this invocation did:
+    Docutils rejects an invocation with an unknown option, for example,
+    before parsing its content.  Re-parsing the concrete block follows every
+    rejection path the parser has, without listing them.
+    """
+    indent = len(lines[owner]) - len(lines[owner].lstrip())
+    end = owner + 1
+    while end < len(lines) and (not lines[end].strip() or len(lines[end]) - len(lines[end].lstrip()) > indent):
+        end += 1
+    block = [line[indent:] if line.strip() else "" for line in lines[owner:end]]
+    probe = _parse_fragment("\n".join(block))
+    return any(_table_evidence(table) == evidence for table in probe.findall(docutils.nodes.table))
 
 
 def _stripped_block(lines: list[str]) -> str:
@@ -438,8 +469,9 @@ class _DocumentCore:
         """Pair *table* with the lexical table block that provably produced it.
 
         Candidate geometry: every grid or simple table block that Docutils'
-        own table parser accepts, outside verbatim nodes and outside a
-        directive whose body is not parsed as reStructuredText.  Semantic
+        own table parser accepts, outside verbatim nodes, owned only by
+        directives whose class parses bodies, and whose outermost owning
+        directive block, re-parsed on its own, yields the table.  Semantic
         predicate: the block has the table's shape, and every cell parses to
         the same children, with equal source and rendered text, as the
         table's entry.  The
@@ -476,10 +508,11 @@ class _DocumentCore:
                 top += 1
                 continue
             verbatim = any(first <= top <= last for first, last in regions)
+            owners = None if verbatim else _directive_owners(lines, top, self._directive_parses_body)
             if (
-                not verbatim
-                and not _under_unparsed_directive(lines, top, self._directive_parses_body)
+                owners is not None
                 and _cells_match(evidence, [*head_rows, *body_rows])
+                and (not owners or _block_produces_table(lines, owners[-1], evidence))
             ):
                 matches.append(top)
             top += len(block)
