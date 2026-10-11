@@ -1058,6 +1058,19 @@ def _compute_entitle_lines(lines: list[str], name: str) -> list[str]:
     # effect would itself expand this command's one-file parsing boundary.
     if any(_TOP_LEVEL_INCLUDE_RE.match(line) for line in lines):
         raise ValueError("top-level include composition is outside entitle's one-file safety boundary")
+    # A refused plan changes nothing, which would leave the inserted title raw
+    # and nothing demoted, so refuse first.  Judge the file as written, so the
+    # refusal carries check's code and source line and quotes lines and a
+    # remedy of that file; entitle always changes the structure, so a
+    # candidate the model cannot prove blocks it.
+    refusals = (
+        _shared_adornment_findings(lines)
+        or _mixed_style_findings(lines, None)
+        or _unseparated_title_findings(lines, None, blocking=True)
+    )
+    if refusals:
+        first = refusals[0]
+        raise ValueError(f"title structure is ambiguous at line {first.lineno} ({first.code}): {first.text}")
     char = _next_free_adornment_char(lines)
     if char is None:
         raise ValueError("every adornment character is already in use — cannot add a new top-level title")
@@ -1065,15 +1078,12 @@ def _compute_entitle_lines(lines: list[str], name: str) -> list[str]:
     separator = [""] if insertion > 0 and lines[insertion - 1] else []
     inserted = [*separator, name, char * 9, ""]
     new_lines = [*lines[:insertion], *inserted, *lines[insertion:]]
-    fixed, refusals = _structure_plan(new_lines, None)
-    if refusals:
-        # A refused plan changes nothing, which would leave the inserted
-        # title raw and nothing demoted; refuse instead, at the line of the
-        # original file.  The inserted title uses a free character and its
-        # own blank lines, so it is never the ambiguity itself.
-        first = refusals[0]
-        lineno = first.lineno - len(inserted) if first.lineno - 1 >= insertion + len(inserted) else first.lineno
-        raise ValueError(f"title structure is ambiguous at line {lineno} ({first.code}): {first.text}")
+    fixed, introduced = _structure_plan(new_lines, None)
+    if introduced:
+        # Unreachable while the inserted title uses a free character between
+        # blank lines: it can neither share an adornment line, nor mix forms,
+        # nor follow a non-blank line.  Fail closed if that ever changes.
+        raise ValueError(f"the inserted title would make the title structure ambiguous ({introduced[0].code})")
     return fixed
 
 
