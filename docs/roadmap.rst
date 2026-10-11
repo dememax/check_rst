@@ -61,8 +61,9 @@ The following capabilities are implemented and protected by tests:
   visible and suppressed counts; outer inline literals out of the default
   nested-markup report; rule codes and the other additive schema-1 JSON
   members.
-* 0.7.1 (2026-10-05): source-safe title classification and scoped hierarchy
-  styles; stable selected-page Sphinx warnings and Phase 2/3 Git scope;
+* 0.7.1 (2026-10-05; withdrawn untagged, replaced by 0.7.2): source-safe
+  title classification and scoped hierarchy styles; stable selected-page
+  Sphinx warnings and Phase 2/3 Git scope;
   convergent title spacing and nested list-cell table conversion; Phase 0/1
   checks outside ``sphinx-src``; source-spelled navigation titles; one-object
   JSON failures with locale-independent UTF-8 output; corrected limiter,
@@ -72,6 +73,15 @@ The following capabilities are implemented and protected by tests:
   and clean-export wheel verification.  Release re-verification additionally
   protected multi-title topology, third-party JSON output, project-wide
   finding scope, and valid simple-table cell prose.
+* 0.7.2 (2026-10-11): one parser-free title model shared by ``check``,
+  ``fix``, ``diff`` and ``entitle``, which recognize and refuse three
+  ambiguous title configurations (``hierarchy.ambiguous-style``,
+  ``adornment.shared-line``, ``adornment.unseparated-title``) instead of
+  restructuring them; an underline-only level overlined as a whole;
+  placeholders written in the form of their sibling titles; table-cell
+  locations exact only where Docutils proves them; a named global option
+  written after the command; and finding hints that match real output.
+  Replaces the withdrawn 0.7.1.
 
 ==================
 Agreed next work
