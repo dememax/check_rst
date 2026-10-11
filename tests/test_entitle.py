@@ -16,6 +16,8 @@ in this same file drive ``cli.main()`` once that wiring lands.
 
 from __future__ import annotations
 
+import json
+import re
 import subprocess
 import textwrap
 from typing import TYPE_CHECKING
@@ -575,3 +577,58 @@ def test_entitle_refuses_an_ambiguous_title_model(source: str, code: str) -> Non
         _formatting._compute_entitle_lines(source.splitlines(), "New Title")
 
     assert code in str(refusal.value)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "=========\n Manual\n=========\n\nIntro.\n\nInstall\n=======\n\nText.\n",
+            "at line 7 (hierarchy.ambiguous-style): underline-only title 'Install' uses '=', which this "
+            "document also uses with an overline (line 2: 'Manual'); Docutils reads the two forms as "
+            "different levels, so fix cannot tell which level 'Install' belongs to — give 'Install' an "
+            "overline like 'Manual' to put it at that level, or use another adornment character such as "
+            "'#' to keep it a level of its own",
+        ),
+        (
+            "Para.\n#######\nTitle\n#######\n\nText.\n",
+            "at line 2 (adornment.shared-line): line 2 is both the underline of 'Para.' and the overline of 'Title'",
+        ),
+        (
+            "Old Title\n#########\n\n:field: value\nSub title\n*********\n\nBody.\n",
+            "at line 5 (adornment.unseparated-title): 'Sub title' directly follows a non-blank line",
+        ),
+    ],
+    ids=["mixed-style", "shared-line", "unseparated-title"],
+)
+def test_entitle_refusal_reports_the_source_lines_and_remedy(
+    source: str,
+    expected: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An entitle refusal reports the refusal code and source line that
+    check reports for the file as written, and quotes lines and a remedy
+    computed from that file.  The title entitle would insert shifts every
+    line below it, so a message composed after the insertion quoted lines
+    that do not hold the titles it names, and suggested a character that is
+    free only in the entitled result.  Entitle keeps the parser-free
+    explanation, as fix --fast and diff --fast do; check may word an
+    unseparated title from Docutils' reading instead."""
+    path = _rst(tmp_path, source)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "check", "--format=json", str(path)])
+    with pytest.raises(SystemExit):
+        cli.main()
+    findings = json.loads(capsys.readouterr().out)["files"][0]["findings"]
+    reported = {(finding["lineno"], finding["code"]) for finding in findings}
+
+    with pytest.raises(ValueError, match=r"^title structure is ambiguous ") as refusal:
+        _formatting._compute_entitle_lines(source.splitlines(), "New Title")
+
+    message = str(refusal.value)
+    assert message.startswith(f"title structure is ambiguous {expected}")
+    anchor = re.match(r"title structure is ambiguous at line (\d+) \(([a-z.-]+)\)", message)
+    assert anchor is not None
+    assert (int(anchor[1]), anchor[2]) in reported
