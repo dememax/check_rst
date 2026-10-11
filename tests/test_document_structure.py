@@ -2950,6 +2950,7 @@ class _OpaqueNote(docutils.parsers.rst.Directive):
         "rejected note",
         "rejected container",
         "rejected table",
+        "rejected inner note",
     ],
 )
 def test_directive_body_counts_only_when_its_active_implementation_parses_it(
@@ -2973,13 +2974,21 @@ def test_directive_body_counts_only_when_its_active_implementation_parses_it(
         "rejected note": ".. note::\n   :unknown-option:\n\n",
         "rejected container": ".. container::\n   :unknown-option:\n\n",
         "rejected table": ".. table::\n   :unknown-option:\n\n",
+        "rejected inner note": "",
     }[opaque]
     replacement = {"replaced note": _OpaqueNote, "registry-restoring note": _RestoringOpaqueNote}.get(opaque)
     if replacement is not None:
         docutils.parsers.rst.directives.register_directive("note", replacement)
         request.addfinalizer(lambda: docutils.parsers.rst.directives.register_directive("note", Note))
+    body = directive + _GRID_AND_LIST_TABLE
+    if opaque == "rejected inner note":
+        # A valid outer note holds both the rejected inner note's grid and
+        # the matching list-table, so the outer block alone proves nothing.
+        body = ".. note::\n\n   Intro.\n\n" + textwrap.indent(
+            ".. note::\n   :unknown-option:\n\n" + _GRID_AND_LIST_TABLE, "   "
+        )
     path = tmp_path / "doc.rst"
-    path.write_text("Title\n=====\n\n" + directive + _GRID_AND_LIST_TABLE, encoding="utf-8")
+    path.write_text("Title\n=====\n\n" + body, encoding="utf-8")
     document = _document.Document(path, tmp_path)
     if floor:
         for table in document.doctree.findall(docutils.nodes.table):
@@ -2989,3 +2998,52 @@ def test_directive_body_counts_only_when_its_active_implementation_parses_it(
     found = [(f.lineno, f.location_exact) for f in _lint.check_directives(path, True, doc=document)]
 
     assert [exact for _line, exact in found] == [False]
+
+
+_COUNTED_RUNS: list[str] = []
+
+
+class _CountedDirective(docutils.parsers.rst.Directive):
+    """A third-party directive whose run() has a visible side effect."""
+
+    has_content = True
+
+    def run(self) -> list[docutils.nodes.Node]:
+        _COUNTED_RUNS.append("run")
+        return []
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
+@pytest.mark.parametrize("place", ["beside the table", "inside a cell"])
+def test_location_evidence_never_reruns_third_party_directives(
+    tmp_path: Path, request: pytest.FixtureRequest, floor: bool, place: str
+) -> None:
+    """Locating a table must not execute a registered third-party directive a
+    second time: its run() may have side effects, and only the document
+    parse is inside the trust boundary (Codex's fifth look at checkpoint A).
+    """
+    docutils.parsers.rst.directives.register_directive("counted", _CountedDirective)
+    request.addfinalizer(lambda: vars(docutils.parsers.rst.directives)["_directives"].pop("counted", None))
+    _COUNTED_RUNS.clear()
+    # The comment cell makes check_rst locate the table; a second cell may
+    # hold the third-party directive itself.
+    second = ".. counted::" if place == "inside a cell" else "z           "
+    border = "   +---------------+--------------+\n"
+    grid = f"{border}   | .. code: bash | {second} |\n{border}"
+    sibling = "   .. counted::\n\n" if place == "beside the table" else ""
+    path = tmp_path / "doc.rst"
+    path.write_text(f"Title\n=====\n\n.. note::\n\n{sibling}{grid}", encoding="utf-8")
+    document = _document.Document(path, tmp_path)
+    _ = document.doctree
+    if floor:
+        for table in document.doctree.findall(docutils.nodes.table):
+            table.line = None
+            table.source = None
+    runs_after_parse = len(_COUNTED_RUNS)
+
+    _lint.check_directives(path, True, doc=document)
+    _ = document.comments
+
+    assert runs_after_parse == 1
+    assert len(_COUNTED_RUNS) == 1
