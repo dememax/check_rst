@@ -15,6 +15,7 @@ import docutils.parsers.rst.roles
 import docutils.parsers.rst.states
 import pytest
 from _support import _GOOD_BLOCK, _rst
+from docutils.parsers.rst.directives.admonitions import Note
 
 from check_rst import cli
 from check_rst.cli import _document, _formatting, _lint, _sphinx
@@ -2788,6 +2789,44 @@ _SMALL_GRID = "   +---------------+---+\n   | .. code: bash | z |\n   +---------
 _LIST_TABLE = ".. list-table::\n\n   * - .. code: bash\n     - z\n"
 _MATH_GRID = ".. math::\n\n   +-----+-----+\n   | a   | b   |\n   +-----+-----+\n\n"
 
+_CONTAINING_GRID = textwrap.dedent("""\
+    +-------------------+-------+
+    | prefix            | beta2 |
+    |                   |       |
+    | .. code: bash     |       |
+    +-------------------+-------+
+    """)
+_MATH_SAME_TEXT = ".. math::\n\n   +---------------+---+\n   | .. code: bash | b |\n   +---------------+---+\n\n"
+
+
+class _OpaqueNote(docutils.parsers.rst.Directive):
+    """A replacement "note" that renders its body elsewhere, as an extension
+    might: the body produces no node here at all."""
+
+    has_content = True
+
+    def run(self) -> list[docutils.nodes.Node]:
+        return []
+
+
+class _RestoringOpaqueNote(docutils.parsers.rst.Directive):
+    """An opaque "note" that restores Docutils' own Note while it runs."""
+
+    has_content = True
+
+    def run(self) -> list[docutils.nodes.Node]:
+        docutils.parsers.rst.directives.register_directive("note", Note)
+        return []
+
+
+_NOTE_REPLACEMENTS: dict[str, type[docutils.parsers.rst.Directive]] = {
+    "list-table after a replaced note": _OpaqueNote,
+    "list-table after a registry-restoring note": _RestoringOpaqueNote,
+}
+
+# The cases are the counterexamples that refuted each lexical recovery during
+# 0.7.2, kept as CR-30b's acceptance corpus: none may become exact unless the
+# recovery proves which source block produced the table.
 # name: (source, other files, findings when Docutils gives tables their line).
 # Without that line every location is approximate (CR-30, 0.7.2 contract).
 _TABLE_LOCATION_CASES: dict[str, tuple[str, dict[str, str], list[tuple[int, bool]]]] = {
@@ -2838,6 +2877,49 @@ _TABLE_LOCATION_CASES: dict[str, tuple[str, dict[str, str], list[tuple[int, bool
         {},
         [(0, False)],
     ),
+    "list-table after a grid cell that contains its cell": (
+        _TOP + _CONTAINING_GRID + "\n.. list-table::\n\n   * - .. code: bash\n     - beta\n",
+        {},
+        [(8, True), (0, False)],
+    ),
+    "list-table after a math grid with the same comment text": (
+        _TOP + _MATH_SAME_TEXT + _LIST_TABLE,
+        {},
+        [(0, False)],
+    ),
+    "list-table after a replaced note": (_TOP + ".. note::\n\n" + _SMALL_GRID + _LIST_TABLE, {}, [(0, False)]),
+    "list-table after a registry-restoring note": (
+        _TOP + ".. note::\n\n" + _SMALL_GRID + _LIST_TABLE,
+        {},
+        [(0, False)],
+    ),
+    "list-table after a substitution image": (
+        _TOP + ".. |thing| image:: x.png\n\n" + _SMALL_GRID + _LIST_TABLE,
+        {},
+        [(0, False)],
+    ),
+    "list-table after a rejected container": (
+        _TOP + ".. container::\n   :unknown-option:\n\n" + _SMALL_GRID + _LIST_TABLE,
+        {},
+        [(0, False)],
+    ),
+    "list-table after a rejected table directive": (
+        _TOP + ".. table::\n   :unknown-option:\n\n" + _SMALL_GRID + _LIST_TABLE,
+        {},
+        [(0, False)],
+    ),
+    "list-table after a rejected inner note in a valid note": (
+        _TOP
+        + ".. note::\n\n   Intro.\n\n"
+        + textwrap.indent(".. note::\n   :unknown-option:\n\n" + _SMALL_GRID + _LIST_TABLE, "   "),
+        {},
+        [(0, False)],
+    ),
+    "inside a valid admonition": (
+        _TOP + ".. note::\n\n" + textwrap.indent(_CELL_COMMENT_TABLE, "   "),
+        {},
+        [(10, True)],
+    ),
     "list-table in an included file after a literal copy": (
         _TOP + ".. include:: fragment.rst\n",
         {"fragment.rst": "Example::\n\n" + _SMALL_GRID + _LIST_TABLE},
@@ -2849,13 +2931,19 @@ _TABLE_LOCATION_CASES: dict[str, tuple[str, dict[str, str], list[tuple[int, bool
 @pytest.mark.integration
 @pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
 @pytest.mark.parametrize("name", list(_TABLE_LOCATION_CASES))
-def test_table_cell_location_is_exact_only_where_docutils_proves_it(tmp_path: Path, name: str, floor: bool) -> None:
+def test_table_cell_location_is_exact_only_where_docutils_proves_it(
+    tmp_path: Path, request: pytest.FixtureRequest, name: str, floor: bool
+) -> None:
     """A table-cell comment's line is exact only when Docutils gives the table
     a line at which a physical table block starts.  Otherwise it is
     approximate, never recovered by lexical guessing: six review rounds
     found exact but wrong locations in every recovery heuristic (CR-30;
     exact recovery without table lines is deferred to 0.7.3)."""
     source, others, with_metadata = _TABLE_LOCATION_CASES[name]
+    replacement = _NOTE_REPLACEMENTS.get(name)
+    if replacement is not None:
+        docutils.parsers.rst.directives.register_directive("note", replacement)
+        request.addfinalizer(lambda: docutils.parsers.rst.directives.register_directive("note", Note))
     for other, text in others.items():
         (tmp_path / other).write_text(text, encoding="utf-8")
     path = tmp_path / "doc.rst"
