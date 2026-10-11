@@ -2916,6 +2916,17 @@ _GRID_AND_LIST_TABLE = (
 )
 
 
+class _RestoringOpaqueNote(docutils.parsers.rst.Directive):
+    """An opaque "note" that restores Docutils' own Note while it runs, so the
+    registry after parsing no longer shows what parsed the body."""
+
+    has_content = True
+
+    def run(self) -> list[docutils.nodes.Node]:
+        docutils.parsers.rst.directives.register_directive("note", Note)
+        return []
+
+
 class _OpaqueNote(docutils.parsers.rst.Directive):
     """A replacement "note" that renders its body elsewhere, as an extension
     might: the body produces no node here at all."""
@@ -2928,21 +2939,31 @@ class _OpaqueNote(docutils.parsers.rst.Directive):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
-@pytest.mark.parametrize("opaque", ["unknown only", "replaced note"])
+@pytest.mark.parametrize(
+    "opaque",
+    ["unknown only", "replaced note", "registry-restoring note", "substitution replace", "substitution image"],
+)
 def test_directive_body_counts_only_when_its_active_implementation_parses_it(
     tmp_path: Path, request: pytest.FixtureRequest, floor: bool, opaque: str
 ) -> None:
     """A directive's name does not prove that its body becomes RST.  In plain
-    Docutils, "only" is unknown, and an extension may replace "note" with an
-    implementation that keeps the body as text; a grid there is no table,
-    so the list-table after it must stay approximate (Codex's second look at
-    checkpoint A)."""
-    if opaque == "replaced note":
-        docutils.parsers.rst.directives.register_directive("note", _OpaqueNote)
+    Docutils, "only" is unknown; an extension may replace "note" with an
+    implementation that keeps the body out of the document, even one that
+    restores Docutils' own class while it runs; and a substitution
+    definition's body is never a table.  A grid there is no table, so the
+    list-table after it must stay approximate (Codex's second and third
+    looks at checkpoint A)."""
+    directive = {
+        "unknown only": ".. only:: html\n\n",
+        "replaced note": ".. note::\n\n",
+        "registry-restoring note": ".. note::\n\n",
+        "substitution replace": ".. |thing| replace::\n\n",
+        "substitution image": ".. |thing| image:: x.png\n\n",
+    }[opaque]
+    replacement = {"replaced note": _OpaqueNote, "registry-restoring note": _RestoringOpaqueNote}.get(opaque)
+    if replacement is not None:
+        docutils.parsers.rst.directives.register_directive("note", replacement)
         request.addfinalizer(lambda: docutils.parsers.rst.directives.register_directive("note", Note))
-        directive = ".. note::\n\n"
-    else:
-        directive = ".. only:: html\n\n"
     path = tmp_path / "doc.rst"
     path.write_text("Title\n=====\n\n" + directive + _GRID_AND_LIST_TABLE, encoding="utf-8")
     document = _document.Document(path, tmp_path)
