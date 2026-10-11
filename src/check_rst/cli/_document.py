@@ -57,6 +57,7 @@ from ._types import (
 
 if TYPE_CHECKING:
     import pathlib
+    from collections.abc import Callable
 
 
 _COMMENT_MARKER_RE = re.compile(r"^[ \t]*\.\.(?:[ \t]+(.*))?$")
@@ -92,6 +93,7 @@ _BODY_PARSING_DIRECTIVE_CLASSES: frozenset[type[docutils.parsers.rst.Directive]]
         tables.RSTTable,
     }
 )
+_EXPLICIT_MARKUP = re.compile(r"^\s*\.\.(?:\s|$)")
 _DIRECTIVE_MARKER = re.compile(r"^\s*\.\.\s+([A-Za-z0-9_:+-]+)::")
 
 # One cell child as (element name, source text, rendered text), whitespace
@@ -179,21 +181,26 @@ def _cells_match(evidence: tuple[tuple[_CellSignature, ...], ...], parsed_rows: 
     return True
 
 
-def _directive_parses_body(name: str) -> bool:
-    """Return whether the active registry runs *name* as a body-parsing directive."""
-    probe = docutils.utils.new_document("<directive probe>", _cell_parse_settings())
-    language = docutils.parsers.rst.languages.get_language(probe.settings.language_code, probe.reporter)
-    # types-docutils types this parameter as docutils.languages' general
-    # module, but directive() reads the RST parser language module's
-    # ``directives`` mapping, and Docutils' own parser passes exactly that
-    # module (RSTState.run_directive via memo.language).
-    directive_class, _messages = docutils.parsers.rst.directives.directive(name, language, probe)  # type: ignore[arg-type]
-    return directive_class in _BODY_PARSING_DIRECTIVE_CLASSES
+def _directive_registry() -> dict[str, object]:
+    """Return a copy of Docutils' loaded directive registry, name to class.
+
+    Docutils keeps it in a private module mapping that register_directive()
+    writes and directive() fills lazily as the parser meets each name; no
+    public call returns it.
+    """
+    registry: dict[str, object] = vars(docutils.parsers.rst.directives)["_directives"]
+    return dict(registry)
 
 
-def _under_unparsed_directive(lines: list[str], top: int) -> bool:
-    """Return whether the block at *top* sits in a directive body that does
-    not provably become reStructuredText."""
+def _under_unparsed_directive(lines: list[str], top: int, parses_body: Callable[[str], bool]) -> bool:
+    """Return whether the block at *top* sits in an explicit-markup body that
+    does not provably become reStructuredText.
+
+    Every less-indented explicit-markup line on the way out owns the block:
+    a directive, a substitution definition, a comment, a footnote, a citation
+    or a target.  Only an ordinary directive that *parses_body* proves is
+    transparent; every other owner fails closed (CR-30).
+    """
     indent = len(lines[top - 1]) - len(lines[top - 1].lstrip())
     for index in range(top - 2, -1, -1):
         if indent == 0:
@@ -205,9 +212,10 @@ def _under_unparsed_directive(lines: list[str], top: int) -> bool:
         if line_indent >= indent:
             continue
         indent = line_indent
-        marker = _DIRECTIVE_MARKER.match(line)
-        if marker is not None and not _directive_parses_body(marker.group(1)):
-            return True
+        if _EXPLICIT_MARKUP.match(line):
+            marker = _DIRECTIVE_MARKER.match(line)
+            if marker is None or not parses_body(marker.group(1)):
+                return True
     return False
 
 
@@ -311,7 +319,31 @@ class _DocumentCore:
 
     @functools.cached_property
     def doctree(self) -> docutils.nodes.document:
-        return _helpers._parse_rst(self.path, text=self.text, track_composition=True)
+        before = _directive_registry()
+        tree = _helpers._parse_rst(self.path, text=self.text, track_composition=True)
+        self._parse_directive_registry = (before, _directive_registry())
+        return tree
+
+    def _directive_parses_body(self, name: str) -> bool:
+        """Return whether this document's parse ran *name* as a Docutils
+        directive that parses its body.
+
+        The registration must be one of Docutils' own body-parsing classes,
+        compared by identity, in the registry as the parse left it, and the
+        parse must not have changed it: an implementation that replaces or
+        restores a registration while it runs could otherwise hide what
+        parsed the body.  A name the parse never loaded proves nothing.
+        Trust assumption: a registration swapped and restored within the
+        parse itself is not detected; check_rst's own parse runs no
+        third-party code outside a trusted Sphinx project.
+        """
+        _ = self.doctree
+        before, after = self._parse_directive_registry
+        key = name.lower()
+        parsed_with = after.get(key)
+        if parsed_with is None or before.get(key, parsed_with) is not parsed_with:
+            return False
+        return parsed_with in _BODY_PARSING_DIRECTIVE_CLASSES
 
     @functools.cached_property
     def composition(self) -> CompositionIndex:
@@ -446,7 +478,7 @@ class _DocumentCore:
             verbatim = any(first <= top <= last for first, last in regions)
             if (
                 not verbatim
-                and not _under_unparsed_directive(lines, top)
+                and not _under_unparsed_directive(lines, top, self._directive_parses_body)
                 and _cells_match(evidence, [*head_rows, *body_rows])
             ):
                 matches.append(top)
