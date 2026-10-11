@@ -6,19 +6,21 @@ from __future__ import annotations
 
 import json
 import textwrap
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import docutils.nodes
 import docutils.parsers.rst
 import docutils.parsers.rst.directives
+import docutils.parsers.rst.roles
+import docutils.parsers.rst.states
 import pytest
 from _support import _GOOD_BLOCK, _rst
-from docutils.parsers.rst.directives.admonitions import Note
 
 from check_rst import cli
 from check_rst.cli import _document, _formatting, _lint, _sphinx
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
 
     from _support import BuildSphinxEnv
@@ -1598,13 +1600,24 @@ def test_grid_table_comment_location_ignores_docutils_source_metadata(tmp_path: 
 
 @pytest.mark.integration
 def test_grid_table_comment_location_without_docutils_table_metadata(tmp_path: Path) -> None:
-    """The supported Docutils floor leaves table line and source unset."""
+    """The supported Docutils floor leaves table line and source unset.
+
+    Without them nothing proves which physical table holds a comment, so
+    every cell comment is approximate rather than recovered by position
+    (CR-30; exact recovery is deferred to 0.7.3)."""
     document = _document.Document(_rst(tmp_path, _GRID_CELL_COMMENTS), tmp_path)
     for table in document.doctree.findall(docutils.nodes.table):
         table.line = None
         table.source = None
+    _ = document.comments
 
-    assert [(entry.lineno, entry.end) for entry in document.comments] == [(8, 8), (12, 14), (16, 16), (18, 18)]
+    cell_comments = [
+        comment
+        for comment in document.doctree.findall(docutils.nodes.comment)
+        if _document._nearest_ancestor(comment, docutils.nodes.table) is not None
+    ]
+    assert len(cell_comments) == 4
+    assert all(id(comment) in document._approximate_comments for comment in cell_comments)
 
 
 @pytest.mark.integration
@@ -2740,28 +2753,64 @@ _CELL_COMMENT_TABLE = textwrap.dedent("""\
     +-------------------+-----+
     """)
 _TOP = "#####\nTop\n#####\n\n"
-_TABLE_LOCATION_CASES = {
+_SMALL_GRID = "   +---------------+---+\n   | .. code: bash | z |\n   +---------------+---+\n\n"
+_LIST_TABLE = ".. list-table::\n\n   * - .. code: bash\n     - z\n"
+_MATH_GRID = ".. math::\n\n   +-----+-----+\n   | a   | b   |\n   +-----+-----+\n\n"
+
+# name: (source, other files, findings when Docutils gives tables their line).
+# Without that line every location is approximate (CR-30, 0.7.2 contract).
+_TABLE_LOCATION_CASES: dict[str, tuple[str, dict[str, str], list[tuple[int, bool]]]] = {
     "after a literal-block table": (
-        _TOP
-        + "Example::\n\n   +-----+-----+\n   | a   | b   |\n   +-----+-----+\n\n"
-        + _CELL_COMMENT_TABLE
-        + "\nDone.\n",
-        14,
+        _TOP + "Example::\n\n   +-----+-----+\n   | a   | b   |\n   +-----+-----+\n\n" + _CELL_COMMENT_TABLE,
+        {},
+        [(14, True)],
     ),
     "after a code-block copy of itself": (
         _TOP + ".. code-block:: rst\n\n" + textwrap.indent(_CELL_COMMENT_TABLE, "   ") + "\n" + _CELL_COMMENT_TABLE,
-        18,
+        {},
+        [(18, True)],
     ),
     "after a comment-body copy of itself": (
-        _TOP + "..\n" + textwrap.indent(_CELL_COMMENT_TABLE, "   ") + "\n" + _CELL_COMMENT_TABLE + "\nDone.\n",
-        17,
+        _TOP + "..\n" + textwrap.indent(_CELL_COMMENT_TABLE, "   ") + "\n" + _CELL_COMMENT_TABLE,
+        {},
+        [(17, True)],
     ),
+    "two identical tables": (_TOP + _CELL_COMMENT_TABLE + "\n" + _CELL_COMMENT_TABLE, {}, [(8, True), (16, True)]),
     "inside a table directive": (
-        _TOP
-        + "Example::\n\n   +-----+-----+\n   | a   | b   |\n   +-----+-----+\n\n.. table:: Caption\n\n"
-        + textwrap.indent(_CELL_COMMENT_TABLE, "   ")
-        + "\nDone.\n",
-        16,
+        _TOP + ".. table:: Caption\n\n" + textwrap.indent(_CELL_COMMENT_TABLE, "   "),
+        {},
+        [(0, False)],
+    ),
+    "list-table after a grid-shaped math block": (_TOP + _MATH_GRID + _LIST_TABLE, {}, [(0, False)]),
+    "list-table after an unknown only directive": (
+        _TOP + ".. only:: html\n\n" + _SMALL_GRID + _LIST_TABLE,
+        {},
+        [(0, False)],
+    ),
+    "list-table after a substitution body": (
+        _TOP + ".. |thing| replace::\n\n" + _SMALL_GRID + _LIST_TABLE,
+        {},
+        [(0, False)],
+    ),
+    "list-table after a rejected note": (
+        _TOP + ".. note::\n   :unknown-option:\n\n" + _SMALL_GRID + _LIST_TABLE,
+        {},
+        [(0, False)],
+    ),
+    "list-table after a grid glued to a paragraph": (
+        _TOP + "Paragraph.\n" + textwrap.dedent(_SMALL_GRID) + _LIST_TABLE,
+        {},
+        [(0, False)],
+    ),
+    "list-table after a grid glued to a list item": (
+        _TOP + "- item\n" + textwrap.dedent(_SMALL_GRID) + _LIST_TABLE,
+        {},
+        [(0, False)],
+    ),
+    "list-table in an included file after a literal copy": (
+        _TOP + ".. include:: fragment.rst\n",
+        {"fragment.rst": "Example::\n\n" + _SMALL_GRID + _LIST_TABLE},
+        [(0, False)],
     ),
 }
 
@@ -2769,15 +2818,15 @@ _TABLE_LOCATION_CASES = {
 @pytest.mark.integration
 @pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
 @pytest.mark.parametrize("name", list(_TABLE_LOCATION_CASES))
-def test_table_cell_comment_is_located_by_evidence(tmp_path: Path, name: str, floor: bool) -> None:
-    """A cell comment's line comes from the physical table that holds it.
-
-    Docutils 0.22.x gives a table node no line, and pairing tables with
-    lexical blocks by position let a table drawn in a literal block, a
-    code-block or a comment shift the pairing: the line became approximate,
-    or exact but wrong (CR-30).  A table inside a directive must be found on
-    both lanes."""
-    source, expected = _TABLE_LOCATION_CASES[name]
+def test_table_cell_location_is_exact_only_where_docutils_proves_it(tmp_path: Path, name: str, floor: bool) -> None:
+    """A table-cell comment's line is exact only when Docutils gives the table
+    a line at which a physical table block starts.  Otherwise it is
+    approximate, never recovered by lexical guessing: six review rounds
+    found exact but wrong locations in every recovery heuristic (CR-30;
+    exact recovery without table lines is deferred to 0.7.3)."""
+    source, others, with_metadata = _TABLE_LOCATION_CASES[name]
+    for other, text in others.items():
+        (tmp_path / other).write_text(text, encoding="utf-8")
     path = tmp_path / "doc.rst"
     path.write_text(source, encoding="utf-8")
     document = _document.Document(path, tmp_path)
@@ -2785,219 +2834,16 @@ def test_table_cell_comment_is_located_by_evidence(tmp_path: Path, name: str, fl
         for table in document.doctree.findall(docutils.nodes.table):
             table.line = None
             table.source = None
-
-    findings = _lint.check_directives(path, True, doc=document)
-
-    assert [(f.lineno, f.location_exact) for f in findings if f.code == "directive.mistyped"] == [(expected, True)]
-
-
-_MATH_GRID = ".. math::\n\n   +-----+-----+\n   | a   | b   |\n   +-----+-----+\n\n"
-_LIST_TABLE = ".. list-table::\n\n   * - .. code: bash\n     - z\n"
-_TABLE_EVIDENCE_CASES: dict[str, tuple[str, list[tuple[int, bool]], list[bool]]] = {
-    # name: (source, findings with table metadata, exact flags without it)
-    "list-table after a grid-shaped math block": (
-        _TOP + _MATH_GRID + _LIST_TABLE,
-        [(11, False)],
-        [False],
-    ),
-    "list-table after a math grid with the same comment text": (
-        _TOP
-        + _MATH_GRID.replace("+-----+-----+", "+---------------+---+").replace("| a   | b   |", "| .. code: bash | b |")
-        + _LIST_TABLE,
-        [(11, False)],
-        [False],
-    ),
-    "inside an admonition": (
-        _TOP
-        + "Example::\n\n   +-----+-----+\n   | a   | b   |\n   +-----+-----+\n\n.. note::\n\n"
-        + textwrap.indent(_CELL_COMMENT_TABLE, "   ")
-        + "\nDone.\n",
-        [(16, True)],
-        [True],
-    ),
-    "two identical tables": (
-        _TOP + _CELL_COMMENT_TABLE + "\n" + _CELL_COMMENT_TABLE + "\nDone.\n",
-        [(8, True), (16, True)],
-        [False, False],
-    ),
-}
-
-
-@pytest.mark.integration
-@pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
-@pytest.mark.parametrize("name", list(_TABLE_EVIDENCE_CASES))
-def test_table_cell_comment_is_exact_only_with_unique_evidence(tmp_path: Path, name: str, floor: bool) -> None:
-    """Equal shapes and counts are not proof of which lexical block made a
-    table.  A list-table after a grid-shaped math block has no grid at all,
-    so its cell comment must stay approximate rather than point into the
-    math block; two identical tables cannot be told apart without Docutils'
-    table lines.  A table inside an admonition is still found (CR-30)."""
-    source, with_metadata, without_metadata = _TABLE_EVIDENCE_CASES[name]
-    path = tmp_path / "doc.rst"
-    path.write_text(source, encoding="utf-8")
-    document = _document.Document(path, tmp_path)
-    if floor:
-        for table in document.doctree.findall(docutils.nodes.table):
-            table.line = None
-            table.source = None
-    # The real Docutils 0.22.x floor never gives a table a line, whatever the
-    # parameter says.
+    # The real Docutils 0.22.x floor never gives a table a line.
     metadata = any(isinstance(table.line, int) for table in document.doctree.findall(docutils.nodes.table))
 
     found = [(f.lineno, f.location_exact) for f in _lint.check_directives(path, True, doc=document)]
 
     if not metadata:
-        assert [exact for _line, exact in found] == without_metadata
-        assert all(line == expected for (line, exact), (expected, _) in zip(found, with_metadata, strict=True) if exact)
+        assert [exact for _line, exact in found] == [False] * len(with_metadata)
     else:
-        assert found == with_metadata
-
-
-_CONTAINING_GRID = textwrap.dedent("""\
-    +-------------------+-------+
-    | prefix            | beta2 |
-    |                   |       |
-    | .. code: bash     |       |
-    +-------------------+-------+
-    """)
-
-
-@pytest.mark.integration
-@pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
-def test_cell_evidence_requires_equal_cells_not_containment(tmp_path: Path, floor: bool) -> None:
-    """A grid cell holding "prefix" and a comment merely contains a
-    list-table cell's comment; that is not the list-table's source.  Only
-    equal cell sources, in order and with their block boundaries, prove a
-    pairing (Codex review of checkpoint A, finding 1)."""
-    path = tmp_path / "doc.rst"
-    path.write_text(
-        _TOP + _CONTAINING_GRID + "\n.. list-table::\n\n   * - .. code: bash\n     - beta\n", encoding="utf-8"
-    )
-    document = _document.Document(path, tmp_path)
-    if floor:
-        for table in document.doctree.findall(docutils.nodes.table):
-            table.line = None
-            table.source = None
-
-    found = [(f.lineno, f.location_exact) for f in _lint.check_directives(path, True, doc=document)]
-
-    assert found[0] == (8, True)
-    assert found[1][1] is False
-
-
-@pytest.mark.integration
-@pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
-def test_included_table_without_proven_source_stays_approximate(tmp_path: Path, floor: bool) -> None:
-    """Verbatim regions are recovered for the root document only; a table in
-    an included file cannot exclude a literal-block copy there, so its
-    evidence-based location must stay approximate (Codex review of
-    checkpoint A, finding 2)."""
-    (tmp_path / "fragment.rst").write_text(
-        "Example::\n\n   +---------------+---+\n   | .. code: bash | z |\n   +---------------+---+\n\n"
-        ".. list-table::\n\n   * - .. code: bash\n     - z\n",
-        encoding="utf-8",
-    )
-    path = tmp_path / "index.rst"
-    path.write_text(_TOP + ".. include:: fragment.rst\n", encoding="utf-8")
-    document = _document.Document(path, tmp_path)
-    if floor:
-        for table in document.doctree.findall(docutils.nodes.table):
-            table.line = None
-            table.source = None
-
-    found = [(f.lineno, f.location_exact) for f in _lint.check_directives(path, True, doc=document)]
-
-    assert [exact for _line, exact in found] == [False]
-
-
-_GRID_AND_LIST_TABLE = (
-    "   +---------------+---+\n   | .. code: bash | z |\n   +---------------+---+\n\n"
-    ".. list-table::\n\n   * - .. code: bash\n     - z\n"
-)
-
-
-class _RestoringOpaqueNote(docutils.parsers.rst.Directive):
-    """An opaque "note" that restores Docutils' own Note while it runs, so the
-    registry after parsing no longer shows what parsed the body."""
-
-    has_content = True
-
-    def run(self) -> list[docutils.nodes.Node]:
-        docutils.parsers.rst.directives.register_directive("note", Note)
-        return []
-
-
-class _OpaqueNote(docutils.parsers.rst.Directive):
-    """A replacement "note" that renders its body elsewhere, as an extension
-    might: the body produces no node here at all."""
-
-    has_content = True
-
-    def run(self) -> list[docutils.nodes.Node]:
-        return []
-
-
-@pytest.mark.integration
-@pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
-@pytest.mark.parametrize(
-    "opaque",
-    [
-        "unknown only",
-        "replaced note",
-        "registry-restoring note",
-        "substitution replace",
-        "substitution image",
-        "rejected note",
-        "rejected container",
-        "rejected table",
-        "rejected inner note",
-    ],
-)
-def test_directive_body_counts_only_when_its_active_implementation_parses_it(
-    tmp_path: Path, request: pytest.FixtureRequest, floor: bool, opaque: str
-) -> None:
-    """A directive's name does not prove that its body becomes RST.  In plain
-    Docutils, "only" is unknown; an extension may replace "note" with an
-    implementation that keeps the body out of the document, even one that
-    restores Docutils' own class while it runs; and a substitution
-    definition's body is never a table.  Docutils can also reject one
-    invocation of a trusted directive, for example for an unknown option,
-    before it parses the body.  A grid there is no table, so the list-table
-    after it must stay approximate (Codex's second to fourth looks at
-    checkpoint A)."""
-    directive = {
-        "unknown only": ".. only:: html\n\n",
-        "replaced note": ".. note::\n\n",
-        "registry-restoring note": ".. note::\n\n",
-        "substitution replace": ".. |thing| replace::\n\n",
-        "substitution image": ".. |thing| image:: x.png\n\n",
-        "rejected note": ".. note::\n   :unknown-option:\n\n",
-        "rejected container": ".. container::\n   :unknown-option:\n\n",
-        "rejected table": ".. table::\n   :unknown-option:\n\n",
-        "rejected inner note": "",
-    }[opaque]
-    replacement = {"replaced note": _OpaqueNote, "registry-restoring note": _RestoringOpaqueNote}.get(opaque)
-    if replacement is not None:
-        docutils.parsers.rst.directives.register_directive("note", replacement)
-        request.addfinalizer(lambda: docutils.parsers.rst.directives.register_directive("note", Note))
-    body = directive + _GRID_AND_LIST_TABLE
-    if opaque == "rejected inner note":
-        # A valid outer note holds both the rejected inner note's grid and
-        # the matching list-table, so the outer block alone proves nothing.
-        body = ".. note::\n\n   Intro.\n\n" + textwrap.indent(
-            ".. note::\n   :unknown-option:\n\n" + _GRID_AND_LIST_TABLE, "   "
-        )
-    path = tmp_path / "doc.rst"
-    path.write_text("Title\n=====\n\n" + body, encoding="utf-8")
-    document = _document.Document(path, tmp_path)
-    if floor:
-        for table in document.doctree.findall(docutils.nodes.table):
-            table.line = None
-            table.source = None
-
-    found = [(f.lineno, f.location_exact) for f in _lint.check_directives(path, True, doc=document)]
-
-    assert [exact for _line, exact in found] == [False]
+        assert [exact for _line, exact in found] == [exact for _line, exact in with_metadata]
+        assert [line for line, exact in found if exact] == [line for line, exact in with_metadata if exact]
 
 
 _COUNTED_RUNS: list[str] = []
@@ -3013,22 +2859,43 @@ class _CountedDirective(docutils.parsers.rst.Directive):
         return []
 
 
+def _counted_role(
+    name: str,
+    rawtext: str,
+    text: str,
+    lineno: int,
+    inliner: docutils.parsers.rst.states.Inliner,
+    options: Mapping[str, Any] | None = None,
+    content: Sequence[str] = (),
+) -> tuple[Sequence[docutils.nodes.reference], Sequence[docutils.nodes.reference]]:
+    """A third-party role whose call has a visible side effect."""
+    _COUNTED_RUNS.append("role")
+    return [docutils.nodes.reference(rawtext, text)], []
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
-@pytest.mark.parametrize("place", ["beside the table", "inside a cell"])
-def test_location_evidence_never_reruns_third_party_directives(
-    tmp_path: Path, request: pytest.FixtureRequest, floor: bool, place: str
+@pytest.mark.parametrize(
+    ("place", "second"),
+    [
+        ("beside the table", "z           "),
+        ("inside a cell", ".. counted::"),
+        ("prefix role in a cell", ":counted:`x`"),
+        ("suffix role in a cell", "`x`:counted:"),
+    ],
+)
+def test_locating_a_table_never_reruns_third_party_code(
+    tmp_path: Path, request: pytest.FixtureRequest, floor: bool, place: str, second: str
 ) -> None:
-    """Locating a table must not execute a registered third-party directive a
-    second time: its run() may have side effects, and only the document
-    parse is inside the trust boundary (Codex's fifth look at checkpoint A).
-    """
+    """Locating a table must not execute a registered third-party directive or
+    role a second time: its code may have side effects, and only the
+    document parse is inside the trust boundary (Codex's fifth and sixth
+    looks at checkpoint A)."""
     docutils.parsers.rst.directives.register_directive("counted", _CountedDirective)
+    docutils.parsers.rst.roles.register_local_role("counted", _counted_role)
     request.addfinalizer(lambda: vars(docutils.parsers.rst.directives)["_directives"].pop("counted", None))
+    request.addfinalizer(lambda: vars(docutils.parsers.rst.roles)["_roles"].pop("counted", None))
     _COUNTED_RUNS.clear()
-    # The comment cell makes check_rst locate the table; a second cell may
-    # hold the third-party directive itself.
-    second = ".. counted::" if place == "inside a cell" else "z           "
     border = "   +---------------+--------------+\n"
     grid = f"{border}   | .. code: bash | {second} |\n{border}"
     sibling = "   .. counted::\n\n" if place == "beside the table" else ""
