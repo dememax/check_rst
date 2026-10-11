@@ -11,17 +11,12 @@ import re
 import types
 from typing import TYPE_CHECKING, cast
 
-import docutils.frontend
 import docutils.nodes
-import docutils.parsers.rst
-import docutils.parsers.rst.directives
 import docutils.parsers.rst.languages
 import docutils.parsers.rst.languages.en
-import docutils.parsers.rst.roles
 import docutils.parsers.rst.states
 import docutils.utils
 from docutils.parsers.rst import tableparser
-from docutils.parsers.rst.directives import admonitions, body, tables
 from docutils.statemachine import StringList
 
 from . import _helpers
@@ -58,242 +53,10 @@ from ._types import (
 
 if TYPE_CHECKING:
     import pathlib
-    from collections.abc import Callable
 
 
 _COMMENT_MARKER_RE = re.compile(r"^[ \t]*\.\.(?:[ \t]+(.*))?$")
 _SIMPLE_TABLE_BORDER_RE = re.compile(r"^=+(?: +=+)*$")
-
-
-# Docutils' own directive implementations that parse their body as
-# reStructuredText, so a table block in that body becomes a table node.  A
-# directive counts only when the active registry resolves its name to one of
-# these exact classes: a name alone proves nothing, since "only" is unknown to
-# plain Docutils and an extension may replace "note" with an implementation
-# that keeps its body out of the document (CR-30).  Anything else makes a
-# location approximate, never wrong.
-_BODY_PARSING_DIRECTIVE_CLASSES: frozenset[type[docutils.parsers.rst.Directive]] = frozenset(
-    {
-        admonitions.Admonition,
-        admonitions.Attention,
-        admonitions.Caution,
-        admonitions.Danger,
-        admonitions.Error,
-        admonitions.Hint,
-        admonitions.Important,
-        admonitions.Note,
-        admonitions.Tip,
-        admonitions.Warning,
-        body.Topic,
-        body.Sidebar,
-        body.Container,
-        body.Compound,
-        body.Epigraph,
-        body.Highlights,
-        body.PullQuote,
-        tables.RSTTable,
-    }
-)
-_EXPLICIT_MARKUP = re.compile(r"^\s*\.\.(?:\s|$)")
-_DIRECTIVE_MARKER = re.compile(r"^\s*\.\.\s+([A-Za-z0-9_:+-]+)::")
-
-# One cell child as (element name, source text, rendered text), whitespace
-# collapsed; a cell is the tuple of its children in order.
-type _CellSignature = tuple[tuple[str, str, str], ...]
-# Docutils' table parser: (morerows, morecols, first-line offset, cell lines),
-# or None for a position covered by a span.
-type _ParsedCell = tuple[int, int, int, list[str]] | None
-
-
-def _collapsed(text: str) -> str:
-    """Return *text* with every whitespace run collapsed to one space."""
-    return " ".join(text.split())
-
-
-def _cell_signature(children: list[docutils.nodes.Node]) -> _CellSignature:
-    """Return the ordered signature of a cell's child elements.
-
-    The element name, its source text and its rendered text together keep
-    the cell's block boundaries: one paragraph "a b" and two paragraphs "a"
-    and "b" differ.  System messages are left out on both sides.
-    """
-    return tuple(
-        (child.tagname, _collapsed(child.rawsource), _collapsed(child.astext()))
-        for child in children
-        if isinstance(child, docutils.nodes.Element) and not isinstance(child, docutils.nodes.system_message)
-    )
-
-
-def _table_evidence(table: docutils.nodes.table) -> tuple[tuple[_CellSignature, ...], ...] | None:
-    """Return the signature of each cell of *table*'s own rows, or None.
-
-    None means no cell has content, so nothing could prove a pairing.
-    """
-    rows: list[tuple[_CellSignature, ...]] = []
-    verified = False
-    for row in table.findall(docutils.nodes.row):
-        if _nearest_ancestor(row, docutils.nodes.table) is not table:
-            continue
-        cells: list[_CellSignature] = []
-        for entry in row.children:
-            if not isinstance(entry, docutils.nodes.entry):
-                continue
-            signature = _cell_signature(list(entry.children))
-            verified = verified or bool(signature)
-            cells.append(signature)
-        rows.append(tuple(cells))
-    return tuple(rows) if verified else None
-
-
-@functools.cache
-def _cell_parse_settings() -> docutils.frontend.Values:
-    """Return quiet settings for re-parsing one table cell, as Docutils does."""
-    settings = docutils.frontend.get_default_settings(docutils.parsers.rst.Parser())
-    settings.halt_level = 5
-    settings.report_level = 5
-    settings.file_insertion_enabled = False
-    settings.raw_enabled = False
-    return settings
-
-
-_CELL_DIRECTIVE_NAME = re.compile(r"\.\.\s+(?:\|[^|]+\|\s+)?([A-Za-z0-9_:+-]+)::")
-_CELL_ROLE_NAME = re.compile(r":([A-Za-z0-9_:+.-]+):`")
-
-
-def _names_third_party_code(cell_lines: list[str]) -> bool:
-    """Return whether re-parsing these cell lines could run third-party code.
-
-    Docutils resolves a directive or role name through its registries;
-    register_directive() and register_*_role() write the private mappings
-    read here.  A name registered to code outside Docutils, such as an
-    extension's directive or role, already ran during the document parse
-    and must not run again for a location lookup (Codex's fifth look at
-    checkpoint A).  Unregistered names resolve only to Docutils' own
-    implementations or to nothing.
-    """
-    text = "\n".join(cell_lines)
-    directive_registry: dict[str, object] = vars(docutils.parsers.rst.directives)["_directives"]
-    role_registry: dict[str, object] = vars(docutils.parsers.rst.roles)["_roles"]
-    names = [(directive_registry, name) for name in _CELL_DIRECTIVE_NAME.findall(text)]
-    names += [(role_registry, name) for name in _CELL_ROLE_NAME.findall(text)]
-    return any(
-        not getattr(registry.get(name.lower()), "__module__", "docutils.").startswith("docutils.")
-        for registry, name in names
-    )
-
-
-def _parsed_cell_signature(cell_lines: list[str]) -> _CellSignature:
-    """Parse one table cell's text the way Docutils builds a table entry."""
-    return _cell_signature(list(_parse_fragment("\n".join(cell_lines)).children))
-
-
-def _cells_match(evidence: tuple[tuple[_CellSignature, ...], ...], parsed_rows: list[list[_ParsedCell]]) -> bool:
-    """Return whether a parsed table block produces exactly *evidence*.
-
-    Every cell must parse to the same ordered children, with equal source
-    and rendered text, as the table's entry: containing the text is not
-    enough.
-    """
-    if len(parsed_rows) != len(evidence):
-        return False
-    for row_evidence, parsed in zip(evidence, parsed_rows, strict=True):
-        cells = [cell for cell in parsed if cell is not None]
-        if len(cells) != len(row_evidence):
-            return False
-        for expected, cell in zip(row_evidence, cells, strict=True):
-            if _names_third_party_code(cell[3]) or _parsed_cell_signature(cell[3]) != expected:
-                return False
-    return True
-
-
-def _directive_registry() -> dict[str, object]:
-    """Return a copy of Docutils' loaded directive registry, name to class.
-
-    Docutils keeps it in a private module mapping that register_directive()
-    writes and directive() fills lazily as the parser meets each name; no
-    public call returns it.
-    """
-    registry: dict[str, object] = vars(docutils.parsers.rst.directives)["_directives"]
-    return dict(registry)
-
-
-def _directive_owners(lines: list[str], top: int, parses_body: Callable[[str], bool]) -> list[int] | None:
-    """Return the 0-based lines of the directives that own the block at *top*,
-    innermost first, or None when an owner does not provably parse its body.
-
-    Every less-indented explicit-markup line on the way out owns the block:
-    a directive, a substitution definition, a comment, a footnote, a citation
-    or a target.  Only an ordinary directive that *parses_body* proves can be
-    transparent; every other owner fails closed (CR-30).  A transparent
-    owner still proves only its class, not this invocation: the caller
-    re-parses the outermost owner's block (_block_produces_table).
-    """
-    owners: list[int] = []
-    indent = len(lines[top - 1]) - len(lines[top - 1].lstrip())
-    for index in range(top - 2, -1, -1):
-        if indent == 0:
-            break
-        line = lines[index]
-        if not line.strip():
-            continue
-        line_indent = len(line) - len(line.lstrip())
-        if line_indent >= indent:
-            continue
-        indent = line_indent
-        if _EXPLICIT_MARKUP.match(line):
-            marker = _DIRECTIVE_MARKER.match(line)
-            if marker is None or not parses_body(marker.group(1)):
-                return None
-            owners.append(index)
-    return owners
-
-
-def _parse_fragment(text: str) -> docutils.nodes.document:
-    """Parse *text* on its own, quietly, as Docutils parses a document body."""
-    document = docutils.utils.new_document("<fragment probe>", _cell_parse_settings())
-    docutils.parsers.rst.Parser().parse(text, document)
-    return document
-
-
-_PROBE_TOKEN = "checkrstpositionprobe"
-
-
-def _position_parses_tables(lines: list[str], owners: list[int], top: int) -> bool:
-    """Return whether a table at *top*, inside exactly these owners, becomes a
-    table node.
-
-    A class that parses bodies does not prove that one invocation did:
-    Docutils rejects an invocation with an unknown option, for example,
-    before parsing its content, and an inner owner can be rejected inside a
-    valid outer one.  The probe is the owners' own header lines, outermost
-    first and nested as in the source, around a sentinel grid at the
-    candidate's indentation; sibling content is left out, so no unrelated
-    directive runs again.  The candidate counts only when the sentinel
-    itself becomes a table, which ties the proof to this position rather
-    than to any table nearby.  The caller has already checked that every
-    owner is still Docutils' own body-parsing class, so the probe runs no
-    third-party code.
-    """
-    chain = list(reversed(owners))
-    base = len(lines[chain[0]]) - len(lines[chain[0]].lstrip())
-    probe: list[str] = []
-    for position, owner in enumerate(chain):
-        stop = chain[position + 1] if position + 1 < len(chain) else top - 1
-        end = owner + 1
-        while end < stop and lines[end].strip():
-            end += 1
-        probe.extend(line[base:] for line in lines[owner:end])
-        probe.append("")
-    pad = " " * (len(lines[top - 1]) - len(lines[top - 1].lstrip()) - base)
-    rule = f"{pad}+{'-' * (len(_PROBE_TOKEN) + 2)}+"
-    probe.extend([rule, f"{pad}| {_PROBE_TOKEN} |", rule, ""])
-    tables = _parse_fragment("\n".join(probe)).findall(docutils.nodes.table)
-    return any(_PROBE_TOKEN in table.astext() for table in tables)
-
-
-def _stripped_block(lines: list[str]) -> str:
-    """Join *lines* with their surrounding whitespace removed, for text tests."""
-    return "\n".join(line.strip() for line in lines)
 
 
 def _nearest_ancestor[NodeT: docutils.nodes.Node](node: docutils.nodes.Node, node_type: type[NodeT]) -> NodeT | None:
@@ -391,37 +154,7 @@ class _DocumentCore:
 
     @functools.cached_property
     def doctree(self) -> docutils.nodes.document:
-        before = _directive_registry()
-        tree = _helpers._parse_rst(self.path, text=self.text, track_composition=True)
-        self._parse_directive_registry = (before, _directive_registry())
-        return tree
-
-    def _directive_parses_body(self, name: str) -> bool:
-        """Return whether this document's parse ran *name* as a Docutils
-        directive that parses its body.
-
-        The registration must be one of Docutils' own body-parsing classes,
-        compared by identity, in the registry as the parse left it, and the
-        parse must not have changed it: an implementation that replaces or
-        restores a registration while it runs could otherwise hide what
-        parsed the body.  A name the parse never loaded proves nothing.
-        The registration must also be unchanged now, because the position
-        probe parses the directive again.  Trust assumption: a registration
-        swapped and restored within the parse itself is not detected;
-        check_rst's own parse runs no third-party code outside a trusted
-        Sphinx project.
-        """
-        _ = self.doctree
-        before, after = self._parse_directive_registry
-        key = name.lower()
-        parsed_with = after.get(key)
-        if parsed_with is None or before.get(key, parsed_with) is not parsed_with:
-            return False
-        # The position probe parses this directive again; the registration
-        # must still be the class the document parse used.
-        if _directive_registry().get(key) is not parsed_with:
-            return False
-        return parsed_with in _BODY_PARSING_DIRECTIVE_CLASSES
+        return _helpers._parse_rst(self.path, text=self.text, track_composition=True)
 
     @functools.cached_property
     def composition(self) -> CompositionIndex:
@@ -498,104 +231,24 @@ class _DocumentCore:
         return view, range(first, first + len(cell_lines)), (id(table), row_index, cell_index)
 
     def _table_source_top(self, table: docutils.nodes.table, lines: list[str]) -> int | None:
-        """Locate a table's physical top border, or None when it is unproven.
+        """Return a table's physical top border, or None when it is unproven.
 
-        Docutils' own line is kept only when a table block really starts
-        there: Docutils 0.23 gives a table inside a "table" directive the
-        directive's line.  Otherwise, and always on the supported 0.22.x
-        floor, where a table has no line at all, the table is paired with a
-        lexical block by evidence (CR-30).
+        Docutils' own table line is kept only when a physical table block
+        starts there.  Docutils 0.23 gives a table inside a "table" directive
+        the directive's line, and the 0.22.x floor gives no line at all; then
+        the caller reports an approximate location.  Lexical recovery, which
+        paired tables with source blocks by position, shape or cell
+        evidence, was withdrawn for 0.7.2: six review rounds found exact but
+        wrong locations, or third-party code run a second time, in every
+        variant (CR-30; exact recovery without table lines is deferred to
+        0.7.3).
         """
-        if isinstance(table.line, int):
-            top = self.composition.physical_line(table, table.line)
-            if top > 0 and _table_block(lines, top) is not None:
-                return top
-        return self._table_top_by_evidence(table, lines)
-
-    def _table_top_by_evidence(self, table: docutils.nodes.table, lines: list[str]) -> int | None:
-        """Pair *table* with the lexical table block that provably produced it.
-
-        Candidate geometry: every grid or simple table block that Docutils'
-        own table parser accepts, outside verbatim nodes, owned only by
-        directives whose class parses bodies, and whose outermost owning
-        directive block, re-parsed on its own, yields the table.  Semantic
-        predicate: the block has the table's shape, and every cell parses to
-        the same children, with equal source and rendered text, as the
-        table's entry.  The
-        pairing is exact only when exactly one block qualifies and exactly
-        one table carries the same evidence; equal shapes or counts alone
-        prove nothing (a list-table after a grid-shaped math block has no
-        grid at all), and neither does a cell that merely contains the
-        table's cell text.  A table in an included file is never paired here.
-        Otherwise None, and the caller reports an approximate line instead of
-        a guessed one (CR-30).
-        """
-        if lines is not self.lines:
-            # Verbatim regions are recovered for the root document only, so
-            # a copy inside an included file could not be excluded.
+        if not isinstance(table.line, int):
             return None
-        evidence = _table_evidence(table)
-        if evidence is None:
+        top = self.composition.physical_line(table, table.line)
+        if top <= 0 or _table_block(lines, top) is None:
             return None
-        if sum(1 for peer in self.doctree.findall(docutils.nodes.table) if _table_evidence(peer) == evidence) != 1:
-            return None
-        regions = self._non_table_regions
-        matches: list[int] = []
-        top = 1
-        while top <= len(lines):
-            located = _table_block(lines, top)
-            if located is None:
-                top += 1
-                continue
-            block, _indent = located
-            parser = tableparser.GridTableParser() if block[0].startswith("+") else tableparser.SimpleTableParser()
-            try:
-                _colspecs, head_rows, body_rows = parser.parse(StringList(block))
-            except tableparser.TableMarkupError:
-                top += 1
-                continue
-            verbatim = any(first <= top <= last for first, last in regions)
-            owners = None if verbatim else _directive_owners(lines, top, self._directive_parses_body)
-            if (
-                owners is not None
-                and _cells_match(evidence, [*head_rows, *body_rows])
-                and (not owners or _position_parses_tables(lines, owners, top))
-            ):
-                matches.append(top)
-            top += len(block)
-        return matches[0] if len(matches) == 1 else None
-
-    @functools.cached_property
-    def _non_table_regions(self) -> list[tuple[int, int]]:
-        """Return the (first, last) physical lines of each verbatim node.
-
-        Docutils reports a "::" literal block at its first content line, but a
-        code-block literal or a comment at the line after its block, and a
-        math block at its directive line.  Of the two possible ranges, the
-        one whose physical lines carry exactly the node's text is the node;
-        when neither does, the node is left out, so a copy inside it can only
-        make the pairing approximate, never wrong.
-        """
-        regions: list[tuple[int, int]] = []
-        verbatim_types: tuple[type[docutils.nodes.Element], ...] = (
-            docutils.nodes.literal_block,
-            docutils.nodes.doctest_block,
-            docutils.nodes.raw,
-            docutils.nodes.math_block,
-            docutils.nodes.comment,
-        )
-        for verbatim_type in verbatim_types:
-            for node in self.doctree.findall(verbatim_type):
-                if not isinstance(node.line, int) or not node.rawsource:
-                    continue
-                source_lines = node.rawsource.splitlines()
-                text = _stripped_block(source_lines)
-                count = len(source_lines)
-                for first in (node.line, node.line - count):
-                    if first >= 1 and _stripped_block(self.lines[first - 1 : first - 1 + count]) == text:
-                        regions.append((first, first + count - 1))
-                        break
-        return regions
+        return top
 
     @property
     def _comment_source_contexts(self) -> dict[int, tuple[int, list[str], SourceProvenance | None]]:

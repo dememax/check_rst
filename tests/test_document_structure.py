@@ -1578,13 +1578,32 @@ _GRID_CELL_COMMENTS = textwrap.dedent("""\
     """)
 
 
+def _tables_carry_lines(document: _document.Document) -> bool:
+    """Return whether Docutils gave the document's tables a line (0.23+)."""
+    return any(isinstance(table.line, int) for table in document.doctree.findall(docutils.nodes.table))
+
+
+def _cell_comments_are_approximate(document: _document.Document) -> bool:
+    """Return whether every table-cell comment fell back to an approximate line."""
+    _ = document.comments
+    return all(
+        id(comment) in document._approximate_comments
+        for comment in document.doctree.findall(docutils.nodes.comment)
+        if _document._nearest_ancestor(comment, docutils.nodes.table) is not None
+    )
+
+
 @pytest.mark.integration
 def test_grid_table_cell_comments_report_their_content_lines(tmp_path: Path) -> None:
     """Docutils gives a comment inside a table cell no location, and the
     nearest located ancestor is the table's top border.  Each comment must
-    report the physical lines of its own cell content instead."""
+    report the physical lines of its own cell content instead.  Without
+    Docutils' table line (the 0.22.x floor) they are approximate (CR-30)."""
     document = _document.Document(_rst(tmp_path, _GRID_CELL_COMMENTS), tmp_path)
 
+    if not _tables_carry_lines(document):
+        assert _cell_comments_are_approximate(document)
+        return
     assert [(entry.lineno, entry.end) for entry in document.comments] == [(8, 8), (12, 14), (16, 16), (18, 18)]
 
 
@@ -1595,6 +1614,9 @@ def test_grid_table_comment_location_ignores_docutils_source_metadata(tmp_path: 
     for comment in document.doctree.findall(docutils.nodes.comment):
         comment.source = str(document.path)
 
+    if not _tables_carry_lines(document):
+        assert _cell_comments_are_approximate(document)
+        return
     assert [(entry.lineno, entry.end) for entry in document.comments] == [(8, 8), (12, 14), (16, 16), (18, 18)]
 
 
@@ -1636,14 +1658,23 @@ def test_indented_grid_and_simple_table_cell_comments_report_content_lines(tmp_p
         """)
     document = _document.Document(_rst(tmp_path, source), tmp_path)
 
+    if not _tables_carry_lines(document):
+        assert _cell_comments_are_approximate(document)
+        return
     assert [(entry.lineno, entry.end) for entry in document.comments] == [(4, 4), (8, 8)]
 
 
 @pytest.mark.integration
 def test_mistyped_directive_in_table_cell_warns_at_cell_line(tmp_path: Path) -> None:
-    findings = _lint.check_directives(_rst(tmp_path, _GRID_CELL_COMMENTS), True)
+    path = _rst(tmp_path, _GRID_CELL_COMMENTS)
+    document = _document.Document(path, tmp_path)
+    findings = _lint.check_directives(path, True, doc=document)
 
-    assert [(finding.lineno, finding.code) for finding in findings] == [(8, "directive.mistyped")]
+    assert [finding.code for finding in findings] == ["directive.mistyped"]
+    if not _tables_carry_lines(document):
+        assert not findings[0].location_exact
+        return
+    assert [(finding.lineno, finding.location_exact) for finding in findings] == [(8, True)]
 
 
 def _modeled_entry_range(document: _document.Document, kind: str) -> tuple[int, int]:
@@ -2802,8 +2833,8 @@ _TABLE_LOCATION_CASES: dict[str, tuple[str, dict[str, str], list[tuple[int, bool
         {},
         [(0, False)],
     ),
-    "list-table after a grid glued to a list item": (
-        _TOP + "- item\n" + textwrap.dedent(_SMALL_GRID) + _LIST_TABLE,
+    "list-table after a grid glued to a list item's text": (
+        _TOP + "- item\n" + textwrap.indent(textwrap.dedent(_SMALL_GRID), "  ") + _LIST_TABLE,
         {},
         [(0, False)],
     ),

@@ -513,6 +513,21 @@ A declared dependency floor needs a real dependency lane
   with the resolved Docutils and Sphinx versions printed in the log; targeted
   attribute simulation remains useful focused coverage rather than a substitute.
 
+Recovering a location needs proof of provenance, not plausibility
+  On the Docutils 0.22.x floor a table node has no line, and 0.7.1 paired
+  tables with lexical grid blocks by position.  During 0.7.2 each refinement
+  met a new counterexample in review.  The refinements matched shape, cell
+  text, directive names and the active directive registry, re-parsed the
+  owning directive, and probed the candidate's position with a sentinel.  The
+  counterexamples were a copy in a literal block or a comment, a math or
+  substitution body, a rejected or replaced directive, a grid glued to a
+  paragraph, and a role in suffix form; some variants also ran third-party
+  code a second time.  0.7.2 therefore reports a table-cell location as exact
+  only when Docutils gives the table a line at which a physical table block
+  starts, and as approximate otherwise.  A recovery that cannot prove which
+  source produced a node must not present its guess as exact; exact recovery
+  without table lines is deferred until it can.
+
 Trace reachability before using a hypothetical as proof
   A direct ``sys.stdout.buffer`` write would bypass text adapters and was
   rightly rejected, but one supporting example claimed ``diff --fast`` could
