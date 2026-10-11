@@ -2941,7 +2941,16 @@ class _OpaqueNote(docutils.parsers.rst.Directive):
 @pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
 @pytest.mark.parametrize(
     "opaque",
-    ["unknown only", "replaced note", "registry-restoring note", "substitution replace", "substitution image"],
+    [
+        "unknown only",
+        "replaced note",
+        "registry-restoring note",
+        "substitution replace",
+        "substitution image",
+        "rejected note",
+        "rejected container",
+        "rejected table",
+    ],
 )
 def test_directive_body_counts_only_when_its_active_implementation_parses_it(
     tmp_path: Path, request: pytest.FixtureRequest, floor: bool, opaque: str
@@ -2950,15 +2959,20 @@ def test_directive_body_counts_only_when_its_active_implementation_parses_it(
     Docutils, "only" is unknown; an extension may replace "note" with an
     implementation that keeps the body out of the document, even one that
     restores Docutils' own class while it runs; and a substitution
-    definition's body is never a table.  A grid there is no table, so the
-    list-table after it must stay approximate (Codex's second and third
-    looks at checkpoint A)."""
+    definition's body is never a table.  Docutils can also reject one
+    invocation of a trusted directive, for example for an unknown option,
+    before it parses the body.  A grid there is no table, so the list-table
+    after it must stay approximate (Codex's second to fourth looks at
+    checkpoint A)."""
     directive = {
         "unknown only": ".. only:: html\n\n",
         "replaced note": ".. note::\n\n",
         "registry-restoring note": ".. note::\n\n",
         "substitution replace": ".. |thing| replace::\n\n",
         "substitution image": ".. |thing| image:: x.png\n\n",
+        "rejected note": ".. note::\n   :unknown-option:\n\n",
+        "rejected container": ".. container::\n   :unknown-option:\n\n",
+        "rejected table": ".. table::\n   :unknown-option:\n\n",
     }[opaque]
     replacement = {"replaced note": _OpaqueNote, "registry-restoring note": _RestoringOpaqueNote}.get(opaque)
     if replacement is not None:
