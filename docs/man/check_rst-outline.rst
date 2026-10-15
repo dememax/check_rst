@@ -50,6 +50,9 @@ Every run prints a ``levels:`` legend: each depth with its title styles and
 section count, the document's total section count, and the
 first unused character in check_rst's canonical adornment order — or
 ``no free section char`` when every valid character is already assigned.
+When any section's style is unproven (``n``), the hint is ``unknown``,
+followed by how many sections are unproven: such a title may use any
+character, so none can be called free.
 That last field answers which character is currently unused without manually
 enumerating the ones already in use.  It may introduce a new outer level in a
 self-contained document; it does not identify an existing sibling level and

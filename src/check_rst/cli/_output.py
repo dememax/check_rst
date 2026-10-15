@@ -236,10 +236,13 @@ def _print_outline_entries(
     # token (CR-47: '*o', '*u', or 'n' when not proven), because the same
     # character with and without an overline is two styles.  The next-free
     # hint stays a property of characters: a character used in either form
-    # is not free.
+    # is not free.  It is provable only when every local section's style is:
+    # an 'n' section may use any character (its '?' is only a stand-in), so
+    # with one present no character can be called free.
     level_styles: dict[int, list[str]] = {}
     level_counts: dict[int, int] = {}
     used_chars: set[str] = set()
+    unproven = 0
     n_code = 0
     n_quotes = 0
     n_tables = 0
@@ -265,7 +268,10 @@ def _print_outline_entries(
                 styles = level_styles.setdefault(entry.depth, [])
                 if entry.style not in styles:
                     styles.append(entry.style)
-                used_chars.add(entry.char)
+                if entry.form == "n":
+                    unproven += 1
+                else:
+                    used_chars.add(entry.char)
                 level_counts[entry.depth] = level_counts.get(entry.depth, 0) + 1
         elif isinstance(entry, ToctreeEntry):
             if entry.cycle is not None:
@@ -302,7 +308,14 @@ def _print_outline_entries(
             f"{depth} " + "/".join(repr(style) for style in styles) + f" ({level_counts[depth]})"
             for depth, styles in sorted(level_styles.items())
         )
-        free_hint = f"next free section char: {next_free!r}" if next_free is not None else "no free section char"
+        if unproven:
+            free_hint = (
+                f"next free section char: unknown ({unproven} {_plural(unproven, 'section')} with an unproven style)"
+            )
+        elif next_free is not None:
+            free_hint = f"next free section char: {next_free!r}"
+        else:
+            free_hint = "no free section char"
         print(f"  levels: {legend}, {total_sections} {_plural(total_sections, 'section')} total; {free_hint}")
     if verbose and (
         n_code

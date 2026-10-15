@@ -1349,7 +1349,8 @@ Outline legends: levels and blocks
 The ``levels:`` legend lists each depth with its title styles and
 section count, the document's total section count, and the first free
 character in check_rst's canonical order (or an explicit ``no free section
-char`` when every valid character is present), stated once because the mapping
+char`` when every valid character is present, or ``unknown`` while any
+section's style is unproven), stated once because the mapping
 is constant within a document.  The free character answers which character is
 currently unassigned without subtracting the observed set by hand.  It can
 establish a new outer level when inserted before a self-contained document's

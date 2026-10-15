@@ -54,8 +54,8 @@ def test_outline_levels_legend_chooses_first_free_char_in_canonical_order(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     entries: list[_types.MergedEntry] = [
-        _types.OutlineEntry(1, 1, "#", "Root"),
-        _types.OutlineEntry(2, 2, "=", "Sub"),
+        _types.OutlineEntry(1, 1, "#", "Root", form="o"),
+        _types.OutlineEntry(2, 2, "=", "Sub", form="o"),
     ]
 
     _output._print_outline_entries(entries, None, False, sections_only=True)
@@ -69,7 +69,7 @@ def test_outline_levels_legend_reports_when_every_section_char_is_used(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     entries: list[_types.MergedEntry] = [
-        _types.OutlineEntry(index, index, char, f"Level {index}")
+        _types.OutlineEntry(index, index, char, f"Level {index}", form="o")
         for index, char in enumerate(_helpers.HIERARCHY, start=1)
     ]
 

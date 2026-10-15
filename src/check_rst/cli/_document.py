@@ -657,22 +657,26 @@ def build_outline(
             if parent is sec:
                 children += 1
         # The section's block starts at the overline when present — the
-        # boundary the PREVIOUS section's extent must stop before.
+        # boundary the PREVIOUS section's extent must stop before.  An
+        # overline is Docutils' own predicate: the line equals the underline
+        # after rstrip ("Title overline & underline mismatch" otherwise), so
+        # both lines start in the same column.  Comparing after strip()
+        # would also accept an indented line, which Docutils parses as a
+        # block quote above an underline-only title.
         candidate_is_prior_underline = any(prior[0] + 1 == title_row - 1 and prior[6] == provenance for prior in raw)
         has_overline = (
             title_row >= 2
+            and 0 <= underline_idx < len(lines)
             and title_row - 2 < len(lines)
-            and lines[title_row - 2].strip() == underline
+            and lines[title_row - 2].rstrip() == lines[underline_idx].rstrip()
             and not candidate_is_prior_underline
         )
         block_start = title_row - 1 if has_overline else title_row
         # The reported style (CR-47) is the character and its form, proven
         # only from an exact physical source whose underline is a real
-        # adornment line.  The overline test above is Docutils' own
-        # requirement: a valid overline equals its underline after rstrip
-        # ("Title overline & underline mismatch" otherwise).  No source
-        # line, a transformed or synthetic source, or an unreadable
-        # underline proves nothing, so the form is "n" and never guessed.
+        # adornment line, with the overline test above.  No source line, a
+        # transformed or synthetic source, or an unreadable underline proves
+        # nothing, so the form is "n" and never guessed.
         exact_source = provenance is None or provenance.exact
         form: OutlineForm = "n"
         if exact_source and _is_adornment(underline):
