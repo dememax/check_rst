@@ -31,7 +31,7 @@ import pytest
 from _support import _rst
 
 from check_rst import cli
-from check_rst.cli import _comparison, _document, _formatting, _reports, _sphinx, _types
+from check_rst.cli import _comparison, _document, _formatting, _helpers, _output, _reports, _sphinx, _types
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -482,3 +482,71 @@ def test_second_title_diagnostic_shows_n_for_an_unproven_style(tmp_path: Path) -
 
     assert len(findings) == 1
     assert "'Generated' follows 'Title' ('n' style)" in findings[0].text
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint corrections (Codex, 2026-10-16)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_an_indented_line_above_a_title_is_not_its_overline(tmp_path: Path) -> None:
+    """Docutils accepts an overline only when it equals the underline after
+    rstrip, starting in the same column.  An indented line is a block quote to
+    Docutils, so the title below it is underline-only.  Comparing stripped
+    lines read it as an overline and reported the opposite style to copy."""
+    p = tmp_path / "test.rst"  # written directly: _rst would dedent the line
+    p.write_text(" *****\nTitle\n*****\n\nText.\n", encoding="utf-8")
+
+    entry = next(e for e in _document.build_outline(p) if e.title == "Title")
+
+    assert (entry.style, entry.source_start, entry.lineno) == ("*u", 2, 2)
+
+
+@pytest.mark.integration
+def test_trailing_spaces_do_not_hide_a_real_overline(tmp_path: Path) -> None:
+    """The comparison is rstrip, as Docutils' own: trailing spaces on an
+    overline leave it a valid overline."""
+    p = tmp_path / "test.rst"  # written directly: _rst would dedent the line
+    p.write_text("*****   \nTitle\n*****\n\nText.\n", encoding="utf-8")
+
+    entry = next(e for e in _document.build_outline(p) if e.title == "Title")
+
+    assert (entry.style, entry.source_start, entry.lineno) == ("*o", 1, 2)
+
+
+def _legend(entries: list[_types.OutlineEntry], capsys: pytest.CaptureFixture[str]) -> str:
+    _output._print_outline_entries(list(entries), None, False, sections_only=True)
+    return capsys.readouterr().out.splitlines()[0]
+
+
+@pytest.mark.unit
+def test_an_unproven_style_makes_the_next_free_character_unknown(capsys: pytest.CaptureFixture[str]) -> None:
+    """An "n" section carries no character evidence: its "?" is a stand-in,
+    and the title may use any character.  So no character can be called
+    free, and the hint never consumes "?" or skips past it."""
+    stop = _helpers.HIERARCHY.index("?")
+    entries = [
+        _types.OutlineEntry(index + 1, index + 1, char, f"Level {index + 1}", form="o")
+        for index, char in enumerate(_helpers.HIERARCHY[:stop])
+    ]
+    entries.append(_types.OutlineEntry(0, stop + 1, "?", "Generated"))
+
+    legend = _legend(entries, capsys)
+
+    assert legend.endswith("next free section char: unknown (1 section with an unproven style)")
+
+
+@pytest.mark.unit
+def test_a_wholly_unproven_document_never_claims_a_free_character(capsys: pytest.CaptureFixture[str]) -> None:
+    """When an extension rewrites the root source, every title is unproven.
+    Counting only proven styles would then call "#" free in a document that
+    uses "#"; the hint says it does not know instead."""
+    entries = [
+        _types.OutlineEntry(2, 1, "#", "Title"),
+        _types.OutlineEntry(6, 2, "*", "Section"),
+    ]
+
+    legend = _legend(entries, capsys)
+
+    assert legend.endswith("next free section char: unknown (2 sections with an unproven style)")

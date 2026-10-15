@@ -258,6 +258,7 @@ def test_outline_manual_documents_the_style_token() -> None:
     for token in ("``*o``", "``*u``", "``n``", "``?n``"):
         assert token in manual
     assert "each depth with its title styles" in manual
+    assert "the hint is ``unknown``" in manual
 
 
 @pytest.mark.unit
