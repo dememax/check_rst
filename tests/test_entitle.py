@@ -557,7 +557,7 @@ def test_cli_entitle_result_reports_no_second_top_level_error(
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
-    assert "levels: 1 '#' (1), 2 '*' (2), 3 sections total" in out
+    assert "levels: 1 '#o' (1), 2 '*o' (2), 3 sections total" in out
 
 
 @pytest.mark.unit

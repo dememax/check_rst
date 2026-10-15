@@ -45,7 +45,7 @@ def test_outline_overline_underline_title(tmp_path: Path) -> None:
     entry = entries[0]
     assert entry.lineno == 2
     assert entry.source_start == 1
-    assert str(entry) == "1-5:# Root"
+    assert str(entry) == "1-5:#o Root"
     assert entry.depth == 1
     assert entry.char == "#"
     assert entry.title == "Root"
@@ -307,8 +307,8 @@ def test_outline_str_format(tmp_path: Path) -> None:
     # ("lives in the legend, not on every entry"), reversed 2026-07-20
     # after repeated real mistakes picking the wrong char for a new
     # heading — every entry now states its own char directly.
-    assert str(entries[0]) == "1-9:* Abc [1 subsection]"
-    assert str(entries[1]) == "    6-9:= Xyz"
+    assert str(entries[0]) == "1-9:*u Abc [1 subsection]"
+    assert str(entries[1]) == "    6-9:=u Xyz"
 
 
 @pytest.mark.integration
@@ -953,8 +953,8 @@ def test_outline_str_shows_subsection_count(tmp_path: Path) -> None:
         """,
     )
     entries = _document.build_outline(p)
-    assert str(entries[0]) == "1-8:# Root [2 subsections]"
-    assert str(entries[1]) == "    4-5:* Sub A"  # trailing blank trimmed
+    assert str(entries[0]) == "1-8:#u Root [2 subsections]"
+    assert str(entries[1]) == "    4-5:*u Sub A"  # trailing blank trimmed
 
 
 @pytest.mark.integration
@@ -983,7 +983,7 @@ def test_cli_outline_depth_limits_levels(
     # information, it's not heavy") — under a depth limit it reveals what
     # exists below the cut, composing with the hidden-entries note; only
     # the entries themselves are trimmed.
-    assert "levels: 1 '#' (1), 2 '*' (1), 3 '=' (1), 4 '-' (1)" in out
+    assert "levels: 1 '#u' (1), 2 '*u' (1), 3 '=u' (1), 4 '-u' (1)" in out
     assert "Deep" not in out.replace("Deeper", "").replace("deeper", "")
     assert "Deeper" not in out
     assert "2 deeper entries hidden" in out
@@ -1048,11 +1048,11 @@ def test_cli_outline_legend_line_replaces_per_entry_level_info(
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
-    assert "levels: 1 '#' (1), 2 '*' (2), 3 '=' (1)" in out
+    assert "levels: 1 '#u' (1), 2 '*u' (2), 3 '=u' (1)" in out
     assert "Level" not in out.replace("levels:", "")
-    assert "  1-11:# Root [2 subsections]" in out
-    assert "      4-8:* Sub A [1 subsection]" in out
-    assert "          7-8:= Deep" in out
+    assert "  1-11:#u Root [2 subsections]" in out
+    assert "      4-8:*u Sub A [1 subsection]" in out
+    assert "          7-8:=u Deep" in out
 
 
 @pytest.mark.integration
@@ -1073,7 +1073,7 @@ def test_cli_outline_legend_shows_total_sections(
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
-    assert ("levels: 1 '#' (1), 2 '*' (2), 3 '=' (1), 4 sections total; next free section char: '-'") in out
+    assert ("levels: 1 '#u' (1), 2 '*u' (2), 3 '=u' (1), 4 sections total; next free section char: '-'") in out
 
 
 @pytest.mark.integration
@@ -1243,7 +1243,7 @@ def test_cli_outline_includes_blockquotes_in_order(
         cli.main()
     out = capsys.readouterr().out
     assert 'blockquote "Quoted answer text."' in out
-    assert out.index("1-9:# Title") < out.index('blockquote "Quoted answer text."')
+    assert out.index("1-9:#o Title") < out.index('blockquote "Quoted answer text."')
 
 
 @pytest.mark.integration
@@ -1301,7 +1301,7 @@ def test_cli_outline_only_pure_structure_with_honest_footer(
     assert exc.value.code == 1  # the underline-only ERROR still counts
     out = capsys.readouterr().out
     assert "Outline:" in out
-    assert "levels: 1 '#'" in out
+    assert "levels: 1 '#u'" in out
     assert 'blockquote "Quoted."' in out
     assert "✗" not in out
     assert "⚠" not in out
@@ -1324,7 +1324,7 @@ def test_cli_outline_only_implies_outline_and_quiet(
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "Outline:" in out
-    assert "3-7:# Title" in out  # complete heading block and extent (_GOOD_BLOCK)
+    assert "3-7:#o Title" in out  # complete heading block and extent (_GOOD_BLOCK)
     assert "Phase 2" not in out
 
 
@@ -1343,7 +1343,7 @@ def test_cli_outline_only_composes_with_outline_depth(
     with pytest.raises(SystemExit):
         cli.main()
     out = capsys.readouterr().out
-    assert "levels: 1 '#' (1), 2 '*' (1), 3 '=' (1)" in out
+    assert "levels: 1 '#u' (1), 2 '*u' (1), 3 '=u' (1)" in out
     assert "Deep" not in out
     assert "1 deeper entry hidden" in out
 

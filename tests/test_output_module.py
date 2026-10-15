@@ -403,7 +403,8 @@ def test_json_early_failures_emit_one_schema_object(
     assert data["summary"]["errors"] == 1
     assert len(data["errors"]) == 1
     assert data["runtime"]["check_rst"]["version"]
-    assert data["runtime"]["check_rst"]["contract_version"] == 1
+    assert type(data["runtime"]["check_rst"]["contract_version"]) is int
+    assert data["runtime"]["check_rst"]["contract_version"] == 2
 
 
 @pytest.mark.integration

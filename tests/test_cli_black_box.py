@@ -82,7 +82,7 @@ def test_contract_version_is_stable_machine_readable_integer(tmp_path: Path) -> 
     result = _run_cli(tmp_path, "--contract-version")
 
     assert result.returncode == 0
-    assert result.stdout == "1\n"
+    assert result.stdout == "2\n"
     assert result.stderr == ""
 
 
@@ -591,7 +591,7 @@ def test_black_box_fix_result_is_explained_by_compare_and_reader_queries(
     assert "topology unchanged" in comparison.stdout
     assert "adornment changed: draft:Draft ('=' -> '#')" in comparison.stdout
     assert outline.returncode == 0
-    assert "# Draft" in outline.stdout
+    assert "#o Draft" in outline.stdout
     assert context.returncode == 0
     assert "selector: draft:Draft" in context.stdout
     assert 'summary: section "Draft"' in context.stdout
@@ -916,11 +916,11 @@ def test_black_box_reader_navigates_toctree_context_and_live_references(
     assert tree.stderr == ""
     assert "toctree (4 entries, maxdepth=2)" in tree.stdout
     assert "guide:" in tree.stdout
-    assert "# Complex guide" in tree.stdout
+    assert "#o Complex guide" in tree.stdout
     assert "reference:" in tree.stdout
-    assert "# Shared reference" in tree.stdout
+    assert "#o Shared reference" in tree.stdout
     assert "tables:" in tree.stdout
-    assert "# Nested tables" in tree.stdout
+    assert "#o Nested tables" in tree.stdout
 
     nested = _run_cli(black_box_project, "outline", "guide.rst")
     assert nested.returncode == 0

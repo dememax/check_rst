@@ -2274,8 +2274,8 @@ def test_outline_without_sphinx_src_shows_heuristic_headings_and_code_blocks(
 
     phase2_block = out[out.index("Phase 2: Python Sphinx rules") : out.index("Phase 3:")]
     assert "Outline:" in phase2_block
-    assert "levels: 1 '='" in phase2_block
-    assert "1-6:= Chapter One" in phase2_block
+    assert "levels: 1 '=u'" in phase2_block
+    assert "1-6:=u Chapter One" in phase2_block
     assert "code-block" in phase2_block
 
 
@@ -2315,7 +2315,7 @@ def test_outline_with_sphinx_src_merges_headings_and_code_blocks(
 
     phase2_block = out[out.index("Phase 2: Python Sphinx rules") : out.index("Phase 3:")]
     assert "Outline:" in phase2_block
-    heading_idx = phase2_block.index("1-6:= Chapter One")
+    heading_idx = phase2_block.index("1-6:=u Chapter One")
     code_idx = phase2_block.index("code-block")
     assert heading_idx < code_idx  # heading (line 1) before code-block (line 4)
 
@@ -2826,7 +2826,7 @@ def test_cli_verified_outline_and_json_expose_composition_controls(
     assert exc.value.code == 0
     output = capsys.readouterr().out
     assert '5: include "fragment.rst" (parsed)' in output
-    assert "fragment.rst:1-3:* Included" in output
+    assert "fragment.rst:1-3:*o Included" in output
     assert "1 include" in output
 
     monkeypatch.setattr(
@@ -3035,15 +3035,15 @@ def test_toctree_recurses_into_included_documents(
     out = capsys.readouterr().out
 
     assert "toctree (2 entries, maxdepth=2)" in out
-    assert "sub1:1-5:= Sub One" in out
-    assert "sub1:4-5:- Sub One Child" in out
-    assert "sub2:1-2:= Sub Two" in out
+    assert "sub1:1-5:=u Sub One" in out
+    assert "sub1:4-5:-u Sub One Child" in out
+    assert "sub2:1-2:=u Sub Two" in out
     # Depth math: sub1's own local depth-1 title lands one level deeper
     # than the toctree container that pulled it in (10-space indent),
     # its own local depth-2 child one level deeper still.
     assert "          7-11: toctree (2 entries, maxdepth=2)" in out
-    assert "              sub1:1-5:= Sub One" in out
-    assert "                  sub1:4-5:- Sub One Child" in out
+    assert "              sub1:1-5:=u Sub One" in out
+    assert "                  sub1:4-5:-u Sub One Child" in out
 
 
 @pytest.mark.integration
@@ -3074,8 +3074,8 @@ def test_toctree_recurses_across_multiple_levels(
         cli.main()
     out = capsys.readouterr().out
 
-    assert "sub1:1-6:= Sub One" in out
-    assert "subsub1:1-2:= Sub Sub One" in out
+    assert "sub1:1-6:=u Sub One" in out
+    assert "subsub1:1-2:=u Sub Sub One" in out
     # Provenance belongs only to entries pulled from another document:
     # the root container is local to index.rst and stays bare, while the
     # nested container must be self-identifying when read as one line.
@@ -3083,7 +3083,7 @@ def test_toctree_recurses_across_multiple_levels(
     assert "sub1:4-6: toctree (1 entry, maxdepth=unlimited)" in out
     # subsub1 must appear strictly after sub1's own toctree line, nested
     # one level deeper than sub1's own heading.
-    assert out.index("sub1:1-6:= Sub One") < out.index("subsub1:1-2:= Sub Sub One")
+    assert out.index("sub1:1-6:=u Sub One") < out.index("subsub1:1-2:=u Sub Sub One")
 
 
 @pytest.mark.integration
@@ -3113,8 +3113,8 @@ def test_toctree_cycle_is_reported_and_does_not_hang(
         cli.main()
     out = capsys.readouterr().out
 
-    assert "a:1-6:= Doc A" in out
-    assert "b:1-6:= Doc B" in out
+    assert "a:1-6:=u Doc A" in out
+    assert "b:1-6:=u Doc B" in out
     assert "toctree cycle" in out
     assert "b:4: toctree cycle" in out
     assert "'index' is already an ancestor" in out
@@ -3148,7 +3148,7 @@ def test_toctree_diamond_shows_heading_again_without_reexpanding(
         cli.main()
     out = capsys.readouterr().out
 
-    assert out.count("b:1-4:= Doc B") == 2
+    assert out.count("b:1-4:=u Doc B") == 2
 
 
 @pytest.mark.integration
@@ -3179,7 +3179,7 @@ def test_toctree_sections_only_hides_container_keeps_cross_file_headings(
     out = capsys.readouterr().out
 
     assert "toctree (" not in out
-    assert "sub1:1-2:= Sub One" in out
+    assert "sub1:1-2:=u Sub One" in out
 
 
 @pytest.mark.integration
