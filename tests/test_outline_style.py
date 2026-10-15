@@ -550,3 +550,47 @@ def test_a_wholly_unproven_document_never_claims_a_free_character(capsys: pytest
     legend = _legend(entries, capsys)
 
     assert legend.endswith("next free section char: unknown (2 sections with an unproven style)")
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("text", "start"),
+    [
+        ("*****   \nTitle\n*****\n\nText.\n", 1),
+        (" *****\nTitle\n*****\n\nText.\n", 2),
+    ],
+    ids=["overline-with-trailing-spaces", "indented-line-above"],
+)
+def test_git_section_owners_start_where_outline_proves_the_block(tmp_path: Path, text: str, start: int) -> None:
+    """Git hunk ownership uses the block start that outline proved, not a
+    lexical test of its own.  The two used to disagree on an overline with
+    trailing spaces: outline started the section at the overline, while the
+    ownership test rejected it.  The indented line above a title is not an
+    overline for either."""
+    owners = _comparison._section_owners(tmp_path, "doc.rst", text)
+
+    assert [(owner.title, owner.start) for owner in owners] == [("Title", start)]
+
+
+@pytest.mark.integration
+def test_git_compare_owns_a_hunk_on_an_overline_with_trailing_spaces(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Changing only the trailing spaces of a valid overline is a hunk inside
+    the section's complete source block, so the section owns it."""
+    document = rst_repo / "doc.rst"
+    document.write_text("*****   \nTitle\n*****\n\nText.\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(rst_repo), "add", "doc.rst"], check=True)
+    subprocess.run(["git", "-C", str(rst_repo), "commit", "-qm", "doc"], check=True)
+    document.write_text("***** \nTitle\n*****\n\nText.\n", encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "compare", "doc.rst"])
+
+    with pytest.raises(SystemExit):
+        cli.main()
+    out = capsys.readouterr().out
+
+    assert '  1 -> 1: section "Title" [owned]\n' in out
+    assert "unmapped" not in out
