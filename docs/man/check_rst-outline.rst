@@ -35,8 +35,19 @@ to headings appear beside their sections; other internal labels appear as
 target metadata on the containing section.  They remain visible under
 ``--sections-only``.
 
-Every run prints a ``levels:`` legend: each depth with its adornment
-character and section count, the document's total section count, and the
+Every section line names its title style, the adornment character and its
+form, because reStructuredText reads the same character with and without an
+overline as two distinct styles.  The style token is the character followed
+by ``o`` for overline and underline or ``u`` for underline only, such as
+``*o`` or ``*u``.  It is a bare ``n`` when the physical source does not prove
+the complete style: a section without a source line, or one from transformed
+or synthetic source.  The suffix letters are unambiguous because alphanumeric
+characters cannot be adornment characters; the unknown token is never
+``?n``, because ``?`` is itself a valid adornment character.  To add a sibling
+title, copy the token shown on a sibling's line.
+
+Every run prints a ``levels:`` legend: each depth with its title styles and
+section count, the document's total section count, and the
 first unused character in check_rst's canonical adornment order — or
 ``no free section char`` when every valid character is already assigned.
 That last field answers which character is currently unused without manually

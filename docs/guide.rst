@@ -66,8 +66,9 @@ entire guide in terminal output.
 .. important::
 
    If you read nothing else: writing, declare a new section with a
-   9-character placeholder in the form of its sibling titles — in this
-   project's convention, the same line above and below the title — then run
+   9-character check_rst title placeholder (check_rst's own convention) in
+   the style of its sibling titles — in this project's convention, the same
+   line above and below the title — then run
    ``check_rst check --skip-fixable`` (review non-fixable findings) → ``check_rst fix
    --fast`` (bare form when the whole dirty RST set is yours) →
    ``check_rst check`` (confirm clean).  In a shared dirty worktree, add the
@@ -162,10 +163,74 @@ extends to any format whose syntax is low-entropy but character-exact.
 Writing RST: declare intent, let the tool materialize it
 **********************************************************
 
+==================================
+Title styles: character and form
+==================================
+
+reStructuredText has no fixed list of heading levels.  A title's *style* is
+its adornment character together with its form, underline only or overline
+and underline: "Underline-only adornment styles are distinct from
+overline-and-underline styles that use the same character"
+(`reStructuredText Markup Specification, "Sections"
+<https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html#sections>`__).
+Docutils ranks styles in the order it first encounters them: the first style
+is level 1, the next new style level 2, and so on.  A newly encountered style
+always receives the next rank, so a title in a new style is not simply "one
+level deeper".  When that rank is more than one level below the title's
+position, Docutils reports ``Inconsistent title style: skip from level N to
+M`` and creates no section at all; the title and its text fold into the
+section above.
+
+For example, a page whose titles first use ``#``, ``*``, ``=`` and ``-``, all
+with an overline, has four styles.  An underline-only ``*`` title written later
+inside a level-3 section is a fifth style: its rank is 5, two levels below its
+position, so the section is lost.  Written with the overline, as its ``*``
+siblings are, it is a level-2 section.
+
+The same character in two forms is therefore two styles, and that can be
+deliberate, valid reStructuredText.  A common style in the Docutils and Sphinx
+documentation overlines the page title with ``=`` and underlines its sections
+with ``=`` only: two distinct styles, ranks 1 and 2.  Before 0.7.2, check_rst
+collapsed such a pair into one style and restructured those documents; that
+damage was check_rst's, not Docutils behaviour.  check_rst now refuses a
+document that uses one character in both forms, because the source cannot say
+which reading its author meant (see `Refused fixes`_).
+
+Choosing the document title is a separate, later step.  After parsing,
+Docutils' DocTitle transform promotes a single top-level section at the start
+of the document to the document title
+(`reStructuredText Primer, "Document Title / Subtitle"
+<https://docutils.sourceforge.io/docs/user/rst/quickstart.html#document-title-subtitle>`__),
+which is why a page title uses a style of its own.  Style discovery decides the
+ranks; the promotion only lifts that one section's title into the document.
+
+check_rst models the same distinction.  Docutils keys an underline-only style
+by its character and an overlined one by the pair of overline and underline
+characters, which must be identical ("Title overline & underline mismatch"
+otherwise); check_rst normalizes both to the character plus whether an
+overline is present.  The key is equivalent; the representation is
+check_rst's own.  ``outline`` and ``context`` show each title's style as a
+token, the character followed by ``o`` (overline and underline) or ``u``
+(underline only), such as ``*o`` or ``*u``, and a bare ``n`` when the source
+does not prove the style.  The parser implementation is ``check_subsection``
+and the two ``style =`` assignments in ``docutils/parsers/rst/states.py``,
+pinned for both supported lanes:
+
+* Docutils 0.22.4, tag ``docutils-0.22.4``, revision r10276:
+  `states.py <https://sourceforge.net/p/docutils/code/10276/tree/tags/docutils-0.22.4/docutils/parsers/rst/states.py>`__,
+  lines 431, 2917 and 3155;
+* Docutils 0.23, tag ``docutils-0.23``, revision r10339:
+  `states.py <https://sourceforge.net/p/docutils/code/10339/tree/tags/docutils-0.23/docutils/parsers/rst/states.py>`__,
+  lines 431, 2919 and 3157.
+
 ==========================
 The placeholder workflow
 ==========================
 
+A *check_rst title placeholder* is an authoring convention of check_rst, not a
+reStructuredText, Docutils or Sphinx term.  It is a title written with
+adornment lines of a fixed nine-character length; it declares the title's
+intended style while ``fix`` computes its geometry.
 Never write finished adornments.  Declare that a section exists and let
 ``fix`` compute everything else::
 
@@ -185,7 +250,8 @@ it as a proven restatement of the fixable geometry.
 The split of responsibility is precise: the *length* is always the tool's
 job, but the *character and form* are your declaration of which level the
 section belongs to.  Write the placeholder exactly like the sibling titles at
-the target level (check ``outline``):
+the target level: ``outline`` shows each sibling's style token, ``*o`` for an
+overline and underline, ``*u`` for an underline only.
 
 * when they have an overline, as this project's convention requires, write
   the same line above and below the title;
@@ -197,9 +263,10 @@ For a genuinely new depth, use the next free section character that
 overline written directly under a text line is also that line's underline.
 
 Never use one character both with and without an overline in a file.  The
-reStructuredText specification reads the two forms as two different levels,
-so a title in the other form lands at another level than its siblings;
-``fix`` refuses such a file rather than guess (see `Refused fixes`_).
+two forms are two styles (see `Title styles: character and form`_), so a
+title in the other form gets the next free rank instead of its siblings'
+level, and where that rank is illegal it is no section at all; ``fix``
+refuses such a file rather than guess (see `Refused fixes`_).
 Earlier versions of this guide recommended an underline-only placeholder
 even below overlined siblings.  That form is exactly this ambiguity:
 check_rst 0.7.1 resolved it by nesting the new section one or two levels too
@@ -1279,7 +1346,7 @@ cheaper on both budgets at once: less context spent, fewer structural mistakes.
 Outline legends: levels and blocks
 ------------------------------------
 
-The ``levels:`` legend lists each depth with its adornment character and
+The ``levels:`` legend lists each depth with its title styles and
 section count, the document's total section count, and the first free
 character in check_rst's canonical order (or an explicit ``no free section
 char`` when every valid character is present), stated once because the mapping
@@ -1304,8 +1371,10 @@ Entries follow in document order, each indented four spaces per level:
    * - Entry
      - What it shows
    * - Section
-     - Its range and title, and a bracketed count of direct subsections and of
-       every block anywhere in its subtree
+     - Its range, its title style token (``*o``, ``*u``, or ``n`` when the
+       source proves no style; see `Title styles: character and form`_), its
+       title, and a bracketed count of direct subsections and of every block
+       anywhere in its subtree
    * - Code block
      - Its language unquoted (``code-block (python)``) and a content preview
    * - Block quote
@@ -2021,7 +2090,12 @@ blobs.  Surviving sections are compared independently for adornment, depth,
 parent, and relative sibling order.  Therefore inserting a sibling does not
 falsely report every later sibling as reordered, while changing only the
 adornment convention produces the explicit result ``topology unchanged`` plus
-one ``adornment changed: ID ('#' -> '*')`` line per affected section.
+one ``adornment changed: ID ('#o' -> '*o')`` line per affected section.  The
+comparison uses complete title styles, so changing only a title's form, for
+example from ``*o`` to ``*u``, is such an adornment change too.  A snapshot
+written before outline recorded the form shows characters only
+(``('#' -> '*')``); against it, identical source never appears to change
+style.
 
 Matching is deliberately not by line number: files are matched by path,
 outline entries by their stable ``docname:title`` id (the section identity
@@ -2150,14 +2224,15 @@ file should explain the local workflow without becoming a fork of
     shared dirty worktree use the same owned-file --git-scope allowlist on all
     three commands.
 
-    For a new heading, write a nine-character placeholder in the form of its
-    sibling titles: the same line above and below the title when they have
-    an overline, an underline only when they do not, with a blank line before
-    and after.  Copy the depth character from outline, or use outline's next
-    free section character for a new depth.  Let fix --fast compute the
-    adornment geometry; never count adornment characters, not even in a
-    scratch file.  Never use one character both with and without an overline
-    in a file: fix refuses that ambiguity.
+    For a new heading, write a nine-character check_rst title placeholder (a
+    check_rst convention, not RST syntax) in the style of its sibling titles,
+    as outline shows it on their lines: *o means the same line above and
+    below the title, *u an underline only.  Leave a blank line before and
+    after.  Use outline's next free section character for a new depth.  Let
+    fix --fast compute the adornment geometry; never count adornment
+    characters, not even in a scratch file.  Never use one character both
+    with and without an overline in a file: Docutils reads the two forms as
+    two styles, and fix refuses that ambiguity.
 
     Global options such as --sphinx-src and --no-config go before the
     command: check_rst --no-config check FILE.

@@ -10,8 +10,9 @@ Everything below is real, captured output — one invented 38-line file
 exercising the writing workflow and the reading oracle, extended
 2026-07-20 with a ``list-table`` to also demonstrate that same day's
 ``outline`` enrichment.  The draft is written the way the guide's
-placeholder workflow allows for a brand-new file: every title with a
-placeholder underline only, one character per level, no computed syntax —
+check_rst title placeholder workflow allows for a brand-new file: every title
+with a placeholder underline only, one character per level, no computed
+syntax —
 and with two typos planted the way real drafts plant them accidentally
 (``sensro``, ``batery``).
 
@@ -100,27 +101,25 @@ Analysis: the structure oracle
 adds the ``blocks:``/``lines:``/``words:``/top-and-rare-prose-words level-2
 lines the main guide's "Verbosity levels" section describes; ``levels:`` and
 the entries themselves would already be there without it.  This transcript was
-regenerated on 2026-08-13 with Python 3.14.6, Sphinx 9.1.0, docutils 0.23, and
+regenerated on 2026-10-16 with Python 3.14.7, Sphinx 9.1.0, docutils 0.23, and
 snowballstemmer 3.1.1.  The top/rare-word tail depends on Sphinx's stopword
 tables and snowballstemmer and must be regenerated, not copied as a stable
 golden value, when that runtime changes::
 
     Outline: station.rst
-      levels: 1 '#' (1), 2 '*' (2), 3 sections total; next free section char: '='
+      levels: 1 '#o' (1), 2 '*o' (2), 3 sections total; next free section char: '='
       blocks: 1 code block, 1 blockquote, 1 table
-      2-41:# Weather station [2 subsections, 1 code block, 1 blockquote, 1 table]
-          8-35:* Sensors [1 code block, 1 blockquote, 1 table]
+      1-41:#o Weather station [2 subsections, 1 code block, 1 blockquote, 1 table]
+          7-35:*o Sensors [1 code block, 1 blockquote, 1 table]
               18-19: blockquote "Try lowering the sensor polling interval — the sensor warms itself when po..."
               21-23: code-block (python): READ_INTERVAL = 300 # seconds, not prose
               27-35: Table (list, 3x2), "Sensor readings": Time Temp 09:00 21.4 09:05 21.6
-          38-41:* История
+          37-41:*o История
     check_rst: 1 file(s) checked, 0 error(s), 1 warning(s), 719 char(s) (87 distinct, 31 once), 835 byte(s), 112 space(s) (16%)
     lines: 41 total (13 empty, 32%), length min/avg/max 7/24/66 chars / 7/28/123 bytes
     words: 100 total, 75 distinct (64 once), length min/avg/max 1/6/17
-    top prose words: sensor (6 @11), датчик (4 @5), readings (3 @25), polling (2 @18), when (2 @14),
-      about (1 @11), advice (1 @16), batery (1 @14), battery (1 @11), colleague (1 @16) (yet 34 suppressed)
-    rare prose words: batery @14 ↔ battery @11, sensro @13 (~sensor 6x), about @11, advice @16,
-      colleague @16, drops @13, interval @18, itself @19, lasts @11, low @14 (yet 28 suppressed)
+    top prose words: sensor (6 @11), датчик (4 @5), readings (3 @25), polling (2 @18), advice (1 @16), batery (1 @14), battery (1 @11), colleague (1 @16), drops (1 @13), interval (1 @18) (yet 29 suppressed)
+    rare prose words: batery @14 ↔ battery @11, sensro @13 (~sensor 6x), advice @16, colleague @16, drops @13, interval @18, lasts @11, low @14, lowering @18, month @11 (yet 24 suppressed)
 
 What an AI reads off this, line by line — as its own subsections, not a
 bullet list: this whole page argues for ``outline`` because a
@@ -135,15 +134,15 @@ the value this page sells rather than an assertion of it.
 Levels legend, with a total
 =============================
 
-The depth→char mapping, per-level section counts, and the document's
+The depth→style mapping, per-level section counts, and the document's
 total section count in one place; depth is recoverable from any
 grepped line's indentation (4 spaces per level).
 
-================================================
-Every entry states its own adornment character
-================================================
+========================================
+Every entry states its own title style
+========================================
 
-``2-41:# Weather station``, ``8-35:* Sensors`` — the char sits right
+``1-41:#o Weather station``, ``7-35:*o Sensors`` — the style sits right
 after the range, on every entry, not only in the legend above (Max,
 2026-07-20, reversing a 2026-07-18 decision that called this
 per-entry repetition "pure noise"): picking the right character for a
@@ -152,8 +151,11 @@ and cross-referencing a legend against indentation in a large,
 evolving document is precisely the kind of counting task an LLM is
 unreliable at — confirmed the hard way, writing this very page,
 getting it wrong twice in one session before this feature existed.
-Add a sibling under any grepped line by copying its character
-directly; no legend lookup, no counting.
+Add a sibling under any grepped line by copying its style directly:
+the character *and* its form, ``o`` for an overline and underline, ``u``
+for an underline only, because the same character in the two forms is two
+different styles (see "Title styles: character and form" in
+:doc:`guide`).  No legend lookup, no counting.
 
 ===============
 Blocks legend
@@ -167,8 +169,9 @@ no ``blocks:`` line at all — absence is itself information).
 Ranges, not start lines
 =========================
 
-``8-35: Sensors`` feeds a targeted read (``sed -n '8,35p'``) with no
-arithmetic.
+``7-35:*o Sensors`` feeds a targeted read (``sed -n '7,35p'``) with no
+arithmetic; the range starts at the overline, so the read includes the whole
+title block.
 
 ===========================================================
 Bracketed counts are cumulative, not just direct children
@@ -232,7 +235,7 @@ always part of the JSON model, so there is no separate outline flag to add;
 ``null`` without it or an explicit ``--word-samples``; stable ids,
 extents, every entry's own preview/kind/dims fields, the rare pairs)::
 
-    {"lineno": 8, "depth": 2, "char": "*", "title": "Sensors",
+    {"lineno": 8, "depth": 2, "char": "*", "form": "o", "title": "Sensors",
      "children": 0, "end": 35, "docname": null, "id": "station:Sensors"}
     {"lineno": 21, "depth": 3, "language": "python",
      "preview": "READ_INTERVAL = 300 # seconds, not prose", "end": 23}

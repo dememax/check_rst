@@ -39,8 +39,9 @@ contract.  Review them in step 1 of the loop; never suppress them with
 ``--no-warnings`` in the validation loop (a pure structure query is a
 different activity — ``outline`` exists precisely for it), and
 never skip the pre-fix pass.  When promoting a
-bold line to a section, strip the markers and use the placeholder
-workflow — the judgment is yours, the adornment mechanics still are not.
+bold line to a section, strip the markers and use the check_rst title
+placeholder workflow (check_rst's convention, see :doc:`guide`) — the
+judgment is yours, the adornment mechanics still are not.
 
 A stricter rule never retroactively reaches into files you have not
 re-checked.  ``0 error(s), 0 warning(s)`` describes the last time a file ran

@@ -80,6 +80,18 @@ for other explicit internal labels.  Each item includes the physical
 definition line.  Empty arrays mean no such labels were modeled for that
 entry.
 
+An outline section records its title style in two members:
+
+- ``char`` is the adornment character, kept for compatibility.
+- ``form`` is ``"o"``, ``"u"`` or ``"n"``: overline and underline, underline
+  only, or a style the physical source does not prove.
+
+The human ``outline`` token is derived from the two: ``char`` followed by
+``form`` (``*o``, ``*u``), or a bare ``n``.  When ``form`` is ``"n"``,
+``char`` carries no evidence, and ``"?"`` there is only a stand-in; with
+``"o"`` or ``"u"`` it is a real ``?`` adornment.  Consumers should read
+``form`` rather than infer an unknown style from ``char``.
+
 For an outline section, ``source_start`` is the first line of its complete
 physical block, including an overline; ``lineno`` remains the title-line
 anchor, and ``end`` is the final content line.  ``source_start`` is 0 when no
@@ -117,7 +129,12 @@ COMPARISON
 ``check_rst compare --snapshots OLD.json NEW.json`` validates both basic report shapes
 and compares files, stable outline IDs, findings, Sphinx findings, summaries,
 and runtime provenance.  Findings match by severity and text, never by line
-number.
+number.  A section whose style changes, for example from ``*o`` to ``*u``, is
+an adornment change, not a topology change.  Snapshots written before
+``form`` existed remain readable: an absent ``form`` means the snapshot never
+recorded it, which is not the unknown style ``"n"``.  Against such a
+snapshot, only the characters are compared, so identical source never
+appears to change style.
 
 ***************
 COMPATIBILITY

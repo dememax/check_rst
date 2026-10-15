@@ -2631,6 +2631,46 @@ repositories, 6 mix one character's two forms, 3 have a title directly after a
 non-blank line, and none shares an adornment line.  Each needs one manual
 edit, which the refusal message describes.
 
+==================================
+Complete title styles in outline
+==================================
+
+*Current status: implemented for 0.7.3 (2026-10-16).*
+
+Accepted on 2026-10-13 after a refused Journal note: an underline-only ``*``
+title written under overlined ``*`` siblings, which 0.7.0 and 0.7.1 had
+silently joined to the siblings' level.  The refusal was correct, but it
+showed that ``outline`` reported only a title's character.  The guide
+sent authors to ``outline`` to copy a sibling's character *and form*, and
+outline could give only half of that answer.  It also printed ``?`` both for
+an unreadable adornment and for a real question-mark adornment.
+
+The decision: every outline entry, the ``levels:`` legend, ``context``'s
+section labels and the second-title diagnostic name the complete style as a
+token.  The token is the character followed by ``o`` (overline and
+underline) or ``u`` (underline only), or a bare ``n`` when the physical
+source does not prove the style.  JSON keeps ``char`` and adds ``form``.
+``compare`` treats a form-only change as an adornment change, never as a
+topology change, and reads a snapshot without ``form`` as unrecorded, so
+identical source never appears to change style.  The default outline text
+changes incompatibly, so the CLI contract version became 2.  The mutation
+model and the refusals are unchanged.  The guide now explains title styles
+from the reStructuredText specification and the Docutils parser, and calls
+the authoring convention a *check_rst title placeholder*, never a
+reStructuredText term.
+
+Rejected alternatives:
+
+* Showing the form only in the legend breaks the self-contained outline line,
+  which exists so that one grepped line answers which style to copy.
+* A ``?n`` unknown token: ``?`` is a valid adornment character, so the token
+  would claim character evidence that the source does not give.
+* Reading an absent ``form`` as ``n``: an old snapshot never recorded the form,
+  while ``n`` means it was examined and not proven, so identical source would
+  appear to change from ``*n`` to ``*o``.
+* Keeping contract version 1 because the JSON change is additive: the default
+  text format, a documented interface, changes too.
+
 =====================================
 Release labels and deferred tooling
 =====================================
