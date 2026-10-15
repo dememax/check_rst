@@ -21,6 +21,8 @@ import importlib
 import os
 from typing import TYPE_CHECKING
 
+import docutils.core
+import docutils.nodes
 import pytest
 
 if TYPE_CHECKING:
@@ -259,3 +261,73 @@ def test_the_graph_matches_a_target_through_a_file_symlink_by_its_real_path(
     graph = inc.IncludeGraph.build(inc.scan_population((tmp_path.resolve(),)))
 
     assert graph.may_be_included(leaf)
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint corrections (Codex, 2026-10-16)
+# ---------------------------------------------------------------------------
+
+
+def _docutils_text(path: Path) -> str:
+    """The text Docutils itself produces for *path*, opened by that path."""
+    tree = docutils.core.publish_doctree(
+        path.read_text(encoding="utf-8"), source_path=str(path), settings_overrides={"report_level": 5}
+    )
+    return tree.astext()
+
+
+@pytest.mark.integration
+def test_an_explicit_sphinx_source_is_a_root_without_configuration(
+    inc: types.ModuleType, tmp_git_repo: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """D9d adds an active Sphinx source as a root on its own: it must not
+    depend on a configuration root being present."""
+    doc = _write(tmp_git_repo / "a.rst", "Text.\n")
+    sphinx_src = tmp_path_factory.mktemp("elsewhere") / "src"
+    sphinx_src.mkdir()
+
+    roots, uncovered = inc.discovery_roots([doc], config_root=None, sphinx_src=sphinx_src, cwd=tmp_git_repo)
+
+    assert roots == (tmp_git_repo.resolve(), sphinx_src.resolve())
+    assert uncovered == ()
+
+
+@pytest.mark.integration
+def test_an_option_less_indented_than_the_directive_is_not_its_option(inc: types.ModuleType, tmp_path: Path) -> None:
+    """Only lines inside the directive's indented block are its options.  A
+    shallower ":literal:" belongs outside it, so the include stays
+    structural; reading it as the include's option would let fast mode
+    mutate the included file unchecked."""
+    _write(tmp_path / "part.rst", "Hello *world*.\n")
+    main = _write(tmp_path / "main.rst", "   .. include:: part.rst\n :literal:\n")
+
+    sites = inc.lexical_includes(main)
+
+    assert [(s.indent, s.options, s.structural) for s in sites] == [(3, (), True)]
+    tree = docutils.core.publish_doctree(
+        main.read_text(encoding="utf-8"), source_path=str(main), settings_overrides={"report_level": 5}
+    )
+    assert list(tree.findall(docutils.nodes.emphasis)), "Docutils includes part.rst as parsed RST"
+
+
+@pytest.mark.integration
+def test_a_symlinked_includer_resolves_its_includes_from_its_lexical_path(
+    inc: types.ModuleType, tmp_path: Path
+) -> None:
+    """Docutils resolves a relative include from the path used to open the
+    includer, not from its real path.  The alias and the real file are two
+    includer contexts, and each must name the child Docutils reads."""
+    _write(tmp_path / "alias" / "child.rst", "ALIAS CHILD\n")
+    _write(tmp_path / "real" / "child.rst", "REAL CHILD\n")
+    real_source = _write(tmp_path / "real" / "source.rst", ".. include:: child.rst\n")
+    alias_source = tmp_path / "alias" / "source.rst"
+    alias_source.symlink_to(os.path.relpath(real_source, alias_source.parent))
+    root = tmp_path.resolve()
+
+    sites = inc.lexical_includes(root / "alias" / "source.rst")
+    graph = inc.IncludeGraph.build(inc.scan_population((root,)))
+
+    assert _docutils_text(alias_source).strip() == "ALIAS CHILD"
+    assert [s.target for s in sites] == [root / "alias" / "child.rst"]
+    assert [s.includer for s in graph.includers(root / "alias" / "child.rst")] == [root / "alias" / "source.rst"]
+    assert [s.includer for s in graph.includers(root / "real" / "child.rst")] == [root / "real" / "source.rst"]
