@@ -233,12 +233,12 @@ def _section_owners(
         occurrences[base_id] += 1
         occurrence = occurrences[base_id]
         section_id = base_id if occurrence == 1 else f"{base_id}#{occurrence}"
-        start = entry.lineno
-        overline_index = entry.lineno - 2
-        if overline_index >= 0:
-            possible_overline = lines[overline_index]
-            if possible_overline and set(possible_overline) == {entry.char}:
-                start -= 1
+        # Own from the block start that outline proved: its overline when one
+        # is present, by Docutils' own rstrip equality (CR-47), so ownership
+        # and outline never disagree about a title block.  An entry without an
+        # honest editable coordinate (source_start 0) falls back to its title
+        # line, so an unproven overline is never claimed.
+        start = entry.source_start or entry.lineno
         owners.append(
             SectionOwner(
                 id=section_id,
