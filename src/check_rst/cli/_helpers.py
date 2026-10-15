@@ -49,7 +49,7 @@ CALL_COUNTS: collections.Counter[str] = collections.Counter()
 
 
 _JSON_SCHEMA_VERSION = 1
-_CLI_CONTRACT_VERSION = 1
+_CLI_CONTRACT_VERSION = 2
 _MIN_PYGIT2_VERSION = (1, 20, 0)
 
 

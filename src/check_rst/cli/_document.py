@@ -54,6 +54,8 @@ from ._types import (
 if TYPE_CHECKING:
     import pathlib
 
+    from ._types import OutlineForm
+
 
 _COMMENT_MARKER_RE = re.compile(r"^[ \t]*\.\.(?:[ \t]+(.*))?$")
 _SIMPLE_TABLE_BORDER_RE = re.compile(r"^=+(?: +=+)*$")
@@ -618,7 +620,7 @@ def build_outline(
             source_title_node.astext()
         )
 
-    raw: list[tuple[int, int, str, str, int, int, SourceProvenance | None, list[str]]] = []
+    raw: list[tuple[int, int, str, str, int, int, SourceProvenance | None, list[str], OutlineForm]] = []
     for sec in tree.findall(docutils.nodes.section):
         title_node = sec.children[0]
         provenance = composition.provenance(title_node)
@@ -664,6 +666,17 @@ def build_outline(
             and not candidate_is_prior_underline
         )
         block_start = title_row - 1 if has_overline else title_row
+        # The reported style (CR-47) is the character and its form, proven
+        # only from an exact physical source whose underline is a real
+        # adornment line.  The overline test above is Docutils' own
+        # requirement: a valid overline equals its underline after rstrip
+        # ("Title overline & underline mismatch" otherwise).  No source
+        # line, a transformed or synthetic source, or an unreadable
+        # underline proves nothing, so the form is "n" and never guessed.
+        exact_source = provenance is None or provenance.exact
+        form: OutlineForm = "n"
+        if exact_source and _is_adornment(underline):
+            form = "o" if has_overline else "u"
         raw_source_title = lines[title_row - 1].strip() if 0 < title_row <= len(lines) else title_node.astext()
         source_title = (
             title_node.astext()
@@ -673,7 +686,7 @@ def build_outline(
                 raw_source_title,
             )
         )
-        raw.append((title_row, depth, char, source_title, children, block_start, provenance, lines))
+        raw.append((title_row, depth, char, source_title, children, block_start, provenance, lines, form))
 
     # Extents: a section runs to the line before the next same-or-shallower
     # section's block (findall order is document order), or to EOF; trailing
@@ -687,7 +700,7 @@ def build_outline(
             )
 
     entries: list[OutlineEntry] = []
-    for i, (title_row, depth, char, title, children, block_start, provenance, lines) in enumerate(raw):
+    for i, (title_row, depth, char, title, children, block_start, provenance, lines, form) in enumerate(raw):
         nxt = next(
             (r for r in raw[i + 1 :] if r[1] <= depth and r[6] == provenance),
             None,
@@ -710,6 +723,7 @@ def build_outline(
                 provenance=provenance,
                 source_start=block_start if provenance is None or provenance.exact else 0,
                 labels=tuple(labels_by_heading.get((provenance.source if provenance else None, title_row, title), ())),
+                form=form,
             )
         )
     targets_by_index: dict[int, list[tuple[str, int, str, int]]] = {}

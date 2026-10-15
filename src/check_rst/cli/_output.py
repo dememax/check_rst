@@ -226,15 +226,20 @@ def _print_outline_entries(
         if (depth_limit is None or e.depth <= depth_limit) and (not sections_only or isinstance(e, OutlineEntry))
     ]
 
-    # Legend: the depth→char mapping with per-level section counts, plus the
+    # Legend: the depth→style mapping with per-level section counts, plus the
     # document's total section/code-block/blockquote counts (Max,
     # 2026-07-20) — stated once and always for the WHOLE document, under a
     # depth limit it reveals what exists below the cut (the limit trims
     # entries, never information; two legend lines are not heavy).  In a
-    # valid document each depth has one char; a malformed one lists all
-    # observed chars for the depth, '/'-joined.
-    level_chars: dict[int, list[str]] = {}
+    # valid document each depth has one style; a malformed one lists all
+    # observed styles for the depth, '/'-joined.  The style is the complete
+    # token (CR-47: '*o', '*u', or 'n' when not proven), because the same
+    # character with and without an overline is two styles.  The next-free
+    # hint stays a property of characters: a character used in either form
+    # is not free.
+    level_styles: dict[int, list[str]] = {}
     level_counts: dict[int, int] = {}
+    used_chars: set[str] = set()
     n_code = 0
     n_quotes = 0
     n_tables = 0
@@ -257,9 +262,10 @@ def _print_outline_entries(
             # sibling heading HERE", a question cross-file entries can't
             # answer for this file).
             if entry.docname is None:
-                chars = level_chars.setdefault(entry.depth, [])
-                if entry.char not in chars:
-                    chars.append(entry.char)
+                styles = level_styles.setdefault(entry.depth, [])
+                if entry.style not in styles:
+                    styles.append(entry.style)
+                used_chars.add(entry.char)
                 level_counts[entry.depth] = level_counts.get(entry.depth, 0) + 1
         elif isinstance(entry, ToctreeEntry):
             if entry.cycle is not None:
@@ -289,13 +295,12 @@ def _print_outline_entries(
             # items, the same convention as a table counting once, not
             # once per row.
             n_lists += 1
-    if level_chars:
+    if level_styles:
         total_sections = sum(level_counts.values())
-        used_chars = {char for chars in level_chars.values() for char in chars}
         next_free = next((char for char in HIERARCHY if char not in used_chars), None)
         legend = ", ".join(
-            f"{depth} " + "/".join(repr(c) for c in chars) + f" ({level_counts[depth]})"
-            for depth, chars in sorted(level_chars.items())
+            f"{depth} " + "/".join(repr(style) for style in styles) + f" ({level_counts[depth]})"
+            for depth, styles in sorted(level_styles.items())
         )
         free_hint = f"next free section char: {next_free!r}" if next_free is not None else "no free section char"
         print(f"  levels: {legend}, {total_sections} {_plural(total_sections, 'section')} total; {free_hint}")

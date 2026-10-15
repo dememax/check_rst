@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import docutils.nodes
 import docutils.statemachine
@@ -435,9 +435,23 @@ class SourceProvenance:
     order: int = dataclasses.field(default=0, repr=False, compare=False)
 
 
+OutlineForm = Literal["o", "u", "n"]
+"""A title's proven form: overline and underline, underline only, or not proven."""
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class OutlineEntry:
     """A single section heading, as reported by --outline.
+
+    form (CR-47) completes ``char`` into the title's style: a
+    reStructuredText style is the adornment character *and* whether an
+    overline is present, and the same character in the two forms is two
+    distinct styles.  ``"o"`` and ``"u"`` are proven from an exact physical
+    source; ``"n"`` means the source does not prove the style (no source
+    line, a transformed or synthetic source, an unreadable adornment).  It
+    defaults to ``"n"`` so that an entry nobody proved never claims a form.
+    This is the reporting model only: the mutation model keeps its own
+    ``(character, has_overline)`` key, which never takes an unknown state.
 
     children is the number of DIRECT subsections — shown only when
     non-zero, so each outline line is self-contained data (an AI or a
@@ -469,6 +483,18 @@ class OutlineEntry:
     source_start: int | None = None  # first physical line, including an overline
     labels: tuple[tuple[str, int], ...] = ()  # explicit definitions preceding this heading
     targets: tuple[tuple[str, int, str, int], ...] = ()  # labels for content within this section
+    form: OutlineForm = "n"
+
+    @property
+    def style(self) -> str:
+        """The human style token: ``*o``, ``*u``, or a bare ``n``.
+
+        ``n`` carries no character: ``?`` is itself a valid adornment
+        character, so ``?n`` would claim character evidence that the source
+        does not give.  Alphanumeric characters can never be adornment
+        characters, so the ``o``/``u`` suffix is unambiguous.
+        """
+        return "n" if self.form == "n" else f"{self.char}{self.form}"
 
     def __str__(self) -> str:
         return self.formatted()
@@ -493,6 +519,11 @@ class OutlineEntry:
         # legend cross-reference needed: pick the char shown on the line
         # you want to add a sibling under.
         #
+        # CR-47 (2026-10-13): the character alone was half the answer.  A
+        # sibling must also copy the form, because Docutils reads the same
+        # character with and without an overline as two styles, so the
+        # line shows the complete style token (``*o``, ``*u`` or ``n``).
+        #
         # extra: additional bracket items beyond the subsection count (Max,
         # 2026-07-20) — e.g. nested code-block/blockquote totals, which this
         # entry alone can't know (they come from OTHER entries' line ranges),
@@ -501,7 +532,7 @@ class OutlineEntry:
         indent = "    " * (self.depth - 1)
         start = self.lineno if self.source_start is None else self.source_start
         pos = _entry_position(start, self.end, self.provenance, self.docname)
-        base = f"{indent}{pos}:{self.char} {self.title}"
+        base = f"{indent}{pos}:{self.style} {self.title}"
         parts = []
         if self.children:
             parts.append(f"{self.children} {_plural(self.children, 'subsection')}")
