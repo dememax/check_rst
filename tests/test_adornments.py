@@ -693,7 +693,7 @@ def test_single_top_level_non_preferred_char_also_flagged(tmp_path: Path) -> Non
     )
     violations = _formatting.check_single_top_level(p)
     assert len(violations) == 1
-    assert "'~'" in violations[0].text
+    assert "'~o' style" in violations[0].text
 
 
 @pytest.mark.integration

@@ -31,7 +31,7 @@ import pytest
 from _support import _rst
 
 from check_rst import cli
-from check_rst.cli import _comparison, _document, _reports, _sphinx, _types
+from check_rst.cli import _comparison, _document, _formatting, _reports, _sphinx, _types
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -422,3 +422,63 @@ def test_git_compare_reports_a_form_only_change_with_style_tokens(
 
     assert "doc.rst: topology unchanged" in out
     assert "adornment changed: doc:Title ('*o' -> '*u')" in out
+
+
+# ---------------------------------------------------------------------------
+# Readers and diagnostics
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_context_section_labels_carry_the_full_style(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """context is a structural reader: every section it names states the
+    complete style, on the summary and on each related-entry line."""
+    p = rst_repo / "doc.rst"
+    p.write_text(_DOCUMENT, encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "context", "doc:First", str(p)])
+
+    with pytest.raises(SystemExit):
+        cli.main()
+    out = capsys.readouterr().out
+
+    assert '  summary: section "First" (*o)\n' in out
+    assert '  doc:Title — section "Title" (#o) — 1-16\n' in out
+    assert 'parent: doc:Title — section "Title" (#o) — 1-16\n' in out
+    assert '  next: doc:Second — section "Second" (*o) — 14-16\n' in out
+    assert '  doc:Sub — section "Sub" (=u) — 9-12\n' in out
+
+
+@pytest.mark.unit
+def test_context_section_label_shows_n_for_an_unproven_style() -> None:
+    entry = _types.OutlineEntry(0, 1, "?", "Generated")
+    match = _types.ContextMatch(0, entry, "doc:Generated", "section@0", "section", "doc", ("Generated",))
+
+    assert _reports._context_entry_label(match) == 'section "Generated" (n)'
+
+
+@pytest.mark.integration
+def test_second_title_diagnostic_names_the_full_style(tmp_path: Path) -> None:
+    p = _rst(tmp_path, "#######\nOne\n#######\n\nText.\n\n#######\nTwo\n#######\n")
+
+    findings = _formatting.check_single_top_level(p)
+
+    assert len(findings) == 1
+    assert "second effective top-level title 'Two' follows 'One' ('#o' style)" in findings[0].text
+
+
+@pytest.mark.integration
+def test_second_title_diagnostic_shows_n_for_an_unproven_style(tmp_path: Path) -> None:
+    p = _rst(tmp_path, "#######\nTitle\n#######\n")
+    document = _document.Document(p, tmp_path)
+    generated = docutils.nodes.section(ids=["generated"])
+    generated += docutils.nodes.title("", "Generated")
+    document.doctree += generated
+
+    findings = _formatting.check_single_top_level(p, doc=document)
+
+    assert len(findings) == 1
+    assert "'Generated' follows 'Title' ('n' style)" in findings[0].text
