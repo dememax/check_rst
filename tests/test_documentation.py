@@ -215,3 +215,55 @@ def test_documented_finding_hints_match_real_output() -> None:
                 assert quote == f"({label}: {hint})", (page.name, quote)
                 assert f": {label}" in preceding, (page.name, preceding)
     assert checked
+
+
+def _normalized_text(path: Path) -> str:
+    """Return a document's text with line breaks folded into single spaces."""
+    return " ".join(path.read_text(encoding="utf-8").split())
+
+
+@pytest.mark.unit
+def test_guide_defines_the_title_placeholder_as_check_rst_terminology() -> None:
+    """CR-47: "placeholder" is check_rst's authoring convention, never a term of
+    reStructuredText, Docutils or Sphinx.  Its first normative definition says
+    so, and names what it declares and what fix computes."""
+    guide = _normalized_text(DOCS_DIR / "guide.rst")
+
+    assert "check_rst title placeholder" in guide
+    assert "an authoring convention of check_rst, not a reStructuredText, Docutils or Sphinx term" in guide
+    assert "declares the title's intended style while ``fix`` computes its geometry" in guide
+
+
+@pytest.mark.unit
+def test_guide_explains_title_styles_from_primary_sources() -> None:
+    """The style rule is anchored to the specification, the primer and the
+    Docutils parser pinned to both supported lanes, not to a moving branch."""
+    guide = _normalized_text(DOCS_DIR / "guide.rst")
+
+    for source in (
+        "https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html#sections",
+        "https://docutils.sourceforge.io/docs/user/rst/quickstart.html#document-title-subtitle",
+        "https://sourceforge.net/p/docutils/code/10276/tree/tags/docutils-0.22.4/docutils/parsers/rst/states.py",
+        "https://sourceforge.net/p/docutils/code/10339/tree/tags/docutils-0.23/docutils/parsers/rst/states.py",
+    ):
+        assert source in guide
+    assert "Inconsistent title style: skip from level" in guide
+    assert "DocTitle" in guide
+
+
+@pytest.mark.unit
+def test_outline_manual_documents_the_style_token() -> None:
+    manual = _normalized_text(DOCS_DIR / "man" / "check_rst-outline.rst")
+
+    for token in ("``*o``", "``*u``", "``n``", "``?n``"):
+        assert token in manual
+    assert "each depth with its title styles" in manual
+
+
+@pytest.mark.unit
+def test_json_manual_documents_the_form_member() -> None:
+    manual = _normalized_text(DOCS_DIR / "man" / "check_rst-json.rst")
+
+    assert "``form``" in manual
+    assert '``"o"``, ``"u"`` or ``"n"``' in manual
+    assert "an absent ``form`` means the snapshot never recorded it" in manual
