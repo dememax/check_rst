@@ -1199,6 +1199,10 @@ def _load_json_dump(path: pathlib.Path) -> dict[str, Any]:
                 schema_error(f"{label}.depth must be an integer")
             if not isinstance(entry["char"], str):
                 schema_error(f"{label}.char must be a string")
+            # CR-47: form is optional, because snapshots written before it
+            # existed never recorded it; when present it must be a known form.
+            if "form" in entry and entry["form"] not in _OUTLINE_FORMS:
+                schema_error(f"{label}.form must be one of 'o', 'u', 'n'")
             if entry["id"] in seen_ids:
                 schema_error(f"{label}.id duplicates {entry['id']!r}")
             seen_ids.add(entry["id"])
@@ -1229,6 +1233,41 @@ class _SectionState:
     depth: int
     char: str
     parent: str | None
+    # CR-47.  None is the private UNRECORDED state: a snapshot written before
+    # the form member existed never recorded it.  That is not "n", which
+    # means the run examined the source and could not prove the form, so an
+    # old snapshot of identical source never appears to change style.
+    form: str | None = None
+
+    @property
+    def style(self) -> str:
+        """The human style token, or the bare character when unrecorded."""
+        if self.form is None:
+            return self.char
+        return "n" if self.form == "n" else f"{self.char}{self.form}"
+
+
+_OUTLINE_FORMS = ("o", "u", "n")
+
+
+def _adornment_changed(old: _SectionState, new: _SectionState) -> bool:
+    """Return whether a surviving section's source adornment changed.
+
+    With the form recorded on both sides the complete styles are compared, so
+    the same character with and without an overline is a change, and two
+    unproven styles ("n" against "n") are no evidence of one.  When either
+    side never recorded a form, only the characters can be compared.
+    """
+    if old.form is not None and new.form is not None:
+        return old.style != new.style
+    return old.char != new.char
+
+
+def _adornment_change_values(old: _SectionState, new: _SectionState) -> dict[str, str]:
+    """Render a change as style tokens when both forms are recorded."""
+    if old.form is not None and new.form is not None:
+        return {"old": old.style, "new": new.style}
+    return {"old": old.char, "new": new.char}
 
 
 def _section_states(
@@ -1242,10 +1281,11 @@ def _section_states(
         section_id = cast("str", entry["id"])
         depth = cast("int", entry["depth"])
         char = cast("str", entry["char"])
+        form = cast("str | None", entry.get("form"))
         while ancestors and ancestors[-1][0] >= depth:
             ancestors.pop()
         parent = ancestors[-1][1] if ancestors else None
-        states[section_id] = _SectionState(depth=depth, char=char, parent=parent)
+        states[section_id] = _SectionState(depth=depth, char=char, parent=parent, form=form)
         children[parent].append(section_id)
         ancestors.append((depth, section_id))
     return states, children
@@ -1297,9 +1337,9 @@ def _diff_json_dumps(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]
         added_ids = sorted(set(new_outline) - set(old_outline))
         removed_ids = sorted(set(old_outline) - set(new_outline))
         adornment_changed = [
-            {"id": oid, "old": old_outline[oid].char, "new": new_outline[oid].char}
+            {"id": oid, **_adornment_change_values(old_outline[oid], new_outline[oid])}
             for oid in sorted(common_ids)
-            if old_outline[oid].char != new_outline[oid].char
+            if _adornment_changed(old_outline[oid], new_outline[oid])
         ]
         depth_changed = [
             {"id": oid, "old": old_outline[oid].depth, "new": new_outline[oid].depth}

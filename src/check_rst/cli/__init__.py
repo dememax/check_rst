@@ -1227,7 +1227,9 @@ def _git_section_dump(
         files.append(
             {
                 "path": path,
-                "outline": [{"id": owner.id, "depth": owner.depth, "char": owner.char} for owner in owners],
+                "outline": [
+                    {"id": owner.id, "depth": owner.depth, "char": owner.char, "form": owner.form} for owner in owners
+                ],
                 "findings": [],
             }
         )

@@ -19,6 +19,8 @@ from ._document import Document
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from ._types import OutlineForm
+
 
 class GitStateKind(enum.StrEnum):
     REVISION = "revision"
@@ -56,6 +58,7 @@ class SectionOwner:
     char: str
     start: int
     end: int
+    form: OutlineForm = "n"  # CR-47: the proven form, recorded on both Git sides
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -244,6 +247,7 @@ def _section_owners(
                 char=entry.char,
                 start=start,
                 end=entry.end or len(lines),
+                form=entry.form,
             )
         )
     return tuple(owners)
