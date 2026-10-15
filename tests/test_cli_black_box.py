@@ -569,7 +569,7 @@ def test_black_box_compare_snapshots_reuses_the_section_semantics(tmp_path: Path
     assert result.returncode == 0
     assert result.stderr == ""
     assert "outline: topology unchanged" in result.stdout
-    assert "adornment changed: document:Title ('#' -> '*')" in result.stdout
+    assert "adornment changed: document:Title ('#o' -> '*o')" in result.stdout
     assert "Traceback" not in result.stdout
 
 
@@ -589,7 +589,7 @@ def test_black_box_fix_result_is_explained_by_compare_and_reader_queries(
     assert "draft.rst: modified" in comparison.stdout
     assert 'section "Draft" [owned]' in comparison.stdout
     assert "topology unchanged" in comparison.stdout
-    assert "adornment changed: draft:Draft ('=' -> '#')" in comparison.stdout
+    assert "adornment changed: draft:Draft ('=u' -> '#o')" in comparison.stdout
     assert outline.returncode == 0
     assert "#o Draft" in outline.stdout
     assert context.returncode == 0

@@ -429,7 +429,7 @@ def test_compare_cli_reuses_section_comparison_for_live_git_text(
     assert exc.value.code == 0
     output = capsys.readouterr().out
     assert "topology unchanged" in output
-    assert "adornment changed: doc:Title ('#' -> '*')" in output
+    assert "adornment changed: doc:Title ('#o' -> '*o')" in output
 
 
 @pytest.mark.integration

@@ -305,3 +305,120 @@ def test_git_comparison_document_records_contract_version_2(tmp_git_repo: Path) 
         version = dump["runtime"]["check_rst"]["contract_version"]
         assert type(version) is int
         assert version == 2
+
+
+# ---------------------------------------------------------------------------
+# Snapshots and compare
+# ---------------------------------------------------------------------------
+
+
+def _snapshot(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], path: Path) -> dict[str, Any]:
+    return _check_json(monkeypatch, capsys, "--no-adornments", str(path))
+
+
+def _compare_snapshots(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    old: Path,
+    new: Path,
+) -> tuple[int, str]:
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "compare", "--snapshots", str(old), str(new)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    code = exc.value.code
+    return (code if isinstance(code, int) else 1), capsys.readouterr().out
+
+
+@pytest.mark.integration
+def test_compare_reads_an_unrecorded_form_as_no_change(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A snapshot written before CR-47 has no form member: it never recorded
+    the fact.  That is not the unknown style n, which means the source was
+    examined and the form could not be proven.  Reading the absence as n
+    would make identical source look as if it changed from n to *o."""
+    p = rst_repo / "document.rst"
+    p.write_text("*******\nTitle\n*******\n\nText.\n", encoding="utf-8")
+    new = _snapshot(monkeypatch, capsys, p)
+    old = json.loads(json.dumps(new))
+    for record in old["files"]:
+        for entry in record["outline"]:
+            del entry["form"]
+    old_path, new_path = rst_repo / "old.json", rst_repo / "new.json"
+    old_path.write_text(json.dumps(old), encoding="utf-8")
+    new_path.write_text(json.dumps(new), encoding="utf-8")
+
+    code, out = _compare_snapshots(monkeypatch, capsys, old_path, new_path)
+
+    assert code == 0, out
+    assert "document.rst: unchanged" in out
+    assert "adornment changed" not in out
+
+
+@pytest.mark.integration
+def test_compare_reports_a_form_only_change_without_a_topology_change(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The same character with and without an overline is a source-adornment
+    change.  Topology still comes from the parsed depth and parent graph,
+    which this edit leaves alone."""
+    p = rst_repo / "document.rst"
+    p.write_text("*******\nTitle\n*******\n\nText.\n", encoding="utf-8")
+    old_path = rst_repo / "old.json"
+    old_path.write_text(json.dumps(_snapshot(monkeypatch, capsys, p)), encoding="utf-8")
+    p.write_text("Title\n*******\n\nText.\n", encoding="utf-8")
+    new_path = rst_repo / "new.json"
+    new_path.write_text(json.dumps(_snapshot(monkeypatch, capsys, p)), encoding="utf-8")
+
+    _code, out = _compare_snapshots(monkeypatch, capsys, old_path, new_path)
+
+    assert "topology unchanged" in out
+    assert "adornment changed: document:Title ('*o' -> '*u')" in out
+
+
+@pytest.mark.integration
+def test_compare_rejects_a_snapshot_whose_recorded_form_is_invalid(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    p = rst_repo / "document.rst"
+    p.write_text("*******\nTitle\n*******\n", encoding="utf-8")
+    snapshot = _snapshot(monkeypatch, capsys, p)
+    bad = json.loads(json.dumps(snapshot))
+    bad["files"][0]["outline"][0]["form"] = "x"
+    good_path, bad_path = rst_repo / "good.json", rst_repo / "bad.json"
+    good_path.write_text(json.dumps(snapshot), encoding="utf-8")
+    bad_path.write_text(json.dumps(bad), encoding="utf-8")
+
+    code, out = _compare_snapshots(monkeypatch, capsys, good_path, bad_path)
+
+    assert code == 1
+    assert "files[0].outline[0].form must be one of 'o', 'u', 'n'" in out
+
+
+@pytest.mark.integration
+def test_git_compare_reports_a_form_only_change_with_style_tokens(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Both Git sides are parsed by this run, so both record their forms."""
+    document = rst_repo / "doc.rst"
+    document.write_text("*******\nTitle\n*******\n\nText.\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(rst_repo), "add", "doc.rst"], check=True)
+    subprocess.run(["git", "-C", str(rst_repo), "commit", "-qm", "doc"], check=True)
+    document.write_text("Title\n*******\n\nText.\n", encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "compare", "doc.rst"])
+
+    with pytest.raises(SystemExit):
+        cli.main()
+    out = capsys.readouterr().out
+
+    assert "doc.rst: topology unchanged" in out
+    assert "adornment changed: doc:Title ('*o' -> '*u')" in out

@@ -1547,9 +1547,9 @@ def test_cli_compare_snapshots_reports_adornment_only_change_as_topology_unchang
     assert diff_exit.value.code == 0
     out = capsys.readouterr().out
     assert "outline: topology unchanged" in out
-    assert "adornment changed: test:Title ('#' -> '*')" in out
-    assert "adornment changed: test:A ('=' -> '-')" in out
-    assert "adornment changed: test:B ('=' -> '-')" in out
+    assert "adornment changed: test:Title ('#o' -> '*o')" in out
+    assert "adornment changed: test:A ('=u' -> '-u')" in out
+    assert "adornment changed: test:B ('=u' -> '-u')" in out
 
 
 @pytest.mark.integration
