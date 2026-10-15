@@ -656,7 +656,9 @@ def _context_relationships(
 def _context_entry_label(candidate: ContextMatch) -> str:
     entry = candidate.entry
     if isinstance(entry, OutlineEntry):
-        return f'section "{entry.title}"'
+        # CR-47: a section names its complete style, as outline does, so a
+        # reader choosing a sibling's adornment never needs a second query.
+        return f'section "{entry.title}" ({entry.style})'
     if isinstance(entry, ListEntry):
         if entry.item_count is not None:
             return f"{entry.kind} list ({entry.marker!r}, {entry.item_count} {_plural(entry.item_count, 'item')})"

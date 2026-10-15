@@ -324,7 +324,7 @@ def check_single_top_level(
             severity=Severity.ERROR,
             text=(
                 f"second effective top-level title {entry.title!r} follows "
-                f"{first.title!r} ({entry.char!r} adornment) — a document may have only one title; "
+                f"{first.title!r} ({entry.style!r} style) — a document may have only one title; "
                 "multiple titles leave none promoted as the document title"
             ),
             source=entry.provenance.source if entry.provenance is not None else None,
