@@ -1670,10 +1670,14 @@ def _main() -> None:
     # otherwise-valid list-table run. --config itself stays active either
     # way — it still roots project/Git-scope discovery for this verb.
     sphinx_inactive = args.fix_only or args.diff_only or args.command in {"compare", "list-table", "entitle"}
+    # CR-43: fast mode and entitle never run Sphinx, but they find includers
+    # through a configured source directory (_discovery_sphinx_src).
+    discovery_only = args.fix_only or args.diff_only or args.command == "entitle"
     if args.sphinx_src is None and "sphinx-src" in config:
         if sphinx_inactive:
             reason = "--fast" if (args.fix_only or args.diff_only) else args.command
-            config_inactive.append(f"sphinx-src={config['sphinx-src']} inactive ({reason})")
+            state = "discovery-only" if discovery_only else "inactive"
+            config_inactive.append(f"sphinx-src={config['sphinx-src']} {state} ({reason})")
         else:
             configured = pathlib.Path(config["sphinx-src"]).expanduser()
             args.sphinx_src = configured if configured.is_absolute() else (loaded_config.root / configured).resolve()
@@ -1704,6 +1708,17 @@ def _main() -> None:
             f"config: {config_source} — "
             + (", ".join(config_details) if config_details else "no Sphinx settings applied")
         )
+
+    # A discovery-only source decides where a "/" include points, so a typo
+    # must not silently change discovery; conf.py is checked for, never run.
+    discovery = _discovery_sphinx_src(args, loaded_config) if discovery_only else None
+    if discovery is not None and not (discovery / "conf.py").is_file():
+        command = "entitle" if args.command == "entitle" else f"{args.command} --fast"
+        print(
+            f"check_rst: no conf.py found in sphinx-src {discovery} — {command} never runs Sphinx, "
+            "but uses its source directory to find includers"
+        )
+        sys.exit(1)
 
     if args.command == "compare":
         _run_git_comparison(args, project_root)
@@ -1856,10 +1871,10 @@ def _discovery_sphinx_src(args: argparse.Namespace, loaded_config: LoadedConfig)
     """Return the Sphinx source directory that include discovery uses (D9d).
 
     fix --fast, diff --fast and entitle never run Sphinx, so a configured
-    sphinx-src is inactive for them.  It is still a fact about the project:
-    it says where a leading "/" include points, and it is searched as a
-    root.  Ignoring it would hide a Sphinx-rooted includer from the very
-    commands that refuse on one.
+    sphinx-src is discovery-only for them.  It is still a fact about the
+    project: it says where a leading "/" include points, and it is searched
+    as a root.  Ignoring it would hide a Sphinx-rooted includer from the
+    very commands that refuse on one.
     """
     if args.sphinx_src is not None:
         return pathlib.Path(args.sphinx_src)

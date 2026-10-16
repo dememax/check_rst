@@ -37,8 +37,10 @@ The preview compares the raw source with the exact text ``--apply`` writes,
 including composed byte-hygiene normalization and final-newline state.
 
 The command writes exactly the one named file and judges it alone, without
-Sphinx: ``--sphinx-src`` and ``--build-dir`` are rejected, and a configured
-Sphinx source stays inactive.  A file's title levels can belong to a document
+Sphinx: ``--sphinx-src`` and ``--build-dir`` are rejected.  A configured
+Sphinx source is *discovery-only*: Sphinx never runs, but the directory, which
+must contain a ``conf.py``, is searched for includers and resolves an include
+path that starts with ``/``.  A file's title levels can belong to a document
 that includes it, so ``entitle`` first searches the project for possible
 includers, as ``fix --fast`` does, honouring the configuration and the
 ``--standalone`` and ``--fragment`` declarations.  Before preview or write, it
