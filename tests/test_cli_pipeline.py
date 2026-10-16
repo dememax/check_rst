@@ -544,6 +544,7 @@ def test_cli_foreign_sphinx_file_runs_phase01_without_sphinx(
     foreign = tmp_path / "foreign.rst"
     original = "\ufeffForeign\n=======\n"
     foreign.write_text(original, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "sys.argv",
         ["check_rst.py", "--sphinx-src", str(sphinx_src), "fix", str(foreign)],

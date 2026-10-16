@@ -84,6 +84,10 @@ class LexicalInclude:
     argument: str
     target: pathlib.Path
     options: tuple[tuple[str, str], ...] = ()
+    # The 1-based number of the block's last line: the directive, any
+    # continued argument, and its options.  Docutils inserts the included
+    # lines after it (CR-43 composition).
+    block_end: int = 0
 
     @property
     def structural(self) -> bool:
@@ -289,6 +293,7 @@ def lexical_includes(
                 argument=argument,
                 target=pathlib.Path(os.path.normpath(target)),
                 options=tuple(options),
+                block_end=cursor,
             )
         )
     return tuple(sites)
@@ -390,6 +395,63 @@ class IncludeGraph:
 
     def may_be_included(self, path: pathlib.Path) -> bool:
         return bool(self._by_target.get(path.resolve()))
+
+    def root_contexts(
+        self, path: pathlib.Path, *, standalone: frozenset[pathlib.Path] = frozenset()
+    ) -> tuple[tuple[pathlib.Path, ...], LexicalInclude | None]:
+        """Return the lexical root documents that compose *path*, and a site
+        on an include cycle among its includers, if any.
+
+        A root is a transitive includer that nothing includes, or one declared
+        standalone.  Each lexical path of a root is its own context, because
+        its includes resolve from the path it is opened by.  On a cycle no
+        document is provably the root, so the caller must treat the contexts
+        as unavailable.
+        """
+        real = path.resolve()
+        roots: list[pathlib.Path] = []
+        visited: set[pathlib.Path] = {real}
+        queue = collections.deque([real])
+        while queue:
+            current = queue.popleft()
+            for site in self._by_target.get(current, ()):
+                includer = site.canonical_includer
+                if includer in visited:
+                    if self._reaches(includer, current):
+                        # Name the file's own inclusion when it is on the
+                        # cycle: that is the context the reader looks for.
+                        own = next(
+                            (
+                                edge
+                                for edge in self._by_target.get(real, ())
+                                if self._reaches(edge.canonical_includer, real)
+                            ),
+                            site,
+                        )
+                        return (), own
+                    continue
+                visited.add(includer)
+                is_root = not self._by_target.get(includer) or includer in standalone
+                if is_root and site.includer not in roots:
+                    roots.append(site.includer)
+                if self._by_target.get(includer):
+                    queue.append(includer)
+        return tuple(roots), None
+
+    def _reaches(self, start: pathlib.Path, goal: pathlib.Path) -> bool:
+        """Whether *goal* includes *start*, directly or transitively: then the
+        edge from *start* into *goal* closes a cycle."""
+        seen: set[pathlib.Path] = set()
+        queue = collections.deque([start])
+        while queue:
+            current = queue.popleft()
+            if current == goal:
+                return True
+            for site in self._by_target.get(current, ()):
+                if site.canonical_includer not in seen:
+                    seen.add(site.canonical_includer)
+                    queue.append(site.canonical_includer)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -581,6 +643,8 @@ class IncludeGuard:
 
     kind: str
     evidence: str
+    # Why an include cannot be composed, for the "uncomposable" kind.
+    reason: str = ""
 
 
 def _first_structural_site(path: pathlib.Path, *, sphinx_src: pathlib.Path | None) -> LexicalInclude | None:
@@ -598,6 +662,82 @@ def _first_structural_site(path: pathlib.Path, *, sphinx_src: pathlib.Path | Non
     return next((site for site in sites if site.structural), None)
 
 
+class IncludeUniverse:
+    """The discovery roots, the include graph and the declared roles of one
+    run, shared by fast mode's guards and full mode's composed planning."""
+
+    def __init__(
+        self,
+        files: Sequence[pathlib.Path],
+        *,
+        roles: DeclaredRoles | None,
+        config_root: pathlib.Path | None,
+        sphinx_src: pathlib.Path | None,
+        cwd: pathlib.Path,
+    ) -> None:
+        self.working = cwd.resolve()
+        self.sphinx_src = sphinx_src
+        self.roots, self.uncovered = discovery_roots(files, config_root=config_root, sphinx_src=sphinx_src, cwd=cwd)
+        self.graph = IncludeGraph.scan(self.roots, sphinx_src=sphinx_src)
+        self.declared: dict[pathlib.Path, RolePattern] = {}
+        self.standalone: frozenset[pathlib.Path] = roles.standalone if roles is not None else frozenset()
+        if roles is not None:
+            for item, matched in roles.matches:
+                if item.role == "fragments":
+                    for path in matched:
+                        self.declared.setdefault(path.resolve(), item)
+
+    def shown(self, path: pathlib.Path) -> str:
+        absolute = pathlib.Path(os.path.abspath(path))
+        if absolute.is_relative_to(self.working):
+            return absolute.relative_to(self.working).as_posix()
+        return absolute.as_posix()
+
+    def unavailable_guard(self, path: pathlib.Path) -> IncludeGuard | None:
+        """Return why *path* has an include context no parse can compose:
+        a declared fragment, no root covering it, or an incomplete graph."""
+        real = path.resolve()
+        if real in self.declared:
+            item = self.declared[real]
+            return IncludeGuard("fragment", f"{item.source} {item.pattern!r}")
+        if real in self.uncovered:
+            return IncludeGuard("uncovered", ", ".join(str(root) for root in self.roots) or "none")
+        if unreadable := [item for item in self.graph.unreadable if item.resolve() != real]:
+            # A file's own read failure is its command's to report, as for
+            # any file it cannot read; only another file can hide an include.
+            return IncludeGuard("unreadable", ", ".join(self.shown(item) for item in unreadable))
+        if unresolved := [site for site in self.graph.unresolved if site.canonical_includer != real]:
+            # As for a read failure, a file's own site cannot hide its includer.
+            first = unresolved[0]
+            more = f" (and {len(unresolved) - 1} more)" if len(unresolved) > 1 else ""
+            return IncludeGuard(
+                "unresolved", f"{self.shown(first.includer)}:{first.line} includes {first.argument!r}{more}"
+            )
+        return None
+
+    def fast_guard(self, path: pathlib.Path) -> IncludeGuard | None:
+        """Return why a parser-free caller cannot judge *path* alone.
+
+        Any of these reasons is enough for it to refuse a change to the file's
+        title model.  One reason is reported, the most specific first.
+        """
+        real = path.resolve()
+        guard = self.unavailable_guard(path)
+        if guard is not None and guard.kind == "fragment":
+            return guard
+        if sites := self.graph.includers(real):
+            others = len({site.includer for site in sites}) - 1
+            more = f" and {others} more" if others else ""
+            return IncludeGuard("included", f"{self.shown(sites[0].includer)}:{sites[0].line}{more}")
+        if guard is not None:
+            return guard
+        if (site := _first_structural_site(path, sphinx_src=self.sphinx_src)) is not None:
+            # Q1: the includer's own plan ignores whatever its fragments add,
+            # so changing its styles could restructure the composed document.
+            return IncludeGuard("includes", f"{self.shown(site.target)} at line {site.line}")
+        return None
+
+
 def fast_include_guards(
     files: Sequence[pathlib.Path],
     *,
@@ -606,51 +746,11 @@ def fast_include_guards(
     sphinx_src: pathlib.Path | None,
     cwd: pathlib.Path,
 ) -> dict[pathlib.Path, IncludeGuard]:
-    """Return, by canonical path, the guard of each selected file that has one.
-
-    A parser-free caller cannot confirm or compose an include context, so any
-    of these reasons is enough for it to refuse a change to the file's title
-    model.  One reason is reported per file, the most specific first.
-    """
-    working = cwd.resolve()
-
-    def shown(path: pathlib.Path) -> str:
-        absolute = pathlib.Path(os.path.abspath(path))
-        return absolute.relative_to(working).as_posix() if absolute.is_relative_to(working) else absolute.as_posix()
-
-    roots, uncovered = discovery_roots(files, config_root=config_root, sphinx_src=sphinx_src, cwd=cwd)
-    graph = IncludeGraph.scan(roots, sphinx_src=sphinx_src)
-    declared: dict[pathlib.Path, RolePattern] = {}
-    if roles is not None:
-        for item, matched in roles.matches:
-            if item.role == "fragments":
-                for path in matched:
-                    declared.setdefault(path.resolve(), item)
+    """Return, by canonical path, the fast-mode guard of each selected file
+    that has one."""
+    universe = IncludeUniverse(files, roles=roles, config_root=config_root, sphinx_src=sphinx_src, cwd=cwd)
     guards: dict[pathlib.Path, IncludeGuard] = {}
     for path in files:
-        real = path.resolve()
-        sites = graph.includers(real)
-        if real in declared:
-            item = declared[real]
-            guards[real] = IncludeGuard("fragment", f"{item.source} {item.pattern!r}")
-        elif sites:
-            others = len({site.includer for site in sites}) - 1
-            more = f" and {others} more" if others else ""
-            guards[real] = IncludeGuard("included", f"{shown(sites[0].includer)}:{sites[0].line}{more}")
-        elif real in uncovered:
-            guards[real] = IncludeGuard("uncovered", ", ".join(str(root) for root in roots) or "none")
-        elif unreadable := [item for item in graph.unreadable if item.resolve() != real]:
-            # A file's own read failure is its command's to report, as for
-            # any file it cannot read; only another file can hide an include.
-            guards[real] = IncludeGuard("unreadable", ", ".join(shown(item) for item in unreadable))
-        elif unresolved := [site for site in graph.unresolved if site.canonical_includer != real]:
-            # As for a read failure, a file's own site cannot hide its includer.
-            first = unresolved[0]
-            more = f" (and {len(unresolved) - 1} more)" if len(unresolved) > 1 else ""
-            evidence = f"{shown(first.includer)}:{first.line} includes {first.argument!r}{more}"
-            guards[real] = IncludeGuard("unresolved", evidence)
-        elif (site := _first_structural_site(path, sphinx_src=sphinx_src)) is not None:
-            # Q1: the includer's own plan ignores whatever its fragments add,
-            # so changing its styles could restructure the composed document.
-            guards[real] = IncludeGuard("includes", f"{shown(site.target)} at line {site.line}")
+        if (guard := universe.fast_guard(path)) is not None:
+            guards[path.resolve()] = guard
     return guards

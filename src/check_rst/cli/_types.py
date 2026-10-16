@@ -103,6 +103,9 @@ class FindingCode(enum.StrEnum):
     # CR-43: a title-model change that depends on an include context check_rst
     # cannot judge.  A non-fixable ERROR when such a change is refused.
     INCLUDE_CONTEXT_UNAVAILABLE = "include.context-unavailable"
+    # CR-43: the include contexts a structural fix is judged in need
+    # different edits, or an edit outside the file.  Always a non-fixable ERROR.
+    INCLUDE_CONTEXT_CONFLICT = "include.context-conflict"
     # Semantic lint left to author judgment.
     TEXT_HOMOGLYPH = "text.homoglyph"
     INLINE_NESTED_MARKUP = "inline.nested-markup"

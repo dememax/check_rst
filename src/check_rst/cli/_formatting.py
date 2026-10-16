@@ -10,6 +10,7 @@ import difflib
 import itertools
 import pathlib
 import re
+from typing import TYPE_CHECKING
 
 import docutils.nodes
 
@@ -49,6 +50,9 @@ from ._types import (
     _TextSpaceEdit,
     _TextSpaceEvidence,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def check_hygiene(path: pathlib.Path) -> list[Finding]:
@@ -833,6 +837,12 @@ def _unseparated_title_findings(
     return findings
 
 
+type StructureStage = Callable[[list[str], list[tuple[int, int]] | None], tuple[list[str], tuple[Finding, ...]]]
+"""A fix plan's structural stage: lines and 1-based ranges in, the fixed lines
+and the refusals that block them out.  ``_structure_plan`` judges a file alone;
+``_contexts.ContextStage`` judges it in its include contexts (CR-43)."""
+
+
 def _structure_plan(
     lines: list[str],
     ranges: list[tuple[int, int]] | None,
@@ -1146,6 +1156,8 @@ def diff_fixes(
     collapse_title_spaces: bool = False,
     single_space_prose: bool = False,
     project_root: pathlib.Path | None = None,
+    include_guard: str | None = None,
+    structure: StructureStage | None = None,
 ) -> str:
     """Return one raw-to-final diff for the fix stages enabled by the CLI.
 
@@ -1164,6 +1176,8 @@ def diff_fixes(
             collapse_title_spaces=collapse_title_spaces,
             single_space_prose=single_space_prose,
             project_root=project_root,
+            include_guard=include_guard,
+            structure=structure,
         )
     )
 
@@ -1183,11 +1197,13 @@ def render_plan_diff(plan: FixPlan) -> str:
     )
 
 
-def _apply_structure_to_text(text: str, ranges: list[tuple[int, int]] | None) -> str:
+def _apply_structure_to_text(
+    text: str, ranges: list[tuple[int, int]] | None, structure: StructureStage | None = None
+) -> str:
     """Return *text* after the converging raw-line structural fixer."""
     lines = text.splitlines()
     trailing_newline = text.endswith("\n")
-    fixed = "\n".join(_compute_structure_fixes(lines, ranges))
+    fixed = "\n".join((structure or _structure_plan)(lines, ranges)[0])
     return fixed + ("\n" if trailing_newline else "")
 
 
@@ -1267,6 +1283,7 @@ def _plan_fix(
     single_space_prose: bool = False,
     project_root: pathlib.Path | None = None,
     include_guard: str | None = None,
+    structure: StructureStage | None = None,
 ) -> FixPlan:
     """Compute a fix, refusing a title-model change the include guard forbids.
 
@@ -1279,17 +1296,22 @@ def _plan_fix(
     add, drop or restyle a title is replaced by the plan without the
     structural stage, carrying an include.context-unavailable refusal anchored
     on the first title that would change.
+
+    *structure* replaces the standalone structural stage: full mode passes
+    one that judges the file in its include contexts, so the guard then
+    weighs the edit those contexts agree on.
     """
 
-    def planned(structure: bool) -> FixPlan:
+    def planned(enabled: bool) -> FixPlan:
         return _plan_fix_unguarded(
             path,
             whole_file,
-            include_structure=structure,
+            include_structure=enabled,
             include_blank_lines=include_blank_lines,
             collapse_title_spaces=collapse_title_spaces,
             single_space_prose=single_space_prose,
             project_root=project_root,
+            structure=structure,
         )
 
     plan = planned(include_structure)
@@ -1323,6 +1345,7 @@ def _plan_fix_unguarded(
     collapse_title_spaces: bool = False,
     single_space_prose: bool = False,
     project_root: pathlib.Path | None = None,
+    structure: StructureStage | None = None,
 ) -> FixPlan:
     """Compute and verify a complete deterministic fix without writing.
 
@@ -1340,8 +1363,11 @@ def _plan_fix_unguarded(
     # the required overline.  Materialize that structure first, collapse the
     # now-proven title text, then rebuild geometry from the collapsed title in
     # the same plan.  Reapplying this composition is a fixed point.
+    stage = structure or _structure_plan
     editorial_source = (
-        _apply_structure_to_text(normalized, ranges) if include_structure and collapse_title_spaces else normalized
+        _apply_structure_to_text(normalized, ranges, stage)
+        if include_structure and collapse_title_spaces
+        else normalized
     )
     editorial_fixed, space_counts = _normalize_text_spaces(
         path,
@@ -1349,8 +1375,8 @@ def _plan_fix_unguarded(
         collapse_titles=collapse_title_spaces,
         single_space_prose=single_space_prose,
     )
-    structure_fixed = _apply_structure_to_text(editorial_fixed, ranges) if include_structure else editorial_fixed
-    refusals = _structure_refusals(editorial_fixed.splitlines(), ranges) if include_structure else ()
+    structure_fixed = _apply_structure_to_text(editorial_fixed, ranges, stage) if include_structure else editorial_fixed
+    refusals = stage(editorial_fixed.splitlines(), ranges)[1] if include_structure else ()
     fixed = structure_fixed
     blank_lines_removed = 0
     if include_blank_lines:
@@ -1362,7 +1388,7 @@ def _plan_fix_unguarded(
     convergence_ranges = _translated_ranges(normalized.splitlines(), fixed.splitlines(), ranges)
     converged, _findings, _counts = _normalize_source_detailed(fixed)
     if include_structure and collapse_title_spaces:
-        converged = _apply_structure_to_text(converged, convergence_ranges)
+        converged = _apply_structure_to_text(converged, convergence_ranges, stage)
     converged, _space_counts = _normalize_text_spaces(
         path,
         converged,
@@ -1370,7 +1396,7 @@ def _plan_fix_unguarded(
         single_space_prose=single_space_prose,
     )
     if include_structure:
-        converged = _apply_structure_to_text(converged, convergence_ranges)
+        converged = _apply_structure_to_text(converged, convergence_ranges, stage)
     if include_blank_lines:
         converged, _removed = _normalize_blank_lines(path, converged)
     if converged != fixed:

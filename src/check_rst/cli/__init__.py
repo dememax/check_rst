@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from check_rst import DOCUMENTATION_URL, __copyright__, __license__, __version__
 
-from . import _comparison, _formatting, _helpers, _includes, _output
+from . import _comparison, _contexts, _formatting, _helpers, _includes, _output
 from ._config import LoadedConfig, _load_config
 from ._formatting import _plan_fix, diff_entitle, fix_entitle, render_plan_diff
 from ._helpers import (
@@ -61,6 +61,7 @@ from ._sphinx import (
 )
 
 if TYPE_CHECKING:
+    from ._formatting import StructureStage
     from ._types import FixPlan, FixResult, ListTableIssue
 
 
@@ -1768,6 +1769,12 @@ def _main() -> None:
     args.declared_roles, args.role_record = (
         _resolve_declared_roles(args, loaded_config, files) if args.command in _ROLE_COMMANDS else (None, None)
     )
+    # CR-43: full fix and diff judge each file in its include contexts.
+    args.include_planning = (
+        _full_include_planning(args, loaded_config, files)
+        if args.command in {"fix", "diff"} and not (args.fix_only or args.diff_only) and not args.no_adornments
+        else {}
+    )
 
     if args.command == "list-table":
         _run_list_table(files, only=args.only, skip=args.skip, apply=args.apply, quiet=args.quiet)
@@ -1955,6 +1962,11 @@ def _include_refusal_text(guard: _includes.IncludeGuard, verb: str) -> str:
         )
     if guard.kind == "includes":
         return f"this file includes {guard.evidence}, so its hierarchy depends on what that file adds{judged}"
+    if guard.kind == "uncomposable":
+        return (
+            f"its title levels depend on the include at {guard.evidence}, which check_rst cannot compose "
+            f"({guard.reason}) — edit its titles by hand in context"
+        )
     if guard.kind == "unresolved":
         return (
             f"the include graph is incomplete: {guard.evidence}, which Docutils reads from the filesystem root "
@@ -1971,6 +1983,30 @@ def _include_refusal_text(guard: _includes.IncludeGuard, verb: str) -> str:
         f"the include graph is incomplete: {guard.evidence} cannot be read, so check_rst cannot rule out that "
         "it includes this file — make it readable or ignore it"
     )
+
+
+def _full_include_planning(
+    args: argparse.Namespace,
+    loaded_config: LoadedConfig,
+    files: list[pathlib.Path],
+) -> dict[pathlib.Path, tuple[str | None, StructureStage | None]]:
+    """Return, by canonical path, each selected file's full-mode include
+    guard text and context stage (CR-43 P4a); a file absent from the result
+    keeps today's standalone plan."""
+    universe = _includes.IncludeUniverse(
+        files,
+        roles=args.declared_roles,
+        config_root=loaded_config.root if loaded_config.source else None,
+        sphinx_src=_discovery_sphinx_src(args, loaded_config),
+        cwd=pathlib.Path.cwd(),
+    )
+    composer = _contexts.Composer(universe)
+    planning: dict[pathlib.Path, tuple[str | None, StructureStage | None]] = {}
+    for path in files:
+        guard, stage = _contexts.full_mode_planning(universe, composer, path)
+        if guard is not None or stage is not None:
+            planning[path.resolve()] = (None if guard is None else _include_refusal_text(guard, args.command), stage)
+    return planning
 
 
 def _fast_include_refusals(

@@ -2861,6 +2861,7 @@ def test_cli_fix_and_diff_converge_for_common_short_titles(
     """A short recognized title must be fixable and previewable without a traceback."""
     path = tmp_path / "CHANGELOG.rst"
     path.write_text(source, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "diff", str(path)])
     with pytest.raises(SystemExit) as diff_exit:

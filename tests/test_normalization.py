@@ -567,6 +567,7 @@ def test_cli_collapse_title_spaces_converges_for_short_placeholder(
     document = tmp_path / "test.rst"
     original = "Sub   Part\n---------\n"
     document.write_text(original, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", verb, "--collapse-title-spaces", str(document)])
 
     with pytest.raises(SystemExit) as exc:

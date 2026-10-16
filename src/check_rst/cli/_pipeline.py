@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     import argparse
     from collections.abc import Callable
 
+    from ._formatting import StructureStage
+
 from . import _reports, _sphinx
 from ._composition import CompositionIndex
 from ._document import Document, build_outline
@@ -28,7 +30,7 @@ from ._formatting import (
     check_adornments,
     check_hierarchy,
     check_single_top_level,
-    diff_fixes,
+    render_plan_diff,
 )
 from ._helpers import _JSON_SCHEMA_VERSION, _in_scope, _read_normalized, _relative_to_root
 from ._lint import check_directives, check_homoglyphs, check_nested_inline_markup
@@ -62,6 +64,7 @@ from ._sphinx import (
 )
 from ._types import (
     Finding,
+    FindingCode,
     FixPlan,
     LocalEntry,
     MergedEntry,
@@ -126,6 +129,18 @@ class _PipelineState:
     fix_plans: dict[pathlib.Path, FixPlan] = dataclasses.field(default_factory=dict)
 
 
+# CR-43: refusals a plan carries because of its include contexts.  The
+# standalone title-model refusals are check's own findings, so Phase 1
+# already reports those.
+_INCLUDE_REFUSAL_CODES = frozenset({FindingCode.INCLUDE_CONTEXT_UNAVAILABLE, FindingCode.INCLUDE_CONTEXT_CONFLICT})
+
+
+def _include_planning(args: argparse.Namespace, path: pathlib.Path) -> tuple[str | None, StructureStage | None]:
+    """Return *path*'s full-mode include guard text and context stage."""
+    planning: dict[pathlib.Path, tuple[str | None, StructureStage | None]] = getattr(args, "include_planning", {})
+    return planning.get(path.resolve(), (None, None))
+
+
 def _plan_normal_fixes(
     args: argparse.Namespace,
     files: list[pathlib.Path],
@@ -135,6 +150,7 @@ def _plan_normal_fixes(
 ) -> None:
     """Plan the complete full-pipeline fix selection before any write."""
     for path in files:
+        include_guard, structure = _include_planning(args, path)
         try:
             state.fix_plans[path] = _plan_fix(
                 path,
@@ -144,6 +160,8 @@ def _plan_normal_fixes(
                 collapse_title_spaces=args.collapse_title_spaces,
                 single_space_prose=args.single_space_prose,
                 project_root=project_root,
+                include_guard=include_guard,
+                structure=structure,
             )
         except UnicodeDecodeError as exc:
             err_line = exc.object.count(b"\n", 0, exc.start) + 1
@@ -377,8 +395,10 @@ def _run_phase1(
                 _emit_report_line(f"{pstr}:{err_line}: ERROR: {msg}", "ERROR")
             state.total_errors += 1
             continue
+        include_refusals: list[Finding] = []
         if args.fix:
             plan = state.fix_plans[path]
+            include_refusals = [refusal for refusal in plan.refusals if refusal.code in _INCLUDE_REFUSAL_CODES]
             try:
                 _apply_fix_plan(plan)
             except (OSError, RuntimeError) as exc:
@@ -410,7 +430,8 @@ def _run_phase1(
                 state.total_warnings += w
 
         if args.diff:
-            ds = diff_fixes(
+            include_guard, structure = _include_planning(args, path)
+            diff_plan = _plan_fix(
                 path,
                 whole_file,
                 include_structure=not args.no_adornments,
@@ -418,7 +439,11 @@ def _run_phase1(
                 collapse_title_spaces=args.collapse_title_spaces,
                 single_space_prose=args.single_space_prose,
                 project_root=project_root,
+                include_guard=include_guard,
+                structure=structure,
             )
+            include_refusals = [refusal for refusal in diff_plan.refusals if refusal.code in _INCLUDE_REFUSAL_CODES]
+            ds = render_plan_diff(diff_plan)
             if ds:
                 state.would_change.add(pstr)
                 print(ds, end="")
@@ -432,7 +457,7 @@ def _run_phase1(
         # Phase 1 collects every checker's findings and prints them once, in
         # source order (decided 2026-09-26): checker order and Docutils'
         # table traversal must not decide what a reader sees first.
-        phase1_v: list[Finding] = []
+        phase1_v: list[Finding] = list(include_refusals)
         adornments_clean = False
         if not args.no_adornments:
             adornment_v = check_adornments(path, whole_file, doc=document)
