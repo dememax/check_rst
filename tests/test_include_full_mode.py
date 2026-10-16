@@ -987,3 +987,30 @@ def test_a_rejected_site_before_a_running_one_is_not_kept_for_it(
     assert paths["child"].read_text(encoding="utf-8") == _CHILD, child_out
     assert "cannot compose" not in bad_out
     assert paths["bad"].read_text(encoding="utf-8") == _STANDALONE_PART, bad_out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("mode", [("fix", "--fast"), ("fix",)], ids=["fast", "full"])
+def test_every_unresolved_rooted_site_keeps_the_graph_incomplete(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], mode: tuple[str, ...]
+) -> None:
+    """Codex's sixth P4 look.  Under ":start-line: 1", one physical line of
+    mid.rst holds two rooted includes: "/bad.rst", which Docutils rejects
+    for its unknown option, and "/child.rst", which runs.  With no Sphinx
+    source known, the running one makes the graph incomplete.  The
+    unresolved list was de-duplicated by physical line, so it kept only the
+    rejected site; confirmation then removed it, and full mode remapped
+    child.rst.  The PREFIX keeps the whole-file scan from finding another
+    unresolved site that would mask the defect."""
+    root = _NEST_ROOT + ".. include:: mid.rst\n   :start-line: 1\n"
+    mid = "PREFIX\v.. include:: /bad.rst\v   :bogus:\v\v.. include:: /child.rst\n"
+    paths = _files(rst_repo, root=root, mid=mid, child=_CHILD)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, *mode, "child.rst")
+
+    assert code == 1, out
+    assert "the include graph is incomplete: mid.rst:1 includes '/" in out
+    if mode == ("fix",):
+        assert "the include graph is incomplete: mid.rst:1 includes '/child.rst'" in out
+    assert paths["child"].read_text(encoding="utf-8") == _CHILD
