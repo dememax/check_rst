@@ -941,3 +941,49 @@ def test_control_whitespace_follows_docutils_order(
     if mode == ("fix", "--fast"):
         assert code == 1, out
         assert f"this file may be included by mid.rst:{line}" in out
+
+
+_BAD = _PART  # standalone "=o" page title, remapped to "#o" when it is no fragment
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("mode", [("fix", "--fast"), ("fix",)], ids=["fast", "full"])
+def test_two_parsed_sites_on_one_physical_line_keep_their_own_verdicts(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], mode: tuple[str, ...]
+) -> None:
+    """Codex's fifth P4 look: under ":end-line: 4", Docutils' raw splitlines()
+    splits one physical line at its vertical tabs into an include of
+    child.rst, a blank line, and an include of bad.rst whose option is
+    unknown.  Docutils runs the first and rejects the second.  Keyed by
+    their shared physical line, the rejection removed both edges, and full
+    mode remapped child.rst as standalone."""
+    root = _NEST_ROOT + ".. include:: mid.rst\n   :end-line: 4\n"
+    mid = ".. include:: child.rst\v\v.. include:: bad.rst\n   :bogus:\n"
+    paths = _files(rst_repo, root=root, mid=mid, child=_CHILD, bad=_BAD)
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, *mode, "child.rst")
+
+    assert paths["child"].read_text(encoding="utf-8") == _CHILD, out
+
+
+@pytest.mark.integration
+def test_a_rejected_site_before_a_running_one_is_not_kept_for_it(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The other order on the shared physical line: the rejected include of
+    bad.rst first, then the running include of child.rst.  child.rst keeps
+    its context, and bad.rst, which nothing really includes, is fixed as the
+    standalone document it is: neither a false retention nor a needless
+    refusal."""
+    root = _NEST_ROOT + ".. include:: mid.rst\n   :end-line: 4\n"
+    mid = ".. include:: bad.rst\v   :bogus:\v\v.. include:: child.rst\n"
+    paths = _files(rst_repo, root=root, mid=mid, child=_CHILD, bad=_BAD)
+    monkeypatch.chdir(rst_repo)
+
+    _code, child_out = _run(monkeypatch, capsys, "fix", "child.rst")
+    _code, bad_out = _run(monkeypatch, capsys, "fix", "bad.rst")
+
+    assert paths["child"].read_text(encoding="utf-8") == _CHILD, child_out
+    assert "cannot compose" not in bad_out
+    assert paths["bad"].read_text(encoding="utf-8") == _STANDALONE_PART, bad_out
