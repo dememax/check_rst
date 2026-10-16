@@ -47,10 +47,9 @@ import docutils.io
 import docutils.nodes
 import docutils.parsers.rst
 import docutils.utils
-from docutils.parsers.rst import Directive, directives
+from docutils.parsers.rst import Directive, directives, roles
 from docutils.parsers.rst.directives.misc import Include as DocutilsInclude
 
-from ._composition import _directive_registry
 from ._formatting import _structure_plan, _title_style_events
 from ._helpers import _normalize_source, _read_source
 from ._includes import IncludeGraph, IncludeGuard, LexicalInclude, lexical_includes
@@ -148,6 +147,37 @@ _VERBATIM = (
 )
 
 
+@contextlib.contextmanager
+def _builtins_only(include: type[Directive]) -> Iterator[None]:
+    """Parse with Docutils' built-in directives and roles alone, and *include*.
+
+    check_rst's own parses read files nobody selected, so like CR-30's they
+    must never run what an extension registered in the process.  Docutils
+    looks a name up in its registered dicts first, then in its own tables:
+    every directive entry imports from Docutils' own package, and the role
+    table is narrowed to roles Docutils' modules define.  Fresh dicts for
+    the parse leave exactly the built-ins; the originals are restored after.
+    A registry of an unexpected shape fails closed, with RuntimeError.
+    """
+    directive_module, role_module = vars(directives), vars(roles)
+    registered = directive_module.get("_directives")
+    local_roles = role_module.get("_roles")
+    canonical_roles = role_module.get("_role_registry")
+    if not (isinstance(registered, dict) and isinstance(local_roles, dict) and isinstance(canonical_roles, dict)):
+        raise RuntimeError("Docutils' directive or role registry is unavailable")
+    directive_module["_directives"] = {"include": include}
+    role_module["_roles"] = {}
+    role_module["_role_registry"] = {
+        name: role for name, role in canonical_roles.items() if getattr(role, "__module__", "").startswith("docutils.")
+    }
+    try:
+        yield
+    finally:
+        directive_module["_directives"] = registered
+        role_module["_roles"] = local_roles
+        role_module["_role_registry"] = canonical_roles
+
+
 def _probe_directive(seen: set[str]) -> type[Directive]:
     """An ``include`` that records its argument and reads nothing."""
 
@@ -190,16 +220,8 @@ def _text_sites(path: pathlib.Path, lines: Sequence[str], sites: Sequence[Lexica
     settings.report_level = 5
     settings.file_insertion_enabled = False
     document = docutils.utils.new_document(str(path), settings)
-    registry = _directive_registry()
-    old = registry.get("include")
-    directives.register_directive("include", _probe_directive(seen))
-    try:
+    with _builtins_only(_probe_directive(seen)):
         docutils.parsers.rst.Parser().parse("\n".join(probed), document)
-    finally:
-        if old is None:
-            registry.pop("include", None)
-        else:
-            directives.register_directive("include", old)
     proven: set[int] = set()
     for node in document.findall(docutils.nodes.Text):
         for token, site_line in tokens.items():
@@ -266,16 +288,8 @@ def _docutils_depths(
     settings.halt_level = 5
     settings.report_level = 5
     document = docutils.utils.new_document(str(root), settings)
-    registry = _directive_registry()
-    old = registry.get("include")
-    directives.register_directive("include", _planned_include(own, own_text, sphinx_src))
-    try:
+    with _builtins_only(_planned_include(own, own_text, sphinx_src)):
         docutils.parsers.rst.Parser().parse(root_text, document)
-    finally:
-        if old is None:
-            registry.pop("include", None)
-        else:
-            directives.register_directive("include", old)
     depths: list[int] = []
     for section in document.findall(docutils.nodes.section):
         depth = 1
@@ -326,8 +340,13 @@ class Composer:
                 indented[site.includer].append(site)
         for includer, sites in indented.items():
             lines = self.disk_lines(includer)
-            if lines is not None:
-                self.refuted.update((includer.resolve(), line) for line in _text_sites(includer, lines, sites))
+            if lines is None:
+                continue
+            try:
+                proven = _text_sites(includer, lines, sites)
+            except RuntimeError:
+                continue  # no isolated parse: nothing is proven text
+            self.refuted.update((includer.resolve(), line) for line in proven)
         if self.refuted:
             graph = self.universe.graph
             self.universe.graph = IncludeGraph(
