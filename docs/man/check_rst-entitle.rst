@@ -48,8 +48,9 @@ refuses:
 * a file that includes another file, other than as ``:literal:`` or
   ``:code:`` text, since fast discovery cannot prove what it adds;
 * a file outside every discovery root, whose includers cannot be searched;
-* any file while another file in the project cannot be read, since it may
-  hold an include.
+* any file while another file or directory in the project cannot be read,
+  since it may hold an include, or while an include path starting with
+  ``/`` names no file and no Sphinx source is configured to resolve it.
 
 ``entitle`` has no full mode, and ``fix`` does not wrap, so such a file needs
 composition-aware manual restructuring.  A top-level ``include`` directive is

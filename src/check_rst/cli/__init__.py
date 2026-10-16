@@ -1940,6 +1940,12 @@ def _include_refusal_text(guard: _includes.IncludeGuard, verb: str) -> str:
         )
     if guard.kind == "includes":
         return f"this file includes {guard.evidence}, so its hierarchy depends on what that file adds{judged}"
+    if guard.kind == "unresolved":
+        return (
+            f"the include graph is incomplete: {guard.evidence}, a path relative to a Sphinx source directory, "
+            "and none is configured, so check_rst cannot tell which file it names — set sphinx-src in the "
+            "configuration"
+        )
     if guard.kind == "uncovered":
         return (
             f"this file lies outside every discovery root ({guard.evidence}), so check_rst cannot search for "

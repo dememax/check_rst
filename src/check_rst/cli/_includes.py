@@ -26,7 +26,9 @@ records is only *possible*: a parser-free caller must treat it as real and
 refuse, while a parsing caller may confirm it.  Site paths resolve like
 Docutils, from the lexical path the containing file is opened by, so a file
 reached through a symlink is its own include context; under Sphinx a leading
-``/`` names the source directory.  Canonical paths serve only identity:
+``/`` names the source directory.  With no Sphinx source known, a leading
+``/`` that names no file at its absolute path is *unresolved*: it may name
+any file under some unknown source directory, so the graph is incomplete.  Canonical paths serve only identity:
 role membership and matching a target to a selected file.
 """
 
@@ -292,11 +294,18 @@ def lexical_includes(
 class IncludeGraph:
     """The reverse, transitive graph of possible structural include sites."""
 
-    def __init__(self, sites: Iterable[LexicalInclude], unreadable: Iterable[pathlib.Path] = ()) -> None:
+    def __init__(
+        self,
+        sites: Iterable[LexicalInclude],
+        unreadable: Iterable[pathlib.Path] = (),
+        unresolved: Iterable[LexicalInclude] = (),
+    ) -> None:
         self.sites = tuple(sites)
-        # A file that could not be read cannot prove it includes nothing;
-        # callers that need the graph to be complete can refuse on it.
+        # A file that could not be read cannot prove it includes nothing, and
+        # an unresolved site cannot say what it includes; callers that need
+        # the graph to be complete can refuse on either.
         self.unreadable = tuple(unreadable)
+        self.unresolved = tuple(unresolved)
         self._by_target: dict[pathlib.Path, list[LexicalInclude]] = collections.defaultdict(list)
         for site in self.sites:
             if site.structural:
@@ -334,6 +343,7 @@ class IncludeGraph:
         seen: set[pathlib.Path] = set()
         sites: list[LexicalInclude] = []
         unreadable = list(unreadable)
+        unresolved: list[LexicalInclude] = []
         while queue:
             path = queue.popleft()
             if path in seen:
@@ -346,11 +356,20 @@ class IncludeGraph:
                 continue
             for site in lexical_includes(path, text=text, sphinx_src=sphinx_src):
                 sites.append(site)
+                # An existing file at the absolute path is what Docutils
+                # includes, and under Sphinx the argument then names nothing.
+                if (
+                    site.structural
+                    and sphinx_src is None
+                    and site.argument.startswith("/")
+                    and not site.target.is_file()
+                ):
+                    unresolved.append(site)
                 # Follow the lexical target: its own includes resolve from the
                 # path Docutils opens it by.
                 if site.structural and site.target not in seen and site.target.is_file():
                     queue.append(site.target)
-        return cls(sites, unreadable)
+        return cls(sites, unreadable, unresolved)
 
     def includers(self, path: pathlib.Path) -> tuple[LexicalInclude, ...]:
         """Return the direct structural sites that may include *path*."""
@@ -555,8 +574,8 @@ class IncludeGuard:
     ``kind`` is ``"fragment"`` (a declared fragment), ``"included"`` (a
     possible structural include site names the file), ``"uncovered"`` (no
     discovery root covers it), ``"unreadable"`` (the include graph is
-    incomplete) or ``"includes"`` (the file itself has a possible structural
-    include).  ``evidence`` is what the message cites: the
+    incomplete), ``"unresolved"`` (a rooted include names no known file) or
+    ``"includes"`` (the file itself has a possible structural include).  ``evidence`` is what the message cites: the
     declaring pattern, the first include site, the roots, the unreadable
     files, or the included target and its site's line.
     """
@@ -625,6 +644,12 @@ def fast_include_guards(
             # A file's own read failure is its command's to report, as for
             # any file it cannot read; only another file can hide an include.
             guards[real] = IncludeGuard("unreadable", ", ".join(shown(item) for item in unreadable))
+        elif unresolved := [site for site in graph.unresolved if site.canonical_includer != real]:
+            # As for a read failure, a file's own site cannot hide its includer.
+            first = unresolved[0]
+            more = f" (and {len(unresolved) - 1} more)" if len(unresolved) > 1 else ""
+            evidence = f"{shown(first.includer)}:{first.line} includes {first.argument!r}{more}"
+            guards[real] = IncludeGuard("unresolved", evidence)
         elif (site := _first_structural_site(path, sphinx_src=sphinx_src)) is not None:
             # Q1: the includer's own plan ignores whatever its fragments add,
             # so changing its styles could restructure the composed document.
