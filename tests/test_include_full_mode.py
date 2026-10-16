@@ -765,3 +765,37 @@ def test_a_prolog_or_epilog_makes_include_contexts_unavailable(
     assert code == 1, out
     assert f"this project's Sphinx configuration may transform ({evidence})" in out
     assert part.read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_revalidation_proves_which_titles_became_sections(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Finding 5: equal depth sequences do not prove the same titles.
+
+    The parser-free model reads CR-45's comment above an adornment as a
+    title, which Docutils does not.  Docutils reads two backslashes over
+    "==" as a title, which the model does not.  Both give depths 1, 2, 3
+    and 4, but from different lines.  The planner is replaced by one that
+    makes a harmless edit of the file's own, so revalidation runs on exactly
+    that text and must compare each section's source line too."""
+    from check_rst.cli import _contexts
+    from check_rst.cli._formatting import _structure_plan as real_plan
+
+    def harmless(lines: list[str], ranges: list[tuple[int, int]] | None) -> tuple[list[str], tuple[()]]:
+        if "Body." not in lines:
+            return real_plan(lines, ranges)[0], ()
+        edited = list(lines)
+        edited[edited.index("Body.")] = "Body text."
+        return edited, ()
+
+    monkeypatch.setattr(_contexts, "_structure_plan", harmless)
+    part = ".. a comment\n=======\n\n\\\\\n==\n\nBody.\n"
+    paths = _files(rst_repo, main=_MAIN, part=part)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert code == 1, out
+    assert "Docutils would read the planned titles as a different section tree" in out
+    assert paths["part"].read_text(encoding="utf-8") == part
