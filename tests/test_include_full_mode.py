@@ -443,3 +443,104 @@ def test_an_includer_whose_include_is_only_literal_text_is_fixed(
 
     assert "cannot compose" not in out
     assert paths["main"].read_text(encoding="utf-8").startswith("######\nMain\n######\n"), out
+
+
+# ---------------------------------------------------------------------------
+# The Sphinx project's own facts (P4c)
+# ---------------------------------------------------------------------------
+
+_CONF = 'project = "p"\nexclude_patterns = ["part.rst"]\n'
+
+
+def _sphinx_project(repo: Path, conf: str = _CONF, index: str = "index.rst") -> Path:
+    docs = repo / "docs"
+    docs.mkdir()
+    (docs / "conf.py").write_text(conf, encoding="utf-8")
+    (docs / index).write_text(_MAIN, encoding="utf-8")
+    part = docs / "part.rst"
+    part.write_text(_PART, encoding="utf-8")
+    return part
+
+
+def _run_verified(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], *argv: str
+) -> tuple[int, str]:
+    monkeypatch.chdir(repo)
+    return _run(monkeypatch, capsys, "--sphinx-src", "docs", "--build-dir", str(repo / "_build"), *argv)
+
+
+@pytest.mark.integration
+def test_verified_mode_composes_a_fragment_the_project_excludes(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    part = _sphinx_project(rst_repo)
+
+    _code, out = _run_verified(rst_repo, monkeypatch, capsys, "fix", "docs/part.rst")
+
+    assert "need different title styles" not in out
+    assert part.read_text(encoding="utf-8") == _PART, out
+
+
+@pytest.mark.integration
+def test_a_sphinx_document_has_a_standalone_context_that_must_agree(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """D9b's positive Sphinx evidence: a fragment the environment also reads
+    as a document has a standalone context, where its "=" is the page title."""
+    part = _sphinx_project(rst_repo, conf='project = "p"\n')
+
+    code, out = _run_verified(rst_repo, monkeypatch, capsys, "fix", "docs/part.rst")
+
+    assert code == 1, out
+    assert (
+        "docs/part.rst:2: ERROR: its include contexts need different title styles here: docs/index.rst needs "
+        "'=o' and standalone use needs '#o'"
+    ) in out
+    assert part.read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("setup", "evidence"),
+    [
+        ("app.connect('include-read', lambda *args: None)", "an include-read handler"),
+        ("app.connect('source-read', lambda *args: None)", "a source-read handler"),
+        (
+            "from sphinx.directives.other import Include\n"
+            "    app.add_directive('include', type('Mine', (Include,), {}), override=True)",
+            "an extension's include directive",
+        ),
+    ],
+    ids=["include-read", "source-read", "replaced-include"],
+)
+def test_a_project_that_may_transform_includes_makes_them_unavailable(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], setup: str, evidence: str
+) -> None:
+    """Q4: Sphinx may change what an include adds, so the lexical
+    composition proves nothing.  Standalone, part.rst's "=" would become
+    "#", a title-model change no context supports."""
+    part = _sphinx_project(rst_repo, conf=_CONF + f"\n\ndef setup(app):\n    {setup}\n")
+
+    code, out = _run_verified(rst_repo, monkeypatch, capsys, "fix", "docs/part.rst")
+
+    assert code == 1, out
+    assert (
+        "docs/part.rst:2: ERROR: its title levels depend on include contexts this project's Sphinx "
+        f"configuration may transform ({evidence}), so check_rst cannot compose them — edit its titles by hand "
+        "in context"
+    ) in out
+    assert part.read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_verified_mode_finds_an_includer_with_a_configured_source_suffix(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """D9d's population: in Sphinx mode, the project's own source suffixes.
+    Unseen, index.txt's include left part.rst standalone, remapped to "#"."""
+    conf = _CONF + 'source_suffix = {".rst": "restructuredtext", ".txt": "restructuredtext"}\n'
+    part = _sphinx_project(rst_repo, conf=conf, index="index.txt")
+
+    _code, out = _run_verified(rst_repo, monkeypatch, capsys, "fix", "docs/part.rst")
+
+    assert part.read_text(encoding="utf-8") == _PART, out
