@@ -584,3 +584,39 @@ def test_a_planned_edit_docutils_reads_as_another_section_tree_is_refused(
         "tree, so fix leaves them unchanged — edit its titles by hand in context"
     ) in out
     assert paths["part"].read_text(encoding="utf-8") == part
+
+
+# ---------------------------------------------------------------------------
+# Codex's P4 checkpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_two_lexical_paths_to_one_root_are_two_contexts(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Finding 1: alias/source.rst is a symlink to real/source.rst, so both
+    lexical paths are one canonical root.  Each includes its own directory's
+    prefix.rst, so the child sits at level 2 in one and level 3 in the
+    other, a disagreement that must refuse.  The canonical-keyed walk kept
+    only the first lexical root and proposed its style."""
+    (rst_repo / "real").mkdir()
+    (rst_repo / "alias").mkdir()
+    (rst_repo / "real" / "source.rst").write_text(
+        ".. include:: prefix.rst\n\n.. include:: ../real/child.rst\n", encoding="utf-8"
+    )
+    (rst_repo / "alias" / "source.rst").symlink_to("../real/source.rst")
+    (rst_repo / "real" / "prefix.rst").write_text("######\nTop\n######\n\n*****\nSub\n*****\n", encoding="utf-8")
+    (rst_repo / "alias" / "prefix.rst").write_text("######\nTop\n######\n", encoding="utf-8")
+    child = rst_repo / "real" / "child.rst"
+    child.write_text("Child\n-----\n", encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "real/child.rst")
+
+    assert code == 1, out
+    assert (
+        "real/child.rst:1: ERROR: its include contexts need different title styles here: alias/source.rst needs "
+        "'*o' and real/source.rst needs '=o', so fix cannot choose one — make the documents that include it agree"
+    ) in out
+    assert child.read_text(encoding="utf-8") == "Child\n-----\n"
