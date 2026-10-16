@@ -26,6 +26,8 @@ from check_rst import cli
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import docutils.nodes
+
 # CR-43's reproduction: part.rst's "=" title sits at level 3 in main.rst.
 _MAIN = "######\nMain\n######\n\n*********\nSubtitle\n*********\n\n=======\nIntro\n=======\n\nText.\n\n.. include:: part.rst\n"
 _PART = "========\nShared\n========\n\nBody.\n"
@@ -620,3 +622,55 @@ def test_two_lexical_paths_to_one_root_are_two_contexts(
         "'*o' and real/source.rst needs '=o', so fix cannot choose one — make the documents that include it agree"
     ) in out
     assert child.read_text(encoding="utf-8") == "Child\n-----\n"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("files", "selected"),
+    [
+        (
+            {
+                "example": "#######\nExample\n#######\n\n.. counting::\n\n:counting:`x`\n\nSee::\n\n    .. include:: part.rst\n",
+                "part": _PART,
+            },
+            "part.rst",
+        ),
+        (
+            {"main": _MAIN.replace("Text.", ".. counting::\n\n:counting:`x`"), "part": _DASH},
+            "part.rst",
+        ),
+    ],
+    ids=["probe-parse", "revalidation-parse"],
+)
+def test_check_rst_parses_never_run_registered_directives_or_roles(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    files: dict[str, str],
+    selected: str,
+) -> None:
+    """Finding 4: the probe and revalidation parses read files the user did
+    not select.  Like CR-30's parse, they must run only Docutils' built-in
+    directives and roles, never one an extension registered in the
+    process."""
+    from docutils.parsers.rst import Directive, directives, roles
+
+    calls: list[str] = []
+
+    class Counting(Directive):
+        def run(self) -> list[docutils.nodes.Node]:
+            calls.append("directive")
+            return []
+
+    def counting_role(*_args: object, **_kwargs: object) -> tuple[list[object], list[object]]:
+        calls.append("role")
+        return [], []
+
+    monkeypatch.setitem(vars(directives)["_directives"], "counting", Counting)
+    monkeypatch.setitem(vars(roles)["_roles"], "counting", counting_role)
+    _files(rst_repo, **files)
+    monkeypatch.chdir(rst_repo)
+
+    _run(monkeypatch, capsys, "fix", selected)
+
+    assert calls == []
