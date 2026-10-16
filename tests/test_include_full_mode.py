@@ -377,3 +377,69 @@ def test_a_file_nothing_includes_is_fixed_in_full_mode_as_before(
 
     assert code == 0, out
     assert paths["doc"].read_text(encoding="utf-8") == "########\nShared\n########\n\nBody.\n"
+
+
+# ---------------------------------------------------------------------------
+# Parse refutation (P4b): include-looking text is not an include
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "example",
+    [
+        "#######\nExample\n#######\n\nSee::\n\n    .. include:: part.rst\n",
+        "#######\nExample\n#######\n\n..\n   .. include:: part.rst\n",
+    ],
+    ids=["literal-block", "comment"],
+)
+def test_full_fix_proves_include_looking_text_is_no_include(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], example: str
+) -> None:
+    """The conservative fast refusal's other half: fast mode cannot rule
+    the line out, while parsing its file proves it is text, so part.rst has
+    no includer and is fixed as a standalone document."""
+    paths = _files(rst_repo, example=example, part=_PART)
+    monkeypatch.chdir(rst_repo)
+
+    fast_code, fast_out = _run(monkeypatch, capsys, "fix", "--fast", "part.rst")
+    assert fast_code == 1, fast_out
+    assert paths["part"].read_text(encoding="utf-8") == _PART
+
+    _code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert "cannot compose" not in out
+    assert paths["part"].read_text(encoding="utf-8") == "########\nShared\n########\n\nBody.\n", out
+
+
+@pytest.mark.integration
+def test_an_include_inside_an_unknown_directive_stays_unavailable(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Plain Docutils does not parse an unknown directive's content, but
+    Sphinx may: its ``only`` directive does.  Nothing proves the line text."""
+    paths = _files(rst_repo, main="######\nMain\n######\n\n.. only:: html\n\n   .. include:: part.rst\n", part=_PART)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert code == 1, out
+    assert (
+        "its title levels depend on the include at main.rst:7, which check_rst cannot compose (indented inside "
+        "another construct)"
+    ) in out
+    assert paths["part"].read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_an_includer_whose_include_is_only_literal_text_is_fixed(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main = "Main\n####\n\nSee::\n\n    .. include:: part.rst\n"
+    paths = _files(rst_repo, main=main, part=_PART)
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "fix", "main.rst")
+
+    assert "cannot compose" not in out
+    assert paths["main"].read_text(encoding="utf-8").startswith("######\nMain\n######\n"), out
