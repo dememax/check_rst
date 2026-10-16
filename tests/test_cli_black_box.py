@@ -305,7 +305,7 @@ def test_black_box_argparse_errors_use_stderr_and_status_2(
             "compare --snapshots is self-contained",
         ),
         (["outline", "--max-output-lines", "1"], "--max-output-lines must be >= 2"),
-        (["--sphinx-src", "docs", "entitle", "Title", "file.rst"], "entitle is self-contained"),
+        (["--sphinx-src", "docs", "entitle", "Title", "file.rst"], "entitle does not run Sphinx"),
     ],
 )
 def test_black_box_runtime_argument_conflicts_use_stdout_and_status_1(

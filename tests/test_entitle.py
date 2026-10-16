@@ -519,7 +519,7 @@ def test_cli_entitle_rejects_sphinx_flags(
         cli.main()
 
     assert exc.value.code == 1
-    assert "entitle is self-contained" in capsys.readouterr().out
+    assert "entitle does not run Sphinx — incompatible argument(s): " + flag in capsys.readouterr().out
 
 
 @pytest.mark.integration
