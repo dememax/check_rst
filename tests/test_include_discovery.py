@@ -207,17 +207,21 @@ def test_a_rooted_include_without_a_sphinx_source_is_unresolved(inc: types.Modul
 
 
 @pytest.mark.integration
-def test_a_rooted_include_naming_an_existing_file_is_resolved(inc: types.ModuleType, tmp_path: Path) -> None:
-    """Docutils includes the file at that absolute path, and under Sphinx the
-    same argument names nothing, so it is no ambiguity."""
+def test_a_rooted_include_naming_an_existing_file_is_followed_and_still_unresolved(
+    inc: types.ModuleType, tmp_path: Path
+) -> None:
+    """Bare Docutils includes the file at that absolute path, so the site is
+    recorded and followed.  Sphinx reads the same argument from its source
+    directory whether or not that file exists (BuildEnvironment.relfn2path),
+    so without a known source the alternative target stays unknown."""
     root = tmp_path.resolve()
     part = _write(root / "part.rst", "Text.\n")
-    _write(root / "main.rst", f"Text.\n\n.. include:: {part}\n")
+    main = _write(root / "main.rst", f"Text.\n\n.. include:: {part}\n")
 
     graph = inc.IncludeGraph.scan((root,))
 
-    assert graph.unresolved == ()
     assert graph.may_be_included(part)
+    assert [(site.includer, site.line) for site in graph.unresolved] == [(main, 3)]
 
 
 # ---------------------------------------------------------------------------

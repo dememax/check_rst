@@ -229,8 +229,9 @@ def test_a_configured_sphinx_source_locates_a_rooted_include_in_fast_mode(
     rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], argv: tuple[str, ...]
 ) -> None:
     """Fast mode and entitle never run Sphinx, so the configured sphinx-src
-    is inactive for them.  It still says where a leading "/" include points:
-    ignoring it hid this includer, and fix --fast remapped part.rst's "="."""
+    is discovery-only for them: it still says where a leading "/" include
+    points.  Ignoring it hid this includer, and fix --fast remapped
+    part.rst's "="."""
     (rst_repo / ".check_rst.toml").write_text('sphinx-src = "docs"\n', encoding="utf-8")
     (rst_repo / "docs" / "sub").mkdir(parents=True)
     (rst_repo / "docs" / "conf.py").write_text('project = "p"\n', encoding="utf-8")
@@ -312,11 +313,38 @@ def test_a_rooted_include_without_a_sphinx_source_refuses_style_changes(
 
     assert code == 1, out
     assert (
-        "refused — the include graph is incomplete: docs/sub/index.rst:9 includes '/part.rst', a path relative "
-        "to a Sphinx source directory, and none is configured, so check_rst cannot tell which file it names — "
-        "set sphinx-src in the configuration"
+        "refused — the include graph is incomplete: docs/sub/index.rst:9 includes '/part.rst', which Docutils "
+        "reads from the filesystem root and Sphinx from its source directory, and no Sphinx source is "
+        "configured, so check_rst cannot tell which file it names — set sphinx-src in the configuration, or "
+        "write the path relative to the including file"
     ) in out
     assert part.read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_a_rooted_include_naming_an_existing_file_still_refuses_without_a_sphinx_source(
+    rst_repo: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Codex's counterexample: an existing file at the absolute path settles
+    only Docutils' reading.  Sphinx reads the argument from its source
+    directory regardless, so under a source at docs/ it names this file."""
+    external = tmp_path_factory.mktemp("external") / "external.rst"
+    external.write_text("Text.\n", encoding="utf-8")
+    (rst_repo / "docs").mkdir()
+    (rst_repo / "docs" / "index.rst").write_text(f"Text.\n\n.. include:: {external}\n", encoding="utf-8")
+    candidate = rst_repo / "docs" / external.relative_to(external.anchor)
+    candidate.parent.mkdir(parents=True)
+    candidate.write_text(_PART, encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "--fast", str(candidate.relative_to(rst_repo)))
+
+    assert code == 1, out
+    assert f"docs/index.rst:3 includes {str(external)!r}, which Docutils reads from the filesystem root" in out
+    assert candidate.read_text(encoding="utf-8") == _PART
 
 
 @pytest.mark.integration
