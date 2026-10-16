@@ -1,0 +1,379 @@
+# Copyright (C) 2026 Maxime P. DEMENTYEV
+# SPDX-License-Identifier: GPL-3.0-only
+# Full-mode fix and diff of a file in its include contexts (CR-43, P4a) — check_rst project
+"""Full fix and diff judge a file's titles in every context it has: each
+document that includes it, composed as Docutils composes it, and its
+standalone use when it has one.  A structural edit applies only when every
+context needs the same edit, confined to that file; otherwise it is refused,
+include.context-conflict.  A context check_rst cannot compose (an indented
+include, :parser:, :encoding:, an unreadable target, a cycle) is
+unavailable, and then only an edit that keeps the file's title model may
+apply, include.context-unavailable.
+
+Phase 1 still judges each fixed file standalone until P5, so these tests
+assert bytes and refusal messages rather than exit statuses.
+"""
+
+from __future__ import annotations
+
+import subprocess
+from typing import TYPE_CHECKING
+
+import pytest
+
+from check_rst import cli
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+# CR-43's reproduction: part.rst's "=" title sits at level 3 in main.rst.
+_MAIN = "######\nMain\n######\n\n*********\nSubtitle\n*********\n\n=======\nIntro\n=======\n\nText.\n\n.. include:: part.rst\n"
+_PART = "========\nShared\n========\n\nBody.\n"
+# Composed after main.rst's level-3 "=", an underline-only "-" is level 4,
+# whose canonical style is "-o"; standalone it would be the page title "#o".
+_DASH = "Shared\n------\n\nBody.\n"
+_DASH_IN_MAIN = "--------\nShared\n--------\n\nBody.\n"
+
+
+def _commit(repo: Path, *names: str) -> None:
+    subprocess.run(["git", "-C", str(repo), "add", *names], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture"], check=True)
+
+
+def _run(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str]:
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", *argv])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    code = exc.value.code
+    return (code if isinstance(code, int) else 1), capsys.readouterr().out
+
+
+def _files(repo: Path, **texts: str) -> dict[str, Path]:
+    paths = {}
+    for name, text in texts.items():
+        path = repo / f"{name}.rst"
+        path.write_text(text, encoding="utf-8")
+        paths[name] = path
+    return paths
+
+
+# ---------------------------------------------------------------------------
+# Composed planning
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("scope", [("part.rst",), ()], ids=["explicit", "git-scope"])
+def test_full_fix_keeps_a_fragment_title_its_includer_composes_consistently(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], scope: tuple[str, ...]
+) -> None:
+    """CR-43's reproduction in full mode: fix used to remap part.rst's "=" to
+    "#", breaking main.rst, and report success."""
+    paths = _files(rst_repo, main=_MAIN, part=_PART)
+    _commit(rst_repo, "main.rst", "part.rst")
+    paths["part"].write_text(_PART + "\nOne more body line.\n", encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "fix", *scope)
+
+    assert paths["part"].read_text(encoding="utf-8") == _PART + "\nOne more body line.\n", out
+    assert paths["main"].read_text(encoding="utf-8") == _MAIN
+
+
+@pytest.mark.integration
+def test_full_diff_previews_no_remap_for_a_consistently_composed_fragment(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _files(rst_repo, main=_MAIN, part=_PART)
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "diff", "part.rst")
+
+    assert "+########" not in out
+    assert "--- part.rst" not in out
+
+
+@pytest.mark.integration
+def test_full_fix_applies_an_edit_the_composed_document_confines_to_the_fragment(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _files(rst_repo, main=_MAIN, part=_DASH)
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert paths["part"].read_text(encoding="utf-8") == _DASH_IN_MAIN, out
+    assert paths["main"].read_text(encoding="utf-8") == _MAIN
+
+
+@pytest.mark.integration
+def test_two_includers_that_agree_let_the_edit_apply(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _files(rst_repo, main=_MAIN, other=_MAIN.replace("Main", "Other"), part=_DASH)
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert paths["part"].read_text(encoding="utf-8") == _DASH_IN_MAIN, out
+
+
+@pytest.mark.integration
+def test_two_includers_that_disagree_refuse_with_a_context_conflict(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """main.rst places the fragment's title at level 4, other.rst at level
+    2: no single style serves both."""
+    paths = _files(rst_repo, main=_MAIN, other="#######\nOther\n#######\n\n.. include:: part.rst\n", part=_DASH)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert code == 1, out
+    assert (
+        "part.rst:1: ERROR: its include contexts need different title styles here: main.rst needs '-o' and "
+        "other.rst needs '*o', so fix cannot choose one — make the documents that include it agree"
+    ) in out
+    assert paths["part"].read_text(encoding="utf-8") == _DASH
+
+
+@pytest.mark.integration
+def test_a_standalone_declaration_adds_a_context_that_must_agree(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _files(rst_repo, main=_MAIN, part=_PART)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "--standalone", "part.rst", "fix", "part.rst")
+
+    assert code == 1, out
+    assert (
+        "part.rst:2: ERROR: its include contexts need different title styles here: main.rst needs '=o' and "
+        "standalone use needs '#o', so fix cannot choose one — make the documents that include it agree"
+    ) in out
+    assert paths["part"].read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_an_edit_the_composed_document_needs_outside_the_file_refuses(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """main.rst's page title is not canonical, so the composed remap edits
+    main.rst too, and fix changes only the selected file."""
+    paths = _files(rst_repo, main="=====\nMain\n=====\n\n.. include:: part.rst\n", part=_DASH)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert code == 1, out
+    assert (
+        "part.rst:1: ERROR: in the document main.rst composes, its title change also needs main.rst:1 to "
+        "change, and fix changes only this file — make that document's titles consistent by hand"
+    ) in out
+    assert paths["part"].read_text(encoding="utf-8") == _DASH
+
+
+@pytest.mark.integration
+def test_an_includer_problem_does_not_block_a_fragment_that_needs_nothing(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Canonical in place: level 2 under main.rst's page title, length 8.
+    part = "********\nShared\n********\n\nBody.\n"
+    paths = _files(rst_repo, main="=====\nMain\n=====\n\n.. include:: part.rst\n", part=part)
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert "its title change also needs" not in out
+    assert paths["part"].read_text(encoding="utf-8") == part
+
+
+@pytest.mark.integration
+def test_a_clipped_include_composes_only_its_selected_lines(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main = _MAIN.replace(".. include:: part.rst\n", ".. include:: part.rst\n   :start-after: .. start\n")
+    paths = _files(rst_repo, main=main, part=".. start\n\n" + _DASH)
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert paths["part"].read_text(encoding="utf-8") == ".. start\n\n" + _DASH_IN_MAIN, out
+
+
+@pytest.mark.integration
+def test_git_hunks_stay_in_the_fragment_coordinates(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Codex's coordinate boundary: the fragment's changed line 2 is not
+    main.rst's line 2.  Only the fragment's own hunk gets geometry fixes,
+    and main.rst's short adornment on its line 2 stays as it is."""
+    main = "####\nMain\n####\n\n.. include:: part.rst\n"
+    part = "********\nShared\n********\n\nBody.\n"
+    paths = _files(rst_repo, main=main, part=part)
+    _commit(rst_repo, "main.rst", "part.rst")
+    paths["part"].write_text("*******\nShared\n*******\n\nBody.\n", encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "fix")
+
+    assert paths["part"].read_text(encoding="utf-8") == part, out
+    assert paths["main"].read_text(encoding="utf-8") == main
+
+
+# ---------------------------------------------------------------------------
+# The includer side (Q1, full mode)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_full_fix_proves_an_includer_edit_safe_where_fast_mode_refuses(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The conservative fast refusal: fast mode cannot prove that a
+    title-free fragment adds nothing, while the composed document does."""
+    main = "Main\n####\n\nText.\n\n.. include:: contact.rst\n"
+    paths = _files(rst_repo, main=main, contact="Jane Doe\nphone: 0100\n")
+    monkeypatch.chdir(rst_repo)
+
+    fast_code, fast_out = _run(monkeypatch, capsys, "fix", "--fast", "main.rst")
+    assert fast_code == 1, fast_out
+    assert paths["main"].read_text(encoding="utf-8") == main
+
+    _code, out = _run(monkeypatch, capsys, "fix", "main.rst")
+
+    assert paths["main"].read_text(encoding="utf-8").startswith("######\nMain\n######\n"), out
+
+
+@pytest.mark.integration
+def test_an_includer_edit_that_also_needs_its_fragment_changed_refuses(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main = "Main\n####\n\nText.\n\n.. include:: part.rst\n"
+    paths = _files(rst_repo, main=main, part="Shared\n******\n\nBody.\n")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "main.rst")
+
+    assert code == 1, out
+    assert (
+        "main.rst:1: ERROR: in the document main.rst composes, its title change also needs part.rst:1 to "
+        "change, and fix changes only this file — make that document's titles consistent by hand"
+    ) in out
+    assert paths["main"].read_text(encoding="utf-8") == main
+
+
+# ---------------------------------------------------------------------------
+# Unavailable contexts
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("include", "line", "reason"),
+    [
+        (".. note::\n\n   .. include:: part.rst\n", 3, "indented inside another construct"),
+        (".. include:: part.rst\n   :parser: rst\n", 1, "it sets :parser:"),
+        (".. include:: part.rst\n   :encoding: latin-1\n", 1, "it sets :encoding:"),
+        (".. include:: part.rst\n   :start-after: NO SUCH MARKER\n", 1, "its clipping options do not match its target"),
+    ],
+    ids=["indented", "parser", "encoding", "clip"],
+)
+def test_an_include_that_cannot_be_composed_makes_its_context_unavailable(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    include: str,
+    line: int,
+    reason: str,
+) -> None:
+    """Standalone, part.rst's "=" page title would become "#", a title-model
+    change no available context supports."""
+    paths = _files(rst_repo, main="######\nMain\n######\n\n" + include, part=_PART)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert code == 1, out
+    assert (
+        f"part.rst:2: ERROR: its title levels depend on the include at main.rst:{line + 4}, which check_rst "
+        f"cannot compose ({reason}) — edit its titles by hand in context"
+    ) in out
+    assert paths["part"].read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_an_include_cycle_makes_the_context_unavailable(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _files(
+        rst_repo,
+        alpha="#######\nAlpha\n#######\n\n.. include:: beta.rst\n",
+        beta="Beta\n====\n\n.. include:: alpha.rst\n",
+    )
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "beta.rst")
+
+    assert code == 1, out
+    assert "the include at alpha.rst:5, which check_rst cannot compose (it is part of an include cycle)" in out
+    assert paths["beta"].read_text(encoding="utf-8") == "Beta\n====\n\n.. include:: alpha.rst\n"
+
+
+@pytest.mark.integration
+def test_full_fix_refuses_a_declared_fragment_title_model_change(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _files(rst_repo, contact=_PART)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "--fragment", "contact.rst", "fix", "contact.rst")
+
+    assert code == 1, out
+    assert (
+        "contact.rst:2: ERROR: this file is declared a fragment (--fragment 'contact.rst'), so its title "
+        "levels depend on an includer check_rst cannot see"
+    ) in out
+    assert paths["contact"].read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_full_fix_still_fixes_pure_geometry_beside_an_unavailable_context(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _files(rst_repo, contact="############\nShared\n############\n\nBody.\n")
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "--fragment", "contact.rst", "fix", "contact.rst")
+
+    assert "declared a fragment" not in out
+    assert paths["contact"].read_text(encoding="utf-8") == "########\nShared\n########\n\nBody.\n"
+
+
+@pytest.mark.integration
+def test_full_fix_refuses_a_file_outside_every_discovery_root(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    part = elsewhere / "part.rst"
+    part.write_text(_PART, encoding="utf-8")
+    monkeypatch.chdir(tmp_path_factory.mktemp("cwd"))
+
+    code, out = _run(monkeypatch, capsys, "fix", str(part))
+
+    assert code == 1, out
+    assert "this file lies outside every discovery root (" in out
+    assert part.read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_a_file_nothing_includes_is_fixed_in_full_mode_as_before(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths = _files(rst_repo, doc=_PART)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "doc.rst")
+
+    assert code == 0, out
+    assert paths["doc"].read_text(encoding="utf-8") == "########\nShared\n########\n\nBody.\n"
