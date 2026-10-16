@@ -189,3 +189,102 @@ def test_a_file_nothing_includes_is_fixed_as_before(
 
     assert code == 0, out
     assert doc.read_text(encoding="utf-8") == "########\nShared\n########\n\nBody.\n"
+
+
+# ---------------------------------------------------------------------------
+# The includer side (Q1)
+# ---------------------------------------------------------------------------
+
+# An underline-only page title: fix would give it an overline (CR-42), a
+# change of title style.
+_INCLUDER = "Main\n####\n\nText.\n\n.. include:: {target}{options}\n"
+
+
+def _includer(repo: Path, target: str, options: str = "") -> Path:
+    path = repo / "main.rst"
+    path.write_text(_INCLUDER.format(target=target, options=options), encoding="utf-8")
+    return path
+
+
+@pytest.mark.integration
+def test_fix_fast_refuses_an_includer_whose_fragment_contributes_titles(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The included titles join the includer's hierarchy, which fast mode
+    cannot compose; changing the includer's own styles could restructure the
+    composed document."""
+    main = _includer(rst_repo, "part.rst")
+    (rst_repo / "part.rst").write_text("Shared\n******\n\nBody.\n", encoding="utf-8")
+    before = main.read_text(encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "--fast", "main.rst")
+
+    assert code == 1, out
+    assert (
+        "main.rst:1: ERROR: fix refused — this file includes part.rst at line 6, whose titles join this document's "
+        "hierarchy, which fast mode cannot judge — run full fix to judge it in context"
+    ) in out
+    assert main.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.integration
+def test_fix_fast_refuses_an_includer_whose_titles_arrive_transitively(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main = _includer(rst_repo, "middle.rst")
+    (rst_repo / "middle.rst").write_text("Plain text.\n\n.. include:: leaf.rst\n", encoding="utf-8")
+    (rst_repo / "leaf.rst").write_text("Leaf\n****\n", encoding="utf-8")
+    before = main.read_text(encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "--fast", "main.rst")
+
+    assert code == 1, out
+    assert "this file includes middle.rst at line 6, whose titles join this document's hierarchy" in out
+    assert main.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.integration
+def test_fix_fast_refuses_an_includer_whose_target_cannot_be_read(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A missing target proves nothing about the titles it may contribute."""
+    main = _includer(rst_repo, "missing.rst")
+    before = main.read_text(encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "--fast", "main.rst")
+
+    assert code == 1, out
+    assert "this file includes missing.rst at line 6, whose titles join this document's hierarchy" in out
+    assert main.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("target", "options", "content"),
+    [
+        ("contact.rst", "", "Jane Doe\nphone: 0100\n"),
+        ("code.py", "\n   :literal:", "print('#####')\n"),
+    ],
+    ids=["title-free-fragment", "literal-include"],
+)
+def test_fix_fast_still_fixes_an_includer_whose_includes_cannot_contribute_titles(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    target: str,
+    options: str,
+    content: str,
+) -> None:
+    """A title-free fragment, such as a contact block, and a literal include
+    add no titles, so the includer's hierarchy is its own."""
+    main = _includer(rst_repo, target, options)
+    (rst_repo / target).write_text(content, encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "--fast", "main.rst")
+
+    assert code == 0, out
+    assert main.read_text(encoding="utf-8").startswith("######\nMain\n######\n")
