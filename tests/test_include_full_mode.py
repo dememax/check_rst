@@ -544,3 +544,43 @@ def test_verified_mode_finds_an_includer_with_a_configured_source_suffix(
     _code, out = _run_verified(rst_repo, monkeypatch, capsys, "fix", "docs/part.rst")
 
     assert part.read_text(encoding="utf-8") == _PART, out
+
+
+# ---------------------------------------------------------------------------
+# Topology revalidation (P4d)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_a_planned_edit_docutils_reads_as_another_section_tree_is_refused(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Rule 5: every includer's topology is revalidated after the candidate.
+
+    The planner is replaced by one whose output maps exactly onto part.rst
+    but leaves "Shared" in a new style right after a return to level 2.
+    Docutils rejects that inconsistent level, so the composed document
+    would lose a section, and the edit must not apply."""
+    from check_rst.cli import _contexts
+    from check_rst.cli._formatting import _structure_plan as real_plan
+
+    def inconsistent(lines: list[str], ranges: list[tuple[int, int]] | None) -> tuple[list[str], tuple[()]]:
+        fixed, _refusals = real_plan(lines, ranges)
+        if "Shared" in fixed:
+            title = fixed.index("Shared")
+            fixed[title - 1] = fixed[title + 1] = "-" * len(fixed[title + 1])
+        return fixed, ()
+
+    monkeypatch.setattr(_contexts, "_structure_plan", inconsistent)
+    part = "*******\nAlpha\n*******\n\nShared\n------\n\nBody.\n"
+    paths = _files(rst_repo, main=_MAIN, part=part)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert code == 1, out
+    assert (
+        "in the document main.rst composes, Docutils would read the planned titles as a different section "
+        "tree, so fix leaves them unchanged — edit its titles by hand in context"
+    ) in out
+    assert paths["part"].read_text(encoding="utf-8") == part
