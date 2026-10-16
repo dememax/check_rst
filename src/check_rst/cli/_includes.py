@@ -44,6 +44,7 @@ role membership and matching a target to a selected file.
 
 from __future__ import annotations
 
+import bisect
 import collections
 import dataclasses
 import errno
@@ -255,45 +256,33 @@ def scan_population(
     return _scan(roots, suffixes)[0]
 
 
-def clip_selection(lines: Sequence[str], options: dict[str, str]) -> Selection | None:
-    """Return Docutils' clipped selection of *lines*, in its clipping order.
+# What str.splitlines() breaks a line at, and Phase 0's physical line breaks:
+# the same without VT and FF, which Phase 0 and Docutils' string2lines both
+# turn into spaces.
+_SPLITLINES = re.compile("\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]")
+_PHYSICAL_BREAKS = re.compile("\r\n|[\n\r\x1c\x1d\x1e\x85\u2028\u2029]")
+_CONTROL_WHITESPACE = re.compile("[\v\f]")
 
-    Each entry is a selected line's text, its 0-based physical index and
-    whether a text clip cuts it.  None means an option is malformed or a text
-    clip matches nothing, which Docutils reports as an error.  An empty text
-    clip is refused too: its meaning differs between Docutils versions.
-    """
-    if not any(name in options for name in ("start-line", "end-line", "start-after", "end-before")):
-        # Unclipped, Docutils splits the text itself: every line, as it is.
-        return [(text, index, False) for index, text in enumerate(lines)]
-    try:
-        start = int(options["start-line"]) if "start-line" in options else None
-        end = int(options["end-line"]) if "end-line" in options else None
-    except ValueError:
-        return None
-    indices = list(range(len(lines)))[start:end]
-    joined = "\n".join(lines[index] for index in indices)
-    begin, finish = 0, len(joined)
-    after = options.get("start-after")
-    if after is not None:
-        match = joined.find(after) if after else -1
-        if match < 0:
-            return None
-        begin = match + len(after)
-    before = options.get("end-before")
-    if before is not None:
-        match = joined.find(before, begin) if before else -1
-        if match < 0:
-            return None
-        finish = match
-    selected = joined[begin:finish].splitlines()
-    first = joined.count("\n", 0, begin)
-    cut_first = begin > 0 and joined[begin - 1] != "\n"
-    cut_last = finish < len(joined) and joined[finish] != "\n"
-    return [
-        (text, indices[first + offset], (offset == 0 and cut_first) or (offset == len(selected) - 1 and cut_last))
-        for offset, text in enumerate(selected)
-    ]
+
+def _spans(text: str, breaks: re.Pattern[str]) -> list[tuple[int, int]]:
+    """Return the (start, end) offset of each line ``str.splitlines()`` yields,
+    breaking only at *breaks*."""
+    spans: list[tuple[int, int]] = []
+    position = 0
+    for match in breaks.finditer(text):
+        spans.append((position, match.start()))
+        position = match.end()
+    if position < len(text):
+        spans.append((position, len(text)))
+    return spans
+
+
+def docutils_text(raw: str) -> str:
+    """Return decoded text as Docutils' text-mode FileInput reads it, which an
+    include's default or Sphinx's encoding selects: universal newlines, and
+    no byte-order mark."""
+    text = raw.removeprefix("\ufeff")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def tab_width(variant: Variant) -> int | None:
@@ -304,26 +293,81 @@ def tab_width(variant: Variant) -> int | None:
         return None
 
 
-def effective_lines(lines: Sequence[str], variant: Variant) -> tuple[Selection, list[str]] | None:
-    """Return a variant's selection and the lines Docutils parses from it:
-    clipped first, then tab-expanded, as string2lines does.  None means the
-    variant includes nothing, as Docutils reports an error instead."""
-    selection = clip_selection(lines, dict(variant))
+def effective_input(text: str, variant: Variant) -> Selection | None:
+    """Return the lines Docutils parses from *text* read in *variant*.
+
+    Each entry is a parsed line, its 0-based physical line, and whether it is
+    only part of that line.  Docutils' own order, which no single
+    normalization reproduces:
+    1. a line clip counts lines with a raw ``splitlines()``, which breaks at
+       a vertical tab or a form feed, and joins them with newlines;
+    2. ``:start-after:`` and ``:end-before:`` search the result;
+    3. ``string2lines`` turns VT and FF into spaces, splits, expands tabs at
+       the variant's width, and strips trailing whitespace.
+    Physical lines are Phase 0's, which keep VT and FF inside a line, as step
+    3 does.  Character offsets map each parsed line back to one.  None means
+    an option is malformed or a text clip matches nothing, which Docutils
+    reports as an error; an empty text clip is refused too, because its
+    meaning differs between Docutils versions.
+    """
+    options = dict(variant)
     width = tab_width(variant)
-    if selection is None or width is None:
+    try:
+        start = int(options["start-line"]) if "start-line" in options else None
+        end = int(options["end-line"]) if "end-line" in options else None
+    except ValueError:
         return None
-    return selection, [text.expandtabs(width) for text, _index, _cut in selection]
+    if width is None:
+        return None
+    clipped, offsets = text, list(range(len(text)))
+    if start or end is not None:  # Docutils' own test: a start line of 0 alone clips nothing
+        pieces = _spans(text, _SPLITLINES)[start:end]
+        parts: list[str] = []
+        offsets = []
+        for number, (piece_start, piece_end) in enumerate(pieces):
+            if number:
+                parts.append("\n")
+                offsets.append(pieces[number - 1][1])
+            parts.append(text[piece_start:piece_end])
+            offsets.extend(range(piece_start, piece_end))
+        clipped = "".join(parts)
+    after = options.get("start-after")
+    if after is not None:
+        match = clipped.find(after) if after else -1
+        if match < 0:
+            return None
+        clipped, offsets = clipped[match + len(after) :], offsets[match + len(after) :]
+    before = options.get("end-before")
+    if before is not None:
+        match = clipped.find(before) if before else -1
+        if match < 0:
+            return None
+        clipped, offsets = clipped[:match], offsets[:match]
+    converted = _CONTROL_WHITESPACE.sub(" ", clipped)
+    physical = _spans(text, _PHYSICAL_BREAKS)
+    starts = [line_start for line_start, _line_end in physical]
+    selection: Selection = []
+    for line_start, line_end in _spans(converted, _SPLITLINES):
+        if line_start < line_end:
+            first, last = offsets[line_start], offsets[line_end - 1] + 1
+        else:  # an empty line: its offset is that of the break ending it
+            first = offsets[line_start] if line_start < len(offsets) else (offsets[-1] + 1 if offsets else 0)
+            last = first
+        index = max(bisect.bisect_right(starts, first) - 1, 0)
+        span_start, span_end = physical[index] if physical else (0, 0)
+        whole = first <= span_start and not text[last:span_end].strip()
+        selection.append((converted[line_start:line_end].expandtabs(width).rstrip(), index, not whole))
+    return selection
 
 
 def variant_sites(
-    path: pathlib.Path, lines: Sequence[str], variant: Variant, *, sphinx_src: pathlib.Path | None = None
+    path: pathlib.Path, text: str, variant: Variant, *, sphinx_src: pathlib.Path | None = None
 ) -> tuple[LexicalInclude, ...]:
-    """Return the sites in *path*'s effective input *variant*, with their
-    lines and blocks mapped back to physical lines."""
-    effective = effective_lines(lines, variant)
-    if effective is None:
+    """Return the sites in *path*'s effective input *variant*, read from its
+    Docutils *text*, with their lines and blocks mapped to physical lines."""
+    selection = effective_input(text, variant)
+    if selection is None:
         return ()
-    selection, parsed = effective
     return tuple(
         dataclasses.replace(
             site,
@@ -331,7 +375,9 @@ def variant_sites(
             block_end=selection[site.block_end - 1][1] + 1,
             variant=variant,
         )
-        for site in lexical_includes(path, text="\n".join(parsed), sphinx_src=sphinx_src)
+        for site in lexical_includes(
+            path, text="\n".join(line for line, _index, _cut in selection), sphinx_src=sphinx_src
+        )
     )
 
 
@@ -452,7 +498,7 @@ class IncludeGraph:
         empty: Variant = ()
         queue = collections.deque((pathlib.Path(os.path.abspath(path)), empty) for path in population)
         seen: set[tuple[pathlib.Path, Variant]] = set()
-        texts: dict[pathlib.Path, list[str] | None] = {}
+        texts: dict[pathlib.Path, str | None] = {}
         sites: list[LexicalInclude] = []
         unreadable = list(unreadable)
         unresolved: list[LexicalInclude] = []
@@ -463,14 +509,14 @@ class IncludeGraph:
             seen.add((path, variant))
             if path not in texts:
                 try:
-                    texts[path] = path.read_text(encoding="utf-8").splitlines()
+                    texts[path] = docutils_text(path.read_bytes().decode("utf-8"))
                 except OSError, UnicodeDecodeError:
                     texts[path] = None
                     unreadable.append(path)
-            lines = texts[path]
-            if lines is None:
+            text = texts[path]
+            if text is None:
                 continue
-            for site in variant_sites(path, lines, variant, sphinx_src=sphinx_src):
+            for site in variant_sites(path, text, variant, sphinx_src=sphinx_src):
                 sites.append(site)
                 # The filesystem target is Docutils' reading only; Sphinx's
                 # names a file under a source directory nobody configured.

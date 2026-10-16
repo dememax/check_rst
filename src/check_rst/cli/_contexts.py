@@ -59,8 +59,8 @@ from ._includes import (
     LexicalInclude,
     Selection,
     Variant,
-    clip_selection,
-    effective_lines,
+    docutils_text,
+    effective_input,
     lexical_includes,
     tab_width,
 )
@@ -336,6 +336,7 @@ class Composer:
     def __init__(self, universe: IncludeUniverse) -> None:
         self.universe = universe
         self._lines: dict[pathlib.Path, list[str] | None] = {}
+        self._texts: dict[pathlib.Path, str | None] = {}
         self._verdicts: dict[tuple[pathlib.Path, tuple[str, ...]], dict[int, str]] = {}
 
     def structural_sites(self, path: pathlib.Path, lines: Sequence[str]) -> list[tuple[LexicalInclude, str]]:
@@ -360,11 +361,11 @@ class Composer:
     def variant_verdicts(self, path: pathlib.Path, variant: Variant) -> dict[int, str]:
         """Return the verdict of every structural site in *path*'s effective
         input *variant*, by physical line."""
-        lines = self.disk_lines(path)
-        effective = effective_lines(lines, variant) if lines is not None else None
-        if effective is None:
+        text = self.disk_text(path)
+        selection = effective_input(text, variant) if text is not None else None
+        if selection is None:
             return {}
-        selection, parsed = effective
+        parsed = [line for line, _index, _cut in selection]
         return {selection[site.line - 1][1] + 1: verdict for site, verdict in self.structural_sites(path, parsed)}
 
     def confirm_sites(self) -> None:
@@ -395,6 +396,16 @@ class Composer:
                 [site for site in graph.unresolved if kept(site)],
             )
 
+    def disk_text(self, path: pathlib.Path) -> str | None:
+        """Return *path*'s text as Docutils reads it, before string2lines."""
+        real = path.resolve()
+        if real not in self._texts:
+            try:
+                self._texts[real] = docutils_text(_read_source(path))
+            except OSError, UnicodeError:
+                self._texts[real] = None
+        return self._texts[real]
+
     def disk_lines(self, path: pathlib.Path) -> list[str] | None:
         real = path.resolve()
         if real not in self._lines:
@@ -413,18 +424,23 @@ class Composer:
         lines: list[str] = []
         origins: list[_Origin | None] = []
 
-        def text_of(path: pathlib.Path) -> list[str] | None:
-            return list(own_lines) if path.resolve() == own else self.disk_lines(path)
+        def text_of(path: pathlib.Path) -> str | None:
+            """The text Docutils reads; the planned file's own lines are
+            already as Phase 0 normalizes them, and fix writes them so."""
+            return "\n".join(own_lines) if path.resolve() == own else self.disk_text(path)
 
-        def expand(path: pathlib.Path, selection: Selection, stack: tuple[tuple[object, ...], ...], width: int) -> None:
+        def physical_of(path: pathlib.Path) -> Sequence[str]:
+            return own_lines if path.resolve() == own else (self.disk_lines(path) or [])
+
+        def expand(path: pathlib.Path, selection: Selection, stack: tuple[tuple[object, ...], ...]) -> None:
             real = path.resolve()
-            base = selection[0][1] if selection else 0
-            # The text Docutils parses: the selection, its tabs expanded as
-            # string2lines does, at the default width 8 too.  Phase 0 already
-            # did the rest of string2lines.  Sites are scanned in this text,
-            # so one a clip creates or makes valid is found (Codex's third
-            # P4 look); their lines are offsets into the selection.
-            parsed = [text.expandtabs(width) for text, _index, _cut in selection]
+            physical = physical_of(path)
+            # The lines Docutils parses, from effective_input: clipped,
+            # control whitespace converted, tabs expanded, as Docutils orders
+            # it.  Sites are scanned in them, so one a clip or a conversion
+            # creates is found (Codex's third and fourth P4 looks); their
+            # lines are offsets into the selection.
+            parsed = [line for line, _index, _cut in selection]
             sites = {
                 site.line - 1: (site, verdict)
                 for site, verdict in self.structural_sites(path, parsed)
@@ -435,8 +451,10 @@ class Composer:
                 text, index, cut = selection[offset]
                 found = sites.get(offset)
                 if found is None:
-                    lines.append(parsed[offset])
-                    origins.append(_Origin(real, index, cut, index - base + 1, "\t" in text))
+                    lines.append(text)
+                    # Docutils numbers an inserted text from its own first line.
+                    expanded = index < len(physical) and "\t" in physical[index]
+                    origins.append(_Origin(real, index, cut, offset + 1, expanded))
                     offset += 1
                     continue
                 relative, verdict = found
@@ -449,27 +467,22 @@ class Composer:
                 if target is None:
                     raise _UncomposableError(site, "its target cannot be read")
                 options = dict(site.options)
-                clipped = clip_selection(target, options)
+                if tab_width(site.target_variant) is None:
+                    raise _UncomposableError(site, "its :tab-width: is not a number")
+                clipped = effective_input(target, site.target_variant)
                 if clipped is None:
                     raise _UncomposableError(site, "its clipping options do not match its target")
-                inner_width = tab_width(site.target_variant)
-                if inner_width is None:
-                    raise _UncomposableError(site, "its :tab-width: is not a number")
                 identity = (site.canonical_target, *(options.get(name) for name in _CLIP_OPTIONS))
                 if identity in stack:
                     raise _UncomposableError(site, "it is part of an include cycle")
-                expand(site.target, clipped, (*stack, identity), inner_width)
+                expand(site.target, clipped, (*stack, identity))
                 lines.extend(["", f'.. end of inclusion from "{site.argument}"'])
                 origins.extend([None, None])
                 offset = relative.block_end
 
-        root_lines = text_of(root) or []
-        expand(
-            root,
-            [(text, index, False) for index, text in enumerate(root_lines)],
-            ((root.resolve(), None, None, None, None),),
-            8,  # Docutils' default tab_width setting, for the root document
-        )
+        # The root is read whole at Docutils' default tab_width setting, 8.
+        empty: Variant = ()
+        expand(root, effective_input(text_of(root) or "", empty) or [], ((root.resolve(), None, None, None, None),))
         return _Composition(root, tuple(lines), tuple(origins))
 
 
@@ -593,13 +606,11 @@ class ContextStage:
         section tree, title by title: the same source line becomes a section
         at the same depth.  A parse that fails proves nothing, so it refuses."""
         own_text = "\n".join(mapped) + "\n"
-        root_lines = mapped if root.resolve() == self.own else self.composer.disk_lines(root)
-        if root_lines is None:
+        root_text = own_text if root.resolve() == self.own else self.composer.disk_text(root)
+        if root_text is None:
             return False
         try:
-            parsed = _docutils_sections(
-                root, "\n".join(root_lines) + "\n", self.own, own_text, self.composer.universe.sphinx_src
-            )
+            parsed = _docutils_sections(root, root_text, self.own, own_text, self.composer.universe.sphinx_src)
         except Exception:  # any parser failure: the plan is unproven
             return False
         expected = _planned_sections(planned)
@@ -744,10 +755,9 @@ def full_mode_planning(
         site = f"{universe.shown(cycle.includer)}:{cycle.line}"
         return guard or IncludeGuard("uncomposable", site, "it is part of an include cycle"), None
     own_lines = composer.disk_lines(path)
-    own_includes = own_lines is not None and any(
-        verdict not in _NO_INCLUDE
-        for _site, verdict in composer.structural_sites(path, [line.expandtabs(8) for line in own_lines])
-    )
+    own_selection = effective_input("\n".join(own_lines), ()) if own_lines else None
+    own_parsed = [line for line, _index, _cut in own_selection or []]
+    own_includes = any(verdict not in _NO_INCLUDE for _site, verdict in composer.structural_sites(path, own_parsed))
     standalone = (
         (not graph.may_be_included(real) and real not in universe.declared)
         or real in universe.standalone
