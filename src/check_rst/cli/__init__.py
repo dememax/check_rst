@@ -1852,6 +1852,24 @@ def _json_check_requested(argv: list[str]) -> bool:
 _ROLE_COMMANDS = frozenset({"check", "fix", "diff", "outline", "context", "entitle"})
 
 
+def _discovery_sphinx_src(args: argparse.Namespace, loaded_config: LoadedConfig) -> pathlib.Path | None:
+    """Return the Sphinx source directory that include discovery uses (D9d).
+
+    fix --fast, diff --fast and entitle never run Sphinx, so a configured
+    sphinx-src is inactive for them.  It is still a fact about the project:
+    it says where a leading "/" include points, and it is searched as a
+    root.  Ignoring it would hide a Sphinx-rooted includer from the very
+    commands that refuse on one.
+    """
+    if args.sphinx_src is not None:
+        return pathlib.Path(args.sphinx_src)
+    configured = loaded_config.values.get("sphinx-src")
+    if configured is None:
+        return None
+    path = pathlib.Path(configured).expanduser()
+    return path if path.is_absolute() else (loaded_config.root / path).resolve()
+
+
 def _resolve_declared_roles(
     args: argparse.Namespace,
     loaded_config: LoadedConfig,
@@ -1878,7 +1896,7 @@ def _resolve_declared_roles(
     roots, _uncovered = _includes.discovery_roots(
         files,
         config_root=loaded_config.root if loaded_config.source else None,
-        sphinx_src=args.sphinx_src,
+        sphinx_src=_discovery_sphinx_src(args, loaded_config),
         cwd=cwd,
     )
     try:
@@ -1945,7 +1963,7 @@ def _fast_include_refusals(
         files,
         roles=args.declared_roles,
         config_root=loaded_config.root if loaded_config.source else None,
-        sphinx_src=args.sphinx_src,
+        sphinx_src=_discovery_sphinx_src(args, loaded_config),
         cwd=pathlib.Path.cwd(),
     )
     return {path: _include_refusal_text(guard, verb) for path, guard in guards.items()}
