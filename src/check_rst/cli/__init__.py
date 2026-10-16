@@ -2010,7 +2010,7 @@ def _full_include_planning(
         suffixes=facts.suffixes if facts is not None else (".rst",),
     )
     composer = _contexts.Composer(universe)
-    composer.refute_text_sites()
+    composer.confirm_sites()
     planning: dict[pathlib.Path, tuple[str | None, StructureStage | None]] = {}
     for path in files:
         guard, stage = _contexts.full_mode_planning(universe, composer, path, facts)
