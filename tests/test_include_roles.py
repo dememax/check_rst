@@ -311,3 +311,33 @@ def test_commands_without_a_title_model_accept_and_ignore_role_patterns(
 
     assert "matches no file" not in out
     assert "unrecognized arguments" not in out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("command", "echo"),
+    [
+        (["check"], "fragments=parts/*.rst"),
+        (["list-table"], "fragments=parts/*.rst inactive (list-table)"),
+    ],
+    ids=["applied", "inactive"],
+)
+def test_the_config_line_echoes_configured_role_patterns(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    command: list[str],
+    echo: str,
+) -> None:
+    """Applied configuration values are echoed (guide, "Applied values are
+    echoed"): a configured role is either applied by a title-model command or
+    shown as inactive for a command that ignores it."""
+    doc = _write(rst_repo / "doc.rst", "#####\nDoc\n#####\n")
+    _write(rst_repo / "parts" / "one.rst")
+    (rst_repo / ".check_rst.toml").write_text('fragments = ["parts/*.rst"]\n', encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _main(monkeypatch, capsys, *command, str(doc))
+
+    config_line = next(line for line in out.splitlines() if line.startswith("config: .check_rst.toml"))
+    assert echo in config_line
