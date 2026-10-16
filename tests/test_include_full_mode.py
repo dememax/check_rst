@@ -744,3 +744,24 @@ def test_a_confirmed_include_that_composes_exactly_is_a_context(
 
     assert "cannot compose" not in out
     assert paths["part"].read_text(encoding="utf-8") == _PART, out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("setting", "evidence"),
+    [("rst_prolog", "an rst_prolog"), ("rst_epilog", "an rst_epilog")],
+)
+def test_a_prolog_or_epilog_makes_include_contexts_unavailable(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], setting: str, evidence: str
+) -> None:
+    """Finding 3, K2: Sphinx adds the prolog or epilog to every document it
+    parses, where a title in it shifts the first-encounter ranking.  The
+    lexical composition and the bare-Docutils revalidation both prove a
+    document Sphinx never parses."""
+    part = _sphinx_project(rst_repo, conf=_CONF + f'{setting} = ".. |x| replace:: y\\n"\n')
+
+    code, out = _run_verified(rst_repo, monkeypatch, capsys, "fix", "docs/part.rst")
+
+    assert code == 1, out
+    assert f"this project's Sphinx configuration may transform ({evidence})" in out
+    assert part.read_text(encoding="utf-8") == _PART
