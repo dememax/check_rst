@@ -141,6 +141,13 @@ def _is_ignored(
     if repo is None or workdir is None or not _within(path, workdir) or path == workdir:
         return False
     relative = path.relative_to(workdir).as_posix()
+    try:
+        relative.encode("utf-8")
+    except UnicodeEncodeError:
+        # pygit2 asks libgit2 only about a UTF-8-encodable path.  A
+        # surrogate-escaped name cannot be proven ignored, so it is scanned:
+        # an extra possible include site can only add a refusal.
+        return False
     return bool(repo.path_is_ignored(relative) or (directory and repo.path_is_ignored(relative + "/")))
 
 
