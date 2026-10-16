@@ -24,6 +24,7 @@ import os
 from typing import TYPE_CHECKING
 
 import pytest
+from _support import _locked
 
 from check_rst import cli
 from check_rst.cli import _config, _helpers
@@ -205,6 +206,38 @@ def test_an_absolute_command_line_pattern_inside_the_roots_is_accepted(roles: ty
     declared = _resolve(roles, root, ("fragments", str(root / "parts" / "*.rst"), "--fragment", root))
 
     assert declared.fragments == frozenset({part})
+
+
+@pytest.mark.integration
+def test_a_pattern_that_may_match_inside_an_unreadable_directory_fails(roles: types.ModuleType, tmp_path: Path) -> None:
+    """A partial match set would silently drop part of a declaration's
+    protection, so it fails like an unmatched pattern."""
+    root = tmp_path.resolve()
+    _write(root / "docs" / "a.rst")
+    _write(root / "private" / "b.rst")
+
+    with (
+        _locked(root / "private"),
+        pytest.raises(
+            roles.RolePatternError,
+            match=r"fragments pattern '\*\*/\*\.rst' may match a file in .*private, which cannot be read",
+        ),
+    ):
+        _resolve(roles, root, ("fragments", "**/*.rst", "--fragment", root))
+
+
+@pytest.mark.integration
+def test_an_unreadable_directory_that_a_pattern_cannot_reach_is_harmless(
+    roles: types.ModuleType, tmp_path: Path
+) -> None:
+    root = tmp_path.resolve()
+    doc = _write(root / "docs" / "a.rst")
+    _write(root / "private" / "b.rst")
+
+    with _locked(root / "private"):
+        resolved = _resolve(roles, root, ("fragments", "docs/*.rst", "--fragment", root))
+
+    assert resolved.fragments == {doc}
 
 
 @pytest.mark.integration

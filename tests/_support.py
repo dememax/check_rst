@@ -16,14 +16,20 @@ same way for every split file, with no tests/__init__.py needed)."""
 
 from __future__ import annotations
 
+import contextlib
+import os
+import stat
 import subprocess
 import textwrap
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+import pytest
+
 from check_rst.cli import _sphinx
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
     import sphinx.environment
@@ -37,6 +43,25 @@ def _rst(tmp_path: Path, content: str) -> Path:
     p = tmp_path / "test.rst"
     p.write_text(textwrap.dedent(content), encoding="utf-8")
     return p
+
+
+@contextlib.contextmanager
+def _locked(directory: Path, mode: int = 0) -> Iterator[None]:
+    """Withhold search permission on *directory*, and read permission too
+    unless *mode* grants it, for the block's duration.
+
+    Skips where permissions bind no one, as for root: such a test would
+    prove nothing.  The original mode is always restored, so tmp_path
+    cleanup can remove the tree.
+    """
+    original = stat.S_IMODE(directory.stat().st_mode)
+    directory.chmod(mode)
+    try:
+        if os.access(directory, os.X_OK):
+            pytest.skip("directory permissions are not enforced for this user")
+        yield
+    finally:
+        directory.chmod(original)
 
 
 def _git(repo: Path, *args: str) -> None:

@@ -21,6 +21,7 @@ import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
+from _support import _locked
 
 from check_rst import cli
 
@@ -160,6 +161,29 @@ def test_an_unreadable_population_file_refuses_style_changes(
         "out that it includes this file — make it readable or ignore it"
     ) in out
     assert doc.read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_a_directory_that_cannot_be_listed_refuses_style_changes(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Codex's reproduction: the includer in private/ vanished from the scan,
+    and diff --fast proposed remapping part.rst's "="."""
+    (rst_repo / "private").mkdir()
+    (rst_repo / "private" / "main.rst").write_text(".. include:: ../part.rst\n", encoding="utf-8")
+    part = rst_repo / "part.rst"
+    part.write_text(_PART, encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    with _locked(rst_repo / "private"):
+        code, out = _run(monkeypatch, capsys, "fix", "--fast", "part.rst")
+
+    assert code == 1, out
+    assert (
+        "fix refused — the include graph is incomplete: private cannot be read, so check_rst cannot rule out "
+        "that it includes this file — make it readable or ignore it"
+    ) in out
+    assert part.read_text(encoding="utf-8") == _PART
 
 
 @pytest.mark.integration

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 import docutils.core
 import docutils.nodes
 import pytest
+from _support import _locked
 
 if TYPE_CHECKING:
     import types
@@ -138,6 +139,55 @@ def test_the_scan_population_adds_configured_source_suffixes(inc: types.ModuleTy
     population = inc.scan_population((tmp_path.resolve(),), suffixes=(".rst", ".txt"))
 
     assert population == (rst.resolve(), txt.resolve())
+
+
+# ---------------------------------------------------------------------------
+# An incomplete scan (Codex's P3 checkpoint)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_a_directory_that_cannot_be_listed_makes_the_graph_incomplete(inc: types.ModuleType, tmp_path: Path) -> None:
+    """os.walk silently skips a directory it cannot list: the includer inside
+    vanished, and its fragment looked unincluded."""
+    root = tmp_path.resolve()
+    _write(root / "private" / "main.rst", ".. include:: ../part.rst\n")
+    part = _write(root / "part.rst", "Text.\n")
+
+    with _locked(root / "private"):
+        graph = inc.IncludeGraph.scan((root,))
+
+    assert graph.unreadable == (root / "private",)
+    assert not graph.may_be_included(part), "the incompleteness, not a site, is what guards part.rst"
+
+
+@pytest.mark.integration
+def test_a_file_in_a_directory_that_cannot_be_searched_is_unreadable(inc: types.ModuleType, tmp_path: Path) -> None:
+    """Listing needs read permission and reaching an entry needs search
+    permission: the names are visible, the files are not."""
+    root = tmp_path.resolve()
+    _write(root / "private" / "main.rst", ".. include:: ../part.rst\n")
+    _write(root / "part.rst", "Text.\n")
+
+    with _locked(root / "private", 0o444):
+        graph = inc.IncludeGraph.scan((root,))
+
+    assert graph.unreadable == (root / "private" / "main.rst",)
+
+
+@pytest.mark.integration
+def test_an_ignored_directory_that_cannot_be_listed_is_never_entered(inc: types.ModuleType, tmp_git_repo: Path) -> None:
+    """The scan prunes an ignored directory before listing it, so a build
+    tree owned by another user does not make every graph incomplete."""
+    root = tmp_git_repo.resolve()
+    _write(root / ".gitignore", "build/\n")
+    _write(root / "build" / "out.rst", "Text.\n")
+    _write(root / "doc.rst", "Text.\n")
+
+    with _locked(root / "build"):
+        graph = inc.IncludeGraph.scan((root,))
+
+    assert graph.unreadable == ()
 
 
 # ---------------------------------------------------------------------------
