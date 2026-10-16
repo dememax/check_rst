@@ -416,6 +416,12 @@ class IncludeGraph:
             current = queue.popleft()
             for site in self._by_target.get(current, ()):
                 includer = site.canonical_includer
+                # A root is recorded per lexical path, before the canonical
+                # walk below skips an includer it already expanded: two
+                # aliases of one root are two contexts.
+                is_root = not self._by_target.get(includer) or includer in standalone
+                if is_root and site.includer not in roots:
+                    roots.append(site.includer)
                 if includer in visited:
                     if self._reaches(includer, current):
                         # Name the file's own inclusion when it is on the
@@ -431,9 +437,6 @@ class IncludeGraph:
                         return (), own
                     continue
                 visited.add(includer)
-                is_root = not self._by_target.get(includer) or includer in standalone
-                if is_root and site.includer not in roots:
-                    roots.append(site.includer)
                 if self._by_target.get(includer):
                     queue.append(includer)
         return tuple(roots), None

@@ -692,11 +692,14 @@ def full_mode_planning(
     available: list[tuple[pathlib.Path, str]] = []
     for root, label in candidates:
         try:
-            composer.compose(root, real, own_lines or [])
+            composition = composer.compose(root, real, own_lines or [])
         except _UncomposableError as error:
             if guard is None:
                 site = f"{universe.shown(error.site.includer)}:{error.site.line}"
                 guard = IncludeGuard("uncomposable", site, error.reason)
             continue
-        available.append((root, label))
+        # A lexical root whose own path never reaches the file, through a
+        # clip or an alias, is no context of it.
+        if any(origin is not None and origin.path == real for origin in composition.origins):
+            available.append((root, label))
     return guard, (ContextStage(composer, path, available) if available else None)
