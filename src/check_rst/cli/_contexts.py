@@ -78,12 +78,15 @@ class _Origin:
 
     *reported* is the 1-based line Docutils gives it: Docutils numbers an
     inserted text from its own first line, so a clip shifts the number.
+    *expanded* marks a line whose tabs Docutils expands, so its composed
+    text is not its physical text and no edit may be written back to it.
     """
 
     path: pathlib.Path
     index: int
     partial: bool = False
     reported: int = 0
+    expanded: bool = False
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -432,7 +435,9 @@ class Composer:
         def text_of(path: pathlib.Path) -> list[str] | None:
             return list(own_lines) if path.resolve() == own else self.disk_lines(path)
 
-        def expand(path: pathlib.Path, selection: _Selection, stack: tuple[tuple[object, ...], ...]) -> None:
+        def expand(
+            path: pathlib.Path, selection: _Selection, stack: tuple[tuple[object, ...], ...], tab_width: int
+        ) -> None:
             real = path.resolve()
             base = selection[0][1] if selection else 0
             full = text_of(path) or []
@@ -447,8 +452,10 @@ class Composer:
                 text, index, cut = selection[offset]
                 found = sites.get(index)
                 if found is None or cut:
-                    lines.append(text)
-                    origins.append(_Origin(real, index, cut, index - base + 1))
+                    # Docutils' string2lines expands tabs, at the default
+                    # width 8 too; Phase 0 already did the rest of it.
+                    lines.append(text.expandtabs(tab_width))
+                    origins.append(_Origin(real, index, cut, index - base + 1, "\t" in text))
                     offset += 1
                     continue
                 site, verdict = found
@@ -465,14 +472,14 @@ class Composer:
                 clipped = _clip(target, options)
                 if clipped is None:
                     raise _UncomposableError(site, "its clipping options do not match its target")
-                # Docutils expands the inserted text's tabs to this width; the
-                # composition keeps them, exact only at the default width.
-                if options.get("tab-width", "8").strip() != "8" and any("\t" in line for line, _i, _c in clipped):
-                    raise _UncomposableError(site, "it sets :tab-width: for a target with tabs")
+                try:
+                    width = int(options.get("tab-width", "8"))
+                except ValueError:
+                    raise _UncomposableError(site, "its :tab-width: is not a number") from None
                 identity = (site.canonical_target, *(options.get(name) for name in _CLIP_OPTIONS))
                 if identity in stack:
                     raise _UncomposableError(site, "it is part of an include cycle")
-                expand(site.target, clipped, (*stack, identity))
+                expand(site.target, clipped, (*stack, identity), width)
                 lines.extend(["", f'.. end of inclusion from "{site.argument}"'])
                 origins.extend([None, None])
                 offset = position[site.block_end - 1] + 1
@@ -482,6 +489,7 @@ class Composer:
             root,
             [(text, index, False) for index, text in enumerate(root_lines)],
             ((root.resolve(), None, None, None, None),),
+            8,  # Docutils' default tab_width setting, for the root document
         )
         return _Composition(root, tuple(lines), tuple(origins))
 
@@ -662,11 +670,14 @@ class ContextStage:
                 continue
             touched = list(range(old_start, old_end)) if old_start < old_end else [min(old_start, count - 1)]
             origins = [composition.origins[position] for position in touched]
+            # A pure insertion keeps its anchor line, so only its position
+            # matters: an expanded anchor is fine, a clip-cut one is not.
+            rewrites = old_start < old_end
             stray = next(
                 (
                     position
                     for position, origin in zip(touched, origins, strict=True)
-                    if origin is None or origin.partial or origin.path != self.own
+                    if origin is None or origin.partial or (rewrites and origin.expanded) or origin.path != self.own
                 ),
                 None,
             )
