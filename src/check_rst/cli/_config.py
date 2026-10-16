@@ -14,16 +14,26 @@ from ._helpers import CALL_COUNTS
 if TYPE_CHECKING:
     import pathlib
 
-_CONFIG_KEYS = frozenset({"sphinx-src", "build-dir"})
+_STRING_KEYS = frozenset({"sphinx-src", "build-dir"})
+# CR-43 (D9a): include roles, each an array of glob patterns relative to the
+# configuration file.  A pattern that matches nothing, or reaches outside the
+# discovery roots, fails once the roots are known (_includes.resolve_roles).
+_ROLE_KEYS = frozenset({"standalone", "fragments"})
+_CONFIG_KEYS = _STRING_KEYS | _ROLE_KEYS
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class LoadedConfig:
-    """A validated config together with the directory its paths use."""
+    """A validated config together with the directory its paths use.
+
+    ``values`` holds the string settings and ``roles`` the declared include
+    role patterns, kept apart so that no string consumer meets a list.
+    """
 
     source: str
     root: pathlib.Path
     values: dict[str, str]
+    roles: dict[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
 
 
 def _config_error(source: str, message: str, *, explicit: bool = True) -> NoReturn:
@@ -37,8 +47,9 @@ def _config_table(
     source: str,
     *,
     explicit: bool,
-) -> dict[str, str] | None:
-    """Read and validate one supported TOML config file."""
+) -> tuple[dict[str, str], dict[str, tuple[str, ...]]] | None:
+    """Read and validate one supported TOML config file into its string
+    settings and its role patterns."""
     try:
         with path.open("rb") as fh:
             data = tomllib.load(fh)
@@ -57,7 +68,7 @@ def _config_table(
         # empty/comment-only file means "no Sphinx facts" and, critically,
         # stops discovery before a pyproject.toml can silently enable verified
         # mode and execute conf.py.
-        return {}
+        return {}, {}
     if not table:
         if explicit:
             _config_error(source, "does not declare check_rst settings", explicit=True)
@@ -77,11 +88,28 @@ def _config_table(
             f"{', '.join(sorted(_CONFIG_KEYS))}"
         )
         raise SystemExit(1)
+    values: dict[str, str] = {}
+    roles: dict[str, tuple[str, ...]] = {}
     for key, value in table.items():
+        if key in _ROLE_KEYS:
+            if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+                print(f"check_rst: {source}: {key} must be an array of pattern strings")
+                raise SystemExit(1)
+            for item in value:
+                if item.startswith("/") or item.startswith("~"):
+                    print(
+                        f"check_rst: {source}: {key} pattern {item!r} is absolute — "
+                        "configuration patterns are relative to the configuration file, "
+                        "so a committed configuration stays portable"
+                    )
+                    raise SystemExit(1)
+            roles[key] = tuple(value)
+            continue
         if not isinstance(value, str):
             print(f"check_rst: {source}: {key} must be a string, got {type(value).__name__}")
             raise SystemExit(1)
-    return table
+        values[key] = value
+    return values, roles
 
 
 def _load_config(explicit_path: pathlib.Path | None = None) -> LoadedConfig:
@@ -105,7 +133,7 @@ def _load_config(explicit_path: pathlib.Path | None = None) -> LoadedConfig:
             _config_error(source, "not a regular file")
         table = _config_table(path, source, explicit=True)
         assert table is not None
-        return LoadedConfig(source, path.parent, table)
+        return LoadedConfig(source, path.parent, *table)
 
     for name in (".check_rst.toml", "pyproject.toml"):
         path = _helpers.PROJECT_ROOT / name
@@ -114,5 +142,5 @@ def _load_config(explicit_path: pathlib.Path | None = None) -> LoadedConfig:
         table = _config_table(path, name, explicit=False)
         if table is None:
             continue
-        return LoadedConfig(name, _helpers.PROJECT_ROOT.resolve(), table)
+        return LoadedConfig(name, _helpers.PROJECT_ROOT.resolve(), *table)
     return LoadedConfig("", _helpers.PROJECT_ROOT.resolve(), {})

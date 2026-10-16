@@ -48,7 +48,8 @@ def _write(path: Path, text: str = "Text.\n") -> Path:
 
 def _resolve(roles: types.ModuleType, root: Path, *patterns: tuple[str, str, str, Path]) -> DeclaredRoles:
     declared = [roles.RolePattern(role, pattern, source, base) for role, pattern, source, base in patterns]
-    return roles.resolve_roles(declared, (root.resolve(),))
+    resolved: DeclaredRoles = roles.resolve_roles(declared, (root.resolve(),))
+    return resolved
 
 
 # ---------------------------------------------------------------------------

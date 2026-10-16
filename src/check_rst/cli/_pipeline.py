@@ -999,6 +999,7 @@ def _emit_json_result(
             for f in rec.get("findings", [])
             if not args.no_warnings or f.severity != Severity.WARNING
         ]
+    role_record = getattr(args, "role_record", None)
     data: dict[str, Any] = {
         "schema_version": _JSON_SCHEMA_VERSION,
         "mode": "verified" if args.sphinx_src is not None else "heuristic",
@@ -1006,13 +1007,17 @@ def _emit_json_result(
         "runtime": runtime_metadata,
         # The config-visibility honesty condition holds in JSON too:
         # when a per-repo config supplied values, say which and what.
+        # CR-43 (D9a): declared include roles appear here too, with each
+        # pattern's source and matches; command-line roles alone give a
+        # config object whose source is null.
         "config": (
             {
-                "source": config_source,
+                "source": config_source or None,
                 "applied": config_applied,
                 "inactive": config_inactive,
+                "roles": role_record or {"standalone": [], "fragments": []},
             }
-            if config_source
+            if config_source or role_record
             else None
         ),
         "files": [state.json_records[f] for f in files if f in state.json_records],

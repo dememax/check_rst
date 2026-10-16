@@ -10,6 +10,7 @@ import contextlib
 import difflib
 import io
 import json
+import os
 import pathlib
 import shutil
 import sys
@@ -18,7 +19,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from check_rst import DOCUMENTATION_URL, __copyright__, __license__, __version__
 
-from . import _comparison, _formatting, _helpers, _output
+from . import _comparison, _formatting, _helpers, _includes, _output
 from ._config import LoadedConfig, _load_config
 from ._formatting import _plan_fix, diff_entitle, fix_entitle, render_plan_diff
 from ._helpers import (
@@ -412,7 +413,7 @@ def _add_project_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--no-config",
         action="store_true",
-        help="skip config discovery entirely, CLI-only defaults; incompatible with --config",
+        help="skip config discovery; incompatible with --config",
     )
     parser.add_argument(
         "--sphinx-src",
@@ -430,6 +431,22 @@ def _add_project_flags(parser: argparse.ArgumentParser) -> None:
         default=None,
         metavar="DIR",
         help="Sphinx output directory; a temp dir is used and removed if omitted. Requires --sphinx-src",
+    )
+    # CR-43 (D9a): include roles, repeatable, added to the configured ones.
+    # check_rst expands each pattern itself, so a command-line glob is quoted.
+    parser.add_argument(
+        "--standalone",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="matching files are also standalone (repeatable)",
+    )
+    parser.add_argument(
+        "--fragment",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="matching files have an unseen includer (repeatable)",
     )
 
 
@@ -1702,6 +1719,9 @@ def _main() -> None:
         _run_targets(args, runtime_metadata)
 
     files, whole_file = _discover_and_validate_files(args, project_root)
+    args.declared_roles, args.role_record = (
+        _resolve_declared_roles(args, loaded_config, files) if args.command in _ROLE_COMMANDS else (None, None)
+    )
 
     if args.command == "list-table":
         _run_list_table(files, only=args.only, skip=args.skip, apply=args.apply, quiet=args.quiet)
@@ -1786,6 +1806,59 @@ def _json_check_requested(argv: list[str]) -> bool:
     return "--format=json" in tail or any(
         token == "--format" and index + 1 < len(tail) and tail[index + 1] == "json" for index, token in enumerate(tail)
     )
+
+
+# Commands that build a title model honour the include roles (D9a); every
+# other command accepts and ignores them, like --build-dir.  entitle joins in
+# CR-43's fast-refusal pair (D9c).
+_ROLE_COMMANDS = frozenset({"check", "fix", "diff", "outline", "context"})
+
+
+def _resolve_declared_roles(
+    args: argparse.Namespace,
+    loaded_config: LoadedConfig,
+    files: list[pathlib.Path],
+) -> tuple[_includes.DeclaredRoles | None, dict[str, list[dict[str, Any]]] | None]:
+    """Match the configured and command-line role patterns, or exit 1.
+
+    Configured patterns come first and start from the configuration file's
+    directory; command-line ones add to them and start from the working
+    directory.  --no-config has already dropped the configured ones.
+    """
+    cwd = pathlib.Path.cwd()
+    declared: list[_includes.RolePattern] = []
+    if loaded_config.source:
+        for role in ("standalone", "fragments"):
+            declared.extend(
+                _includes.RolePattern(role, pattern, loaded_config.source, loaded_config.root)
+                for pattern in loaded_config.roles.get(role, ())
+            )
+    declared.extend(_includes.RolePattern("standalone", pattern, "--standalone", cwd) for pattern in args.standalone)
+    declared.extend(_includes.RolePattern("fragments", pattern, "--fragment", cwd) for pattern in args.fragment)
+    if not declared:
+        return None, None
+    roots, _uncovered = _includes.discovery_roots(
+        files,
+        config_root=loaded_config.root if loaded_config.source else None,
+        sphinx_src=args.sphinx_src,
+        cwd=cwd,
+    )
+    try:
+        roles = _includes.resolve_roles(declared, roots)
+    except _includes.RolePatternError as exc:
+        print(f"check_rst: {exc.declared.source}: {exc}")
+        sys.exit(1)
+
+    def shown(path: pathlib.Path) -> str:
+        absolute = pathlib.Path(os.path.abspath(path))
+        return absolute.relative_to(cwd).as_posix() if absolute.is_relative_to(cwd) else absolute.as_posix()
+
+    record: dict[str, list[dict[str, Any]]] = {"standalone": [], "fragments": []}
+    for item, matched in roles.matches:
+        record[item.role].append(
+            {"pattern": item.pattern, "source": item.source, "matches": [shown(path) for path in matched]}
+        )
+    return roles, record
 
 
 def _json_failure_document(message: str, exit_code: int) -> dict[str, Any]:

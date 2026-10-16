@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import fnmatch
 import os
 import pathlib
 import re
@@ -307,3 +308,146 @@ class IncludeGraph:
 
     def may_be_included(self, path: pathlib.Path) -> bool:
         return bool(self._by_target.get(path.resolve()))
+
+
+# ---------------------------------------------------------------------------
+# Declared include roles (D9a)
+# ---------------------------------------------------------------------------
+
+_GLOB_CHARS = re.compile(r"[*?\[]")
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class RolePattern:
+    """One declared role pattern and where it came from.
+
+    ``role`` is ``"standalone"`` or ``"fragments"``; ``source`` names the
+    configuration file or the command-line option; ``base`` is the directory a
+    relative pattern starts from: the configuration file's directory, or the
+    working directory for a command-line pattern.
+    """
+
+    role: str
+    pattern: str
+    source: str
+    base: pathlib.Path
+
+
+class RolePatternError(Exception):
+    """A declared role pattern that cannot be honoured; the message names it."""
+
+    def __init__(self, declared: RolePattern, problem: str) -> None:
+        super().__init__(f"{declared.role} pattern {declared.pattern!r} {problem}")
+        self.declared = declared
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class DeclaredRoles:
+    """Canonical role membership plus each pattern's lexical matches."""
+
+    standalone: frozenset[pathlib.Path]
+    fragments: frozenset[pathlib.Path]
+    matches: tuple[tuple[RolePattern, tuple[pathlib.Path, ...]], ...]
+
+
+def _role_domain(roots: Sequence[pathlib.Path]) -> tuple[pathlib.Path, ...]:
+    """Return the role-pattern domain: every file under the roots, lexically.
+
+    Unlike the automatic scan population it includes Git-ignored files, so an
+    explicit declaration can protect an ignored or generated fragment.  It
+    still never enters Git metadata or descends through a directory symlink.
+    """
+    found: set[pathlib.Path] = set()
+    for root in roots:
+        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+            current = pathlib.Path(dirpath)
+            dirnames[:] = sorted(
+                name for name in dirnames if name != _GIT_METADATA and not (current / name).is_symlink()
+            )
+            for name in filenames:
+                candidate = current / name
+                if name != _GIT_METADATA and (candidate.is_symlink() or candidate.is_file()):
+                    found.add(candidate)
+    return tuple(sorted(found))
+
+
+def _component_matches(name: str, pattern: str) -> bool:
+    """Match one path component; a hidden name needs an explicit leading dot."""
+    if name.startswith(".") and not pattern.startswith("."):
+        return False
+    return fnmatch.fnmatchcase(name, pattern)
+
+
+def _parts_match(names: Sequence[str], patterns: Sequence[str]) -> bool:
+    """Match path components against pattern components.
+
+    ``**`` as a whole component matches zero or more *directory* components,
+    never a hidden one and never the final file name, so a pattern that names
+    only directories matches no file.
+    """
+    if not patterns:
+        return not names
+    head, rest = patterns[0], patterns[1:]
+    if head == "**":
+        for skip in range(len(names)):
+            if skip > 0 and names[skip - 1].startswith("."):
+                return False
+            if _parts_match(names[skip:], rest):
+                return True
+        return False
+    return bool(names) and _component_matches(names[0], head) and _parts_match(names[1:], rest)
+
+
+def _absolute_pattern(declared: RolePattern) -> tuple[pathlib.Path, tuple[str, ...]]:
+    """Return the pattern's resolved literal prefix and its glob components."""
+    raw = declared.pattern
+    joined = raw if os.path.isabs(raw) else os.path.join(str(declared.base), raw)
+    parts = pathlib.PurePosixPath(os.path.normpath(joined)).parts
+    literal = next((index for index, part in enumerate(parts) if _GLOB_CHARS.search(part)), len(parts))
+    prefix = pathlib.Path(*parts[:literal])
+    # Resolve the literal directories only.  A literal final file name stays
+    # lexical, so a symlinked file is judged by where it resolves, not by
+    # silently becoming its target.
+    prefix = prefix.parent.resolve() / prefix.name if literal == len(parts) else prefix.resolve()
+    return prefix, tuple(parts[literal:])
+
+
+def resolve_roles(declared: Sequence[RolePattern], roots: Sequence[pathlib.Path]) -> DeclaredRoles:
+    """Match every declared pattern over the role-pattern domain.
+
+    Raises RolePatternError for a pattern whose literal part lies outside every
+    root, one that matches a symlink resolving outside the roots, and one that
+    matches no regular file: a typo must never silently disable a declaration
+    that protects a document's structure.
+    """
+    canonical_roots = tuple(root.resolve() for root in roots)
+    domain = _role_domain(canonical_roots)
+    shown_roots = ", ".join(str(root) for root in canonical_roots) or "none"
+    members: dict[str, set[pathlib.Path]] = {"standalone": set(), "fragments": set()}
+    matches: list[tuple[RolePattern, tuple[pathlib.Path, ...]]] = []
+    for item in declared:
+        prefix, globs = _absolute_pattern(item)
+        if not any(_within(prefix, root) or _within(root, prefix) for root in canonical_roots):
+            raise RolePatternError(item, f"is outside the discovery roots: {shown_roots}")
+        pattern_parts = (*prefix.parts, *globs)
+        matched: list[pathlib.Path] = []
+        for candidate in domain:
+            if not _parts_match(candidate.parts, pattern_parts):
+                continue
+            real = candidate.resolve()
+            if not real.is_file():
+                continue
+            if not any(_within(real, root) for root in canonical_roots):
+                raise RolePatternError(
+                    item, f"matches {candidate}, a symlink that resolves outside the discovery roots"
+                )
+            matched.append(candidate)
+            members[item.role].add(real)
+        if not matched:
+            raise RolePatternError(item, f"matches no file under the discovery roots: {shown_roots}")
+        matches.append((item, tuple(matched)))
+    return DeclaredRoles(
+        standalone=frozenset(members["standalone"]),
+        fragments=frozenset(members["fragments"]),
+        matches=tuple(matches),
+    )
