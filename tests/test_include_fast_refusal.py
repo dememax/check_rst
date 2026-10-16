@@ -195,6 +195,35 @@ def test_a_file_nothing_includes_is_fixed_as_before(
     assert doc.read_text(encoding="utf-8") == "########\nShared\n########\n\nBody.\n"
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "argv",
+    [("fix", "--fast", "docs/part.rst"), ("entitle", "Book", "docs/part.rst", "--apply")],
+    ids=["fix", "entitle"],
+)
+def test_a_configured_sphinx_source_locates_a_rooted_include_in_fast_mode(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], argv: tuple[str, ...]
+) -> None:
+    """Fast mode and entitle never run Sphinx, so the configured sphinx-src
+    is inactive for them.  It still says where a leading "/" include points:
+    ignoring it hid this includer, and fix --fast remapped part.rst's "="."""
+    (rst_repo / ".check_rst.toml").write_text('sphinx-src = "docs"\n', encoding="utf-8")
+    (rst_repo / "docs" / "sub").mkdir(parents=True)
+    (rst_repo / "docs" / "conf.py").write_text('project = "p"\n', encoding="utf-8")
+    (rst_repo / "docs" / "sub" / "index.rst").write_text(
+        "######\nMain\n######\n\n*****\nSub\n*****\n\n.. include:: /part.rst\n", encoding="utf-8"
+    )
+    part = rst_repo / "docs" / "part.rst"
+    part.write_text(_PART, encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, *argv, no_config=False)
+
+    assert code == 1, out
+    assert "this file may be included by docs/sub/index.rst:9, so its title levels depend on that document" in out
+    assert part.read_text(encoding="utf-8") == _PART
+
+
 # ---------------------------------------------------------------------------
 # The includer side (Q1)
 # ---------------------------------------------------------------------------
