@@ -706,24 +706,42 @@ def test_an_include_docutils_rejects_includes_nothing(
 
 
 @pytest.mark.integration
-def test_a_tab_width_that_changes_the_included_text_is_unavailable(
-    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("options", "width"),
+    [("", 11), ("\n   :tab-width: 8", 11), ("\n   :tab-width: 4", 7)],
+    ids=["default-width", "explicit-8", "width-4"],
+)
+def test_composition_expands_tabs_as_docutils_does(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], options: str, width: int
 ) -> None:
-    """Docutils expands the target's tabs to the given width; the lexical
-    composer does not, so its composition is not the document Docutils
-    reads."""
-    include = ".. include:: part.rst\n   :tab-width: 4\n"
-    paths = _files(rst_repo, main="######\nMain\n######\n\n" + include, part=_PART + "\n\tTabbed.\n")
+    """Codex's second P4 look: Docutils expands an inserted text's tabs, at
+    the default width 8 too, so "A<TAB>B" is nine columns wide and needs an
+    11-character adornment.  The composition kept the raw tab and planned 5.
+    The title line itself keeps its tab: only the adornments change."""
+    paths = _files(
+        rst_repo, main=f"######\nMain\n######\n\n.. include:: part.rst{options}\n", part="A\tB\n---------\n\nBody.\n"
+    )
     monkeypatch.chdir(rst_repo)
 
-    code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+    _code, out = _run(monkeypatch, capsys, "fix", "part.rst")
 
-    assert code == 1, out
-    assert (
-        "its title levels depend on the include at main.rst:5, which check_rst cannot compose (it sets "
-        ":tab-width: for a target with tabs)"
-    ) in out
-    assert paths["part"].read_text(encoding="utf-8") == _PART + "\n\tTabbed.\n"
+    adornment = "*" * width
+    assert paths["part"].read_text(encoding="utf-8") == f"{adornment}\nA\tB\n{adornment}\n\nBody.\n", out
+
+
+@pytest.mark.integration
+def test_composition_expands_the_root_documents_tabs_too(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Docutils expands the including document's own lines at width 8, so
+    the includer side composes them expanded as well."""
+    paths = _files(rst_repo, main="A\tB\n####\n\n.. include:: contact.rst\n", contact="Jane Doe\nphone: 0100\n")
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "fix", "main.rst")
+
+    adornment = "#" * 11
+    assert paths["main"].read_text(encoding="utf-8").startswith(f"{adornment}\nA\tB\n{adornment}\n"), out
 
 
 @pytest.mark.integration
