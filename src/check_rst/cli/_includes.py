@@ -525,10 +525,10 @@ class IncludeGraph:
                 sites.append(site)
                 # The filesystem target is Docutils' reading only; Sphinx's
                 # names a file under a source directory nobody configured.
-                is_unresolved = site.structural and sphinx_src is None and site.argument.startswith("/")
-                if is_unresolved and all(
-                    (other.includer, other.line) != (site.includer, site.line) for other in unresolved
-                ):
+                # Every site is kept, each with its own (variant, parsed line)
+                # identity: confirmation later removes rejected ones, so
+                # merging two would let one rejection remove both.
+                if site.structural and sphinx_src is None and site.argument.startswith("/"):
                     unresolved.append(site)
                 # Follow the lexical target in the variant its include reads:
                 # its own includes resolve from the path Docutils opens it by.
@@ -874,11 +874,11 @@ class IncludeUniverse:
             return IncludeGuard("unreadable", ", ".join(self.shown(item) for item in unreadable))
         if unresolved := [site for site in self.graph.unresolved if site.canonical_includer != real]:
             # As for a read failure, a file's own site cannot hide its includer.
-            first = unresolved[0]
-            more = f" (and {len(unresolved) - 1} more)" if len(unresolved) > 1 else ""
-            return IncludeGuard(
-                "unresolved", f"{self.shown(first.includer)}:{first.line} includes {first.argument!r}{more}"
-            )
+            # One physical site found in several variants is shown once.
+            shown = list(dict.fromkeys((site.includer, site.line, site.argument) for site in unresolved))
+            includer, line, argument = shown[0]
+            more = f" (and {len(shown) - 1} more)" if len(shown) > 1 else ""
+            return IncludeGuard("unresolved", f"{self.shown(includer)}:{line} includes {argument!r}{more}")
         return None
 
     def fast_guard(self, path: pathlib.Path) -> IncludeGuard | None:
