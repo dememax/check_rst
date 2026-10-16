@@ -332,3 +332,24 @@ def test_a_symlinked_includer_resolves_its_includes_from_its_lexical_path(
     assert [s.target for s in sites] == [root / "alias" / "child.rst"]
     assert [s.includer for s in graph.includers(root / "alias" / "child.rst")] == [root / "alias" / "source.rst"]
     assert [s.includer for s in graph.includers(root / "real" / "child.rst")] == [root / "real" / "source.rst"]
+
+
+@pytest.mark.integration
+def test_a_non_utf8_file_name_is_scanned_rather_than_crashing_the_scan(
+    inc: types.ModuleType, tmp_git_repo: Path
+) -> None:
+    """pygit2 can ask libgit2 about ignoredness only for a UTF-8-encodable
+    path.  A surrogate-escaped file name cannot be proven ignored, so the
+    conservative choice is to scan it, never to crash or to skip it."""
+    root = tmp_git_repo.resolve()
+    raw = os.fsencode(root) + b"/odd_\xff.rst"
+    descriptor = os.open(raw, os.O_WRONLY | os.O_CREAT, 0o600)
+    os.write(descriptor, b".. include:: part.rst\n")
+    os.close(descriptor)
+    _write(root / "part.rst", "Part\n====\n")
+
+    population = inc.scan_population((root,))
+    graph = inc.IncludeGraph.build(population)
+
+    assert root / os.fsdecode(b"odd_\xff.rst") in population
+    assert graph.may_be_included(root / "part.rst")
