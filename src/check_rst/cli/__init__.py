@@ -1957,9 +1957,10 @@ def _include_refusal_text(guard: _includes.IncludeGuard, verb: str) -> str:
         return f"this file includes {guard.evidence}, so its hierarchy depends on what that file adds{judged}"
     if guard.kind == "unresolved":
         return (
-            f"the include graph is incomplete: {guard.evidence}, a path relative to a Sphinx source directory, "
-            "and none is configured, so check_rst cannot tell which file it names — set sphinx-src in the "
-            "configuration"
+            f"the include graph is incomplete: {guard.evidence}, which Docutils reads from the filesystem root "
+            "and Sphinx from its source directory, and no Sphinx source is configured, so check_rst cannot tell "
+            "which file it names — set sphinx-src in the configuration, or write the path relative to the "
+            "including file"
         )
     if guard.kind == "uncovered":
         return (

@@ -26,9 +26,12 @@ records is only *possible*: a parser-free caller must treat it as real and
 refuse, while a parsing caller may confirm it.  Site paths resolve like
 Docutils, from the lexical path the containing file is opened by, so a file
 reached through a symlink is its own include context; under Sphinx a leading
-``/`` names the source directory.  With no Sphinx source known, a leading
-``/`` that names no file at its absolute path is *unresolved*: it may name
-any file under some unknown source directory, so the graph is incomplete.  Canonical paths serve only identity:
+``/`` names the source directory.  With no Sphinx source known, every
+structural site with a leading ``/`` is *unresolved*: Docutils reads it from
+the filesystem root, and that target is recorded and followed, but Sphinx
+reads it from its source directory whether or not that file exists
+(``BuildEnvironment.relfn2path``), so the other target stays unknown and the
+graph is incomplete.  Canonical paths serve only identity:
 role membership and matching a target to a selected file.
 """
 
@@ -356,14 +359,9 @@ class IncludeGraph:
                 continue
             for site in lexical_includes(path, text=text, sphinx_src=sphinx_src):
                 sites.append(site)
-                # An existing file at the absolute path is what Docutils
-                # includes, and under Sphinx the argument then names nothing.
-                if (
-                    site.structural
-                    and sphinx_src is None
-                    and site.argument.startswith("/")
-                    and not site.target.is_file()
-                ):
+                # The filesystem target is Docutils' reading only; Sphinx's
+                # names a file under a source directory nobody configured.
+                if site.structural and sphinx_src is None and site.argument.startswith("/"):
                     unresolved.append(site)
                 # Follow the lexical target: its own includes resolve from the
                 # path Docutils opens it by.
@@ -574,7 +572,8 @@ class IncludeGuard:
     ``kind`` is ``"fragment"`` (a declared fragment), ``"included"`` (a
     possible structural include site names the file), ``"uncovered"`` (no
     discovery root covers it), ``"unreadable"`` (the include graph is
-    incomplete), ``"unresolved"`` (a rooted include names no known file) or
+    incomplete), ``"unresolved"`` (a rooted include has an unknown Sphinx
+    reading) or
     ``"includes"`` (the file itself has a possible structural include).  ``evidence`` is what the message cites: the
     declaring pattern, the first include site, the roots, the unreadable
     files, or the included target and its site's line.
