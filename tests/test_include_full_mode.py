@@ -817,3 +817,88 @@ def test_revalidation_proves_which_titles_became_sections(
     assert code == 1, out
     assert "Docutils would read the planned titles as a different section tree" in out
     assert paths["part"].read_text(encoding="utf-8") == part
+
+
+# ---------------------------------------------------------------------------
+# Effective clipped input (Codex's third P4 look)
+# ---------------------------------------------------------------------------
+
+_NEST_ROOT = "######\nRoot\n######\n\n*****\nSub\n*****\n\n"
+# At level 3 in the root, child.rst's "=o" is consistent; standalone it is
+# the page title, which fix would remap to "#o".
+_CHILD = "=======\nChild\n=======\n\nBody.\n"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("mode", [("fix", "--fast"), ("fix",)], ids=["fast", "full"])
+def test_a_start_after_clip_exposes_a_nested_include(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], mode: tuple[str, ...]
+) -> None:
+    """Docutils clips before parsing: after ":start-after: PREFIX", the text
+    of mid.rst is ".. include:: child.rst", though no physical line of it
+    starts an include.  Discovery scanned the physical file, so it never saw
+    the edge, and both modes remapped child.rst as a standalone document."""
+    root = _NEST_ROOT + ".. include:: mid.rst\n   :start-after: PREFIX\n"
+    paths = _files(rst_repo, root=root, mid="PREFIX.. include:: child.rst\n", child=_CHILD)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, *mode, "child.rst")
+
+    assert paths["child"].read_text(encoding="utf-8") == _CHILD, out
+    if mode == ("fix", "--fast"):
+        assert code == 1, out
+        assert "this file may be included by mid.rst:1" in out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("mid", "include_options"),
+    [
+        (".. include:: child.rst\n   :bogus: 1\n", "\n   :end-line: 1"),
+        (".. include:: child.rst\n\t:bogus: 1\n", "\n   :tab-width: 0"),
+    ],
+    ids=["end-line-drops-a-bad-option", "tab-width-moves-an-option-out"],
+)
+@pytest.mark.parametrize("mode", [("fix", "--fast"), ("fix",)], ids=["fast", "full"])
+def test_an_effective_variant_validates_a_nested_include_the_whole_file_rejects(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mid: str,
+    include_options: str,
+    mode: tuple[str, ...],
+) -> None:
+    """Read whole, mid.rst's nested include carries an unknown option and
+    is rejected.  In root.rst's variant the option is gone: ":end-line: 1"
+    drops its line, and ":tab-width: 0" removes the tab that placed it in
+    the directive's block.  The whole-file verdict must not remove the
+    edge from that variant."""
+    root = _NEST_ROOT + f".. include:: mid.rst{include_options}\n"
+    paths = _files(rst_repo, root=root, mid=mid, child=_CHILD)
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, *mode, "child.rst")
+
+    assert paths["child"].read_text(encoding="utf-8") == _CHILD, out
+
+
+@pytest.mark.integration
+def test_variants_of_one_file_are_judged_apart(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """whole.rst includes mid.rst whole, where the nested include is
+    rejected and adds nothing; clipped.rst includes the variant where it
+    runs.  child.rst's one context is clipped.rst's, and agrees."""
+    paths = _files(
+        rst_repo,
+        clipped=_NEST_ROOT + ".. include:: mid.rst\n   :end-line: 1\n",
+        whole=_NEST_ROOT.replace("Root", "Whol") + ".. include:: mid.rst\n",
+        mid=".. include:: child.rst\n   :bogus: 1\n",
+        child=_CHILD,
+    )
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "fix", "child.rst")
+
+    assert "include contexts need different" not in out
+    assert paths["child"].read_text(encoding="utf-8") == _CHILD, out
