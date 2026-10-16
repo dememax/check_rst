@@ -1669,6 +1669,16 @@ def _main() -> None:
             configured = pathlib.Path(config["build-dir"]).expanduser()
             args.build_dir = configured if configured.is_absolute() else (loaded_config.root / configured).resolve()
             config_applied.append(f"build-dir={config['build-dir']}")
+    # CR-43 (D9a): configured role patterns are echoed like every other
+    # setting: applied by a title-model command, inactive for the others.
+    for role in ("standalone", "fragments"):
+        patterns = loaded_config.roles.get(role, ())
+        if patterns:
+            setting = f"{role}={','.join(patterns)}"
+            if args.command in _ROLE_COMMANDS:
+                config_applied.append(setting)
+            else:
+                config_inactive.append(f"{setting} inactive ({args.command})")
     if config_source and not args.quiet:
         config_details = [*config_applied, *config_inactive]
         print(
