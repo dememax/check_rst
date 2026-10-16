@@ -674,3 +674,73 @@ def test_check_rst_parses_never_run_registered_directives_or_roles(
     _run(monkeypatch, capsys, "fix", selected)
 
     assert calls == []
+
+
+_STANDALONE_PART = "########\nShared\n########\n\nBody.\n"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "include",
+    [
+        ".. include:: part.rst\n   :bogus: 1\n",
+        ".. include:: part.rst\n\n   Content the directive does not take.\n",
+        ".. include:: part.rst\n   :start-line: x\n",
+    ],
+    ids=["unknown-option", "content", "bad-option-value"],
+)
+def test_an_include_docutils_rejects_includes_nothing(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], include: str
+) -> None:
+    """Finding 2: Docutils (and Sphinx's include, which validates the same
+    options) rejects the invocation, so nothing is included and part.rst is
+    a standalone document.  The lexical composer took it for a context."""
+    paths = _files(rst_repo, main="######\nMain\n######\n\n" + include, part=_PART)
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert "cannot compose" not in out
+    assert "include contexts" not in out
+    assert paths["part"].read_text(encoding="utf-8") == _STANDALONE_PART, out
+
+
+@pytest.mark.integration
+def test_a_tab_width_that_changes_the_included_text_is_unavailable(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Docutils expands the target's tabs to the given width; the lexical
+    composer does not, so its composition is not the document Docutils
+    reads."""
+    include = ".. include:: part.rst\n   :tab-width: 4\n"
+    paths = _files(rst_repo, main="######\nMain\n######\n\n" + include, part=_PART + "\n\tTabbed.\n")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert code == 1, out
+    assert (
+        "its title levels depend on the include at main.rst:5, which check_rst cannot compose (it sets "
+        ":tab-width: for a target with tabs)"
+    ) in out
+    assert paths["part"].read_text(encoding="utf-8") == _PART + "\n\tTabbed.\n"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "include",
+    [".. include:: part.rst\n   :tab-width: 4\n", ".. include::\n   part.rst\n"],
+    ids=["tab-width-without-tabs", "continued-argument"],
+)
+def test_a_confirmed_include_that_composes_exactly_is_a_context(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], include: str
+) -> None:
+    """Guards for the confirmation: a tab width with no tab to expand changes
+    nothing, and an argument continued on the next line is still probed."""
+    paths = _files(rst_repo, main=_MAIN.replace(".. include:: part.rst\n", include), part=_PART)
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "fix", "part.rst")
+
+    assert "cannot compose" not in out
+    assert paths["part"].read_text(encoding="utf-8") == _PART, out
