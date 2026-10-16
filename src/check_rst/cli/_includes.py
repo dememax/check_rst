@@ -101,8 +101,12 @@ class LexicalInclude:
     # continued argument, and its options.  Docutils inserts the included
     # lines after it (CR-43 composition).
     block_end: int = 0
-    # The effective input variant of the includer this site was found in.
+    # The effective input variant of the includer this site was found in,
+    # and the site's 1-based line in that variant's parsed text: its identity
+    # there.  Several parsed lines can share one physical *line*, when a line
+    # clip splits a physical line at a vertical tab or a form feed.
     variant: Variant = ()
+    parsed_line: int = 0
 
     @property
     def target_variant(self) -> Variant:
@@ -374,6 +378,7 @@ def variant_sites(
             line=selection[site.line - 1][1] + 1,
             block_end=selection[site.block_end - 1][1] + 1,
             variant=variant,
+            parsed_line=site.line,
         )
         for site in lexical_includes(
             path, text="\n".join(line for line, _index, _cut in selection), sphinx_src=sphinx_src

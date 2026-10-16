@@ -360,13 +360,14 @@ class Composer:
 
     def variant_verdicts(self, path: pathlib.Path, variant: Variant) -> dict[int, str]:
         """Return the verdict of every structural site in *path*'s effective
-        input *variant*, by physical line."""
+        input *variant*, by its parsed line there: a physical line can hold
+        several sites, each with its own verdict."""
         text = self.disk_text(path)
         selection = effective_input(text, variant) if text is not None else None
         if selection is None:
             return {}
         parsed = [line for line, _index, _cut in selection]
-        return {selection[site.line - 1][1] + 1: verdict for site, verdict in self.structural_sites(path, parsed)}
+        return {site.line: verdict for site, verdict in self.structural_sites(path, parsed)}
 
     def confirm_sites(self) -> None:
         """Probe every lexical site in the universe's graph, in the effective
@@ -380,15 +381,15 @@ class Composer:
         dropped: set[tuple[pathlib.Path, Variant, int]] = set()
         for (real, variant), includer in groups.items():
             dropped.update(
-                (real, variant, line)
-                for line, verdict in self.variant_verdicts(includer, variant).items()
+                (real, variant, parsed_line)
+                for parsed_line, verdict in self.variant_verdicts(includer, variant).items()
                 if verdict in _NO_INCLUDE
             )
         if dropped:
             graph = self.universe.graph
 
             def kept(site: LexicalInclude) -> bool:
-                return (site.canonical_includer, site.variant, site.line) not in dropped
+                return (site.canonical_includer, site.variant, site.parsed_line) not in dropped
 
             self.universe.graph = IncludeGraph(
                 [site for site in graph.sites if kept(site)],
