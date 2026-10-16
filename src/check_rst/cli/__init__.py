@@ -1140,7 +1140,7 @@ def _validate_entitle_args(args: argparse.Namespace) -> None:
         if value is not None
     ]
     if active:
-        _cli_fail(f"entitle is self-contained — incompatible argument(s): {', '.join(active)}")
+        _cli_fail(f"entitle does not run Sphinx — incompatible argument(s): {', '.join(active)}")
 
 
 def _validate_list_table_args(args: argparse.Namespace) -> None:
