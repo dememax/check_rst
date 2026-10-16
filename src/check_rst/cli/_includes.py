@@ -34,16 +34,18 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import errno
 import fnmatch
 import os
 import pathlib
 import re
+import stat
 from typing import TYPE_CHECKING
 
 from . import _helpers
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Iterator, Sequence
 
     import pygit2
 
@@ -53,6 +55,8 @@ _OPTION_RE = re.compile(r"^[ \t]+:(?P<name>[A-Za-z][\w-]*):(?:[ \t]+(?P<value>.*
 # titles, so it is no structural context for the included file.
 _TEXT_ONLY_OPTIONS = frozenset({"literal", "code"})
 _GIT_METADATA = ".git"
+# A path that fails with one of these names no file, so it can hide nothing.
+_NO_FILE_ERRNOS = frozenset({errno.ENOENT, errno.ENOTDIR, errno.ELOOP})
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -151,24 +155,41 @@ def _is_ignored(
     return bool(repo.path_is_ignored(relative) or (directory and repo.path_is_ignored(relative + "/")))
 
 
-def scan_population(
-    roots: Iterable[pathlib.Path],
-    *,
-    suffixes: Sequence[str] = (".rst",),
-) -> tuple[pathlib.Path, ...]:
-    """Return the automatic includer scan population under *roots*.
+def _walk(root: pathlib.Path, blocked: list[pathlib.Path]) -> Iterator[tuple[str, list[str], list[str]]]:
+    """``os.walk`` that records, in *blocked*, every directory it cannot list.
 
-    Paths are lexical, under the canonical roots: a file symlink keeps its own
-    path, because an includer resolves its includes from the path it is
-    opened by.  It counts only when it resolves to a regular file inside a
-    root.
+    Plain ``os.walk`` skips such a directory silently, and with it every
+    includer inside: a fragment would then look unincluded.
     """
+
+    def record(error: OSError) -> None:
+        blocked.append(pathlib.Path(error.filename))
+
+    return os.walk(root, followlinks=False, onerror=record)
+
+
+def _stat_or_block(path: pathlib.Path, blocked: list[pathlib.Path], *, follow: bool) -> os.stat_result | None:
+    """Stat *path*, recording it in *blocked* when it exists but cannot be
+    reached, as in a directory that can be listed but not searched."""
+    try:
+        return path.stat() if follow else path.lstat()
+    except OSError as error:
+        if error.errno not in _NO_FILE_ERRNOS:
+            blocked.append(path)
+        return None
+
+
+def _scan(
+    roots: Iterable[pathlib.Path], suffixes: Sequence[str]
+) -> tuple[tuple[pathlib.Path, ...], tuple[pathlib.Path, ...]]:
+    """Return the scan population and the paths that blocked the scan."""
     root_list = [root.resolve() for root in roots]
     found: set[pathlib.Path] = set()
+    blocked: list[pathlib.Path] = []
     for root in root_list:
         repo = _helpers._discover_repo(root)
         workdir = pathlib.Path(repo.workdir).resolve() if repo is not None and repo.workdir else None
-        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for dirpath, dirnames, filenames in _walk(root, blocked):
             current = pathlib.Path(dirpath)
             dirnames[:] = sorted(
                 name
@@ -183,10 +204,27 @@ def scan_population(
                     continue
                 if _is_ignored(repo, workdir, candidate, directory=False):
                     continue
-                real = candidate.resolve()
-                if real.is_file() and any(_within(real, kept) for kept in root_list):
+                status = _stat_or_block(candidate, blocked, follow=True)
+                if status is None or not stat.S_ISREG(status.st_mode):
+                    continue
+                if any(_within(candidate.resolve(), kept) for kept in root_list):
                     found.add(candidate)
-    return tuple(sorted(found))
+    return tuple(sorted(found)), tuple(sorted(set(blocked)))
+
+
+def scan_population(
+    roots: Iterable[pathlib.Path],
+    *,
+    suffixes: Sequence[str] = (".rst",),
+) -> tuple[pathlib.Path, ...]:
+    """Return the automatic includer scan population under *roots*.
+
+    Paths are lexical, under the canonical roots: a file symlink keeps its own
+    path, because an includer resolves its includes from the path it is
+    opened by.  It counts only when it resolves to a regular file inside a
+    root.  ``IncludeGraph.scan`` also reports what the scan could not read.
+    """
+    return _scan(roots, suffixes)[0]
 
 
 def _indent_width(prefix: str) -> int:
@@ -265,17 +303,37 @@ class IncludeGraph:
                 self._by_target[site.canonical_target].append(site)
 
     @classmethod
+    def scan(
+        cls,
+        roots: Iterable[pathlib.Path],
+        *,
+        sphinx_src: pathlib.Path | None = None,
+        suffixes: Sequence[str] = (".rst",),
+    ) -> IncludeGraph:
+        """Build the graph over the scan population of *roots*.
+
+        A directory the scan cannot list, or a file it cannot reach, is
+        unreadable like a file it cannot decode: it may hold any include.
+        """
+        population, blocked = _scan(roots, suffixes)
+        return cls.build(population, sphinx_src=sphinx_src, unreadable=blocked)
+
+    @classmethod
     def build(
         cls,
         population: Iterable[pathlib.Path],
         *,
         sphinx_src: pathlib.Path | None = None,
+        unreadable: Iterable[pathlib.Path] = (),
     ) -> IncludeGraph:
-        """Scan *population* and every structural include target it reaches."""
+        """Scan *population* and every structural include target it reaches.
+
+        *unreadable* seeds the paths already known to hide possible sites.
+        """
         queue = collections.deque(pathlib.Path(os.path.abspath(path)) for path in population)
         seen: set[pathlib.Path] = set()
         sites: list[LexicalInclude] = []
-        unreadable: list[pathlib.Path] = []
+        unreadable = list(unreadable)
         while queue:
             path = queue.popleft()
             if path in seen:
@@ -357,25 +415,30 @@ class DeclaredRoles:
     matches: tuple[tuple[RolePattern, tuple[pathlib.Path, ...]], ...]
 
 
-def _role_domain(roots: Sequence[pathlib.Path]) -> tuple[pathlib.Path, ...]:
-    """Return the role-pattern domain: every file under the roots, lexically.
+def _role_domain(roots: Sequence[pathlib.Path]) -> tuple[tuple[pathlib.Path, ...], tuple[pathlib.Path, ...]]:
+    """Return the role-pattern domain, every file under the roots lexically,
+    and the paths that could not be read.
 
     Unlike the automatic scan population it includes Git-ignored files, so an
     explicit declaration can protect an ignored or generated fragment.  It
     still never enters Git metadata or descends through a directory symlink.
     """
     found: set[pathlib.Path] = set()
+    blocked: list[pathlib.Path] = []
     for root in roots:
-        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for dirpath, dirnames, filenames in _walk(root, blocked):
             current = pathlib.Path(dirpath)
             dirnames[:] = sorted(
                 name for name in dirnames if name != _GIT_METADATA and not (current / name).is_symlink()
             )
             for name in filenames:
                 candidate = current / name
-                if name != _GIT_METADATA and (candidate.is_symlink() or candidate.is_file()):
+                if name == _GIT_METADATA:
+                    continue
+                status = _stat_or_block(candidate, blocked, follow=False)
+                if status is not None and (stat.S_ISLNK(status.st_mode) or stat.S_ISREG(status.st_mode)):
                     found.add(candidate)
-    return tuple(sorted(found))
+    return tuple(sorted(found)), tuple(sorted(set(blocked)))
 
 
 def _component_matches(name: str, pattern: str) -> bool:
@@ -405,6 +468,21 @@ def _parts_match(names: Sequence[str], patterns: Sequence[str]) -> bool:
     return bool(names) and _component_matches(names[0], head) and _parts_match(names[1:], rest)
 
 
+def _may_match_below(names: Sequence[str], patterns: Sequence[str]) -> bool:
+    """Whether some file below the directory *names* may match *patterns*,
+    with ``_parts_match``'s rules."""
+    if not names:
+        return bool(patterns)
+    if not patterns:
+        return False
+    head, rest = patterns[0], patterns[1:]
+    if head == "**":
+        if _may_match_below(names, rest):
+            return True
+        return not names[0].startswith(".") and _may_match_below(names[1:], patterns)
+    return _component_matches(names[0], head) and _may_match_below(names[1:], rest)
+
+
 def _absolute_pattern(declared: RolePattern) -> tuple[pathlib.Path, tuple[str, ...]]:
     """Return the pattern's resolved literal prefix and its glob components."""
     raw = declared.pattern
@@ -428,7 +506,7 @@ def resolve_roles(declared: Sequence[RolePattern], roots: Sequence[pathlib.Path]
     that protects a document's structure.
     """
     canonical_roots = tuple(root.resolve() for root in roots)
-    domain = _role_domain(canonical_roots)
+    domain, blocked = _role_domain(canonical_roots)
     shown_roots = ", ".join(str(root) for root in canonical_roots) or "none"
     members: dict[str, set[pathlib.Path]] = {"standalone": set(), "fragments": set()}
     matches: list[tuple[RolePattern, tuple[pathlib.Path, ...]]] = []
@@ -437,6 +515,11 @@ def resolve_roles(declared: Sequence[RolePattern], roots: Sequence[pathlib.Path]
         if not any(_within(prefix, root) or _within(root, prefix) for root in canonical_roots):
             raise RolePatternError(item, f"is outside the discovery roots: {shown_roots}")
         pattern_parts = (*prefix.parts, *globs)
+        # A partial match set would silently drop part of the declaration's
+        # protection, so a path it may reach but cannot read fails it.
+        for path in blocked:
+            if _parts_match(path.parts, pattern_parts) or _may_match_below(path.parts, pattern_parts):
+                raise RolePatternError(item, f"may match a file in {path}, which cannot be read")
         matched: list[pathlib.Path] = []
         for candidate in domain:
             if not _parts_match(candidate.parts, pattern_parts):
@@ -518,7 +601,7 @@ def fast_include_guards(
         return absolute.relative_to(working).as_posix() if absolute.is_relative_to(working) else absolute.as_posix()
 
     roots, uncovered = discovery_roots(files, config_root=config_root, sphinx_src=sphinx_src, cwd=cwd)
-    graph = IncludeGraph.build(scan_population(roots), sphinx_src=sphinx_src)
+    graph = IncludeGraph.scan(roots, sphinx_src=sphinx_src)
     declared: dict[pathlib.Path, RolePattern] = {}
     if roles is not None:
         for item, matched in roles.matches:
