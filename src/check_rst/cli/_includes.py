@@ -20,6 +20,13 @@ The universe (decision D9d):
   symlink (cycles, root escapes and duplicate traversal), plus every
   transitively reached include target whatever its suffix.
 
+Docutils clips an included file before it parses it, so a clip can create a
+directive no physical line starts (``PREFIX.. include::`` after
+``:start-after: PREFIX``), or drop the line that made one invalid.  Discovery
+therefore scans every *effective input*: a file as one include reads it,
+clipped and tab-expanded, recursively.  Each site records the variant it was
+found in.
+
 The graph is lexical.  A lexical scan cannot tell an include directive from
 include-looking text inside a comment or a literal block, so every site it
 records is only *possible*: a parser-free caller must treat it as real and
@@ -59,6 +66,11 @@ _OPTION_RE = re.compile(r"^[ \t]+:(?P<name>[A-Za-z][\w-]*):(?:[ \t]+(?P<value>.*
 # A literal or code include renders the file as text: it contributes no
 # titles, so it is no structural context for the included file.
 _TEXT_ONLY_OPTIONS = frozenset({"literal", "code"})
+# The include options that shape the text Docutils inserts: its effective
+# input variant.  The empty variant is a whole file at the default width 8.
+_VARIANT_OPTIONS = ("start-line", "end-line", "start-after", "end-before", "tab-width")
+type Variant = tuple[tuple[str, str], ...]
+type Selection = list[tuple[str, int, bool]]
 _GIT_METADATA = ".git"
 # A path that fails with one of these names no file, so it can hide nothing.
 _NO_FILE_ERRNOS = frozenset({errno.ENOENT, errno.ENOTDIR, errno.ELOOP})
@@ -88,6 +100,13 @@ class LexicalInclude:
     # continued argument, and its options.  Docutils inserts the included
     # lines after it (CR-43 composition).
     block_end: int = 0
+    # The effective input variant of the includer this site was found in.
+    variant: Variant = ()
+
+    @property
+    def target_variant(self) -> Variant:
+        """The variant in which this include reads its target."""
+        return tuple((name, value) for name, value in self.options if name in _VARIANT_OPTIONS)
 
     @property
     def structural(self) -> bool:
@@ -236,6 +255,86 @@ def scan_population(
     return _scan(roots, suffixes)[0]
 
 
+def clip_selection(lines: Sequence[str], options: dict[str, str]) -> Selection | None:
+    """Return Docutils' clipped selection of *lines*, in its clipping order.
+
+    Each entry is a selected line's text, its 0-based physical index and
+    whether a text clip cuts it.  None means an option is malformed or a text
+    clip matches nothing, which Docutils reports as an error.  An empty text
+    clip is refused too: its meaning differs between Docutils versions.
+    """
+    if not any(name in options for name in ("start-line", "end-line", "start-after", "end-before")):
+        # Unclipped, Docutils splits the text itself: every line, as it is.
+        return [(text, index, False) for index, text in enumerate(lines)]
+    try:
+        start = int(options["start-line"]) if "start-line" in options else None
+        end = int(options["end-line"]) if "end-line" in options else None
+    except ValueError:
+        return None
+    indices = list(range(len(lines)))[start:end]
+    joined = "\n".join(lines[index] for index in indices)
+    begin, finish = 0, len(joined)
+    after = options.get("start-after")
+    if after is not None:
+        match = joined.find(after) if after else -1
+        if match < 0:
+            return None
+        begin = match + len(after)
+    before = options.get("end-before")
+    if before is not None:
+        match = joined.find(before, begin) if before else -1
+        if match < 0:
+            return None
+        finish = match
+    selected = joined[begin:finish].splitlines()
+    first = joined.count("\n", 0, begin)
+    cut_first = begin > 0 and joined[begin - 1] != "\n"
+    cut_last = finish < len(joined) and joined[finish] != "\n"
+    return [
+        (text, indices[first + offset], (offset == 0 and cut_first) or (offset == len(selected) - 1 and cut_last))
+        for offset, text in enumerate(selected)
+    ]
+
+
+def tab_width(variant: Variant) -> int | None:
+    """The width Docutils expands this variant's tabs to; None if invalid."""
+    try:
+        return int(dict(variant).get("tab-width", "8"))
+    except ValueError:
+        return None
+
+
+def effective_lines(lines: Sequence[str], variant: Variant) -> tuple[Selection, list[str]] | None:
+    """Return a variant's selection and the lines Docutils parses from it:
+    clipped first, then tab-expanded, as string2lines does.  None means the
+    variant includes nothing, as Docutils reports an error instead."""
+    selection = clip_selection(lines, dict(variant))
+    width = tab_width(variant)
+    if selection is None or width is None:
+        return None
+    return selection, [text.expandtabs(width) for text, _index, _cut in selection]
+
+
+def variant_sites(
+    path: pathlib.Path, lines: Sequence[str], variant: Variant, *, sphinx_src: pathlib.Path | None = None
+) -> tuple[LexicalInclude, ...]:
+    """Return the sites in *path*'s effective input *variant*, with their
+    lines and blocks mapped back to physical lines."""
+    effective = effective_lines(lines, variant)
+    if effective is None:
+        return ()
+    selection, parsed = effective
+    return tuple(
+        dataclasses.replace(
+            site,
+            line=selection[site.line - 1][1] + 1,
+            block_end=selection[site.block_end - 1][1] + 1,
+            variant=variant,
+        )
+        for site in lexical_includes(path, text="\n".join(parsed), sphinx_src=sphinx_src)
+    )
+
+
 def _indent_width(prefix: str) -> int:
     return len(prefix.expandtabs(8))
 
@@ -345,33 +444,45 @@ class IncludeGraph:
     ) -> IncludeGraph:
         """Scan *population* and every structural include target it reaches.
 
-        *unreadable* seeds the paths already known to hide possible sites.
+        Each population file is scanned whole; each target is scanned in the
+        effective input its include reads, so a site a clip creates or makes
+        valid is found.  *unreadable* seeds the paths already known to hide
+        possible sites.
         """
-        queue = collections.deque(pathlib.Path(os.path.abspath(path)) for path in population)
-        seen: set[pathlib.Path] = set()
+        empty: Variant = ()
+        queue = collections.deque((pathlib.Path(os.path.abspath(path)), empty) for path in population)
+        seen: set[tuple[pathlib.Path, Variant]] = set()
+        texts: dict[pathlib.Path, list[str] | None] = {}
         sites: list[LexicalInclude] = []
         unreadable = list(unreadable)
         unresolved: list[LexicalInclude] = []
         while queue:
-            path = queue.popleft()
-            if path in seen:
+            path, variant = queue.popleft()
+            if (path, variant) in seen:
                 continue
-            seen.add(path)
-            try:
-                text = path.read_text(encoding="utf-8")
-            except OSError, UnicodeDecodeError:
-                unreadable.append(path)
+            seen.add((path, variant))
+            if path not in texts:
+                try:
+                    texts[path] = path.read_text(encoding="utf-8").splitlines()
+                except OSError, UnicodeDecodeError:
+                    texts[path] = None
+                    unreadable.append(path)
+            lines = texts[path]
+            if lines is None:
                 continue
-            for site in lexical_includes(path, text=text, sphinx_src=sphinx_src):
+            for site in variant_sites(path, lines, variant, sphinx_src=sphinx_src):
                 sites.append(site)
                 # The filesystem target is Docutils' reading only; Sphinx's
                 # names a file under a source directory nobody configured.
-                if site.structural and sphinx_src is None and site.argument.startswith("/"):
+                is_unresolved = site.structural and sphinx_src is None and site.argument.startswith("/")
+                if is_unresolved and all(
+                    (other.includer, other.line) != (site.includer, site.line) for other in unresolved
+                ):
                     unresolved.append(site)
-                # Follow the lexical target: its own includes resolve from the
-                # path Docutils opens it by.
-                if site.structural and site.target not in seen and site.target.is_file():
-                    queue.append(site.target)
+                # Follow the lexical target in the variant its include reads:
+                # its own includes resolve from the path Docutils opens it by.
+                if site.structural and site.target.is_file():
+                    queue.append((site.target, site.target_variant))
         return cls(sites, unreadable, unresolved)
 
     def includers(self, path: pathlib.Path) -> tuple[LexicalInclude, ...]:
