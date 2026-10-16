@@ -693,7 +693,7 @@ def test_black_box_entitle_refuses_top_level_include_composition(tmp_path: Path)
     for result in (preview, applied):
         assert result.stderr == ""
         assert (
-            "this file includes first.rst at line 1, whose titles join this document's hierarchy, "
+            "this file includes first.rst at line 1, so its hierarchy depends on what that file adds, "
             "and entitle judges one file alone"
         ) in result.stdout
         assert "--- index.rst" not in result.stdout

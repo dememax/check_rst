@@ -239,25 +239,39 @@ def _includer(repo: Path, target: str, options: str = "") -> Path:
     return path
 
 
+_INCLUDES_REFUSAL = (
+    "so its hierarchy depends on what that file adds, which fast mode cannot judge — run full fix to judge it "
+    "in context"
+)
+
+
 @pytest.mark.integration
-def test_fix_fast_refuses_an_includer_whose_fragment_contributes_titles(
-    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("options", "content"),
+    [
+        ("", "Shared\n******\n\nBody.\n"),
+        ("", "Jane Doe\nphone: 0100\n"),
+        ("\n   :parser: rst", "Jane Doe\nphone: 0100\n"),
+    ],
+    ids=["titled-fragment", "title-free-fragment", "parser-option"],
+)
+def test_fix_fast_refuses_an_includer_with_any_structural_include(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], options: str, content: str
 ) -> None:
-    """The included titles join the includer's hierarchy, which fast mode
-    cannot compose; changing the includer's own styles could restructure the
-    composed document."""
-    main = _includer(rst_repo, "part.rst")
-    (rst_repo / "part.rst").write_text("Shared\n******\n\nBody.\n", encoding="utf-8")
+    """Fast mode cannot prove what a structural include adds: a title-free
+    source may still yield sections, through another :parser:, a Sphinx
+    include-read or source-read handler, or an extension directive.
+    Changing the includer's own styles could restructure the composed
+    document, so only full mode may judge it."""
+    main = _includer(rst_repo, "part.rst", options)
+    (rst_repo / "part.rst").write_text(content, encoding="utf-8")
     before = main.read_text(encoding="utf-8")
     monkeypatch.chdir(rst_repo)
 
     code, out = _run(monkeypatch, capsys, "fix", "--fast", "main.rst")
 
     assert code == 1, out
-    assert (
-        "main.rst:1: ERROR: fix refused — this file includes part.rst at line 6, whose titles join this document's "
-        "hierarchy, which fast mode cannot judge — run full fix to judge it in context"
-    ) in out
+    assert f"main.rst:1: ERROR: fix refused — this file includes part.rst at line 6, {_INCLUDES_REFUSAL}" in out
     assert main.read_text(encoding="utf-8") == before
 
 
@@ -274,7 +288,7 @@ def test_fix_fast_refuses_an_includer_whose_titles_arrive_transitively(
     code, out = _run(monkeypatch, capsys, "fix", "--fast", "main.rst")
 
     assert code == 1, out
-    assert "this file includes middle.rst at line 6, whose titles join this document's hierarchy" in out
+    assert f"this file includes middle.rst at line 6, {_INCLUDES_REFUSAL}" in out
     assert main.read_text(encoding="utf-8") == before
 
 
@@ -282,7 +296,7 @@ def test_fix_fast_refuses_an_includer_whose_titles_arrive_transitively(
 def test_fix_fast_refuses_an_includer_whose_target_cannot_be_read(
     rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A missing target proves nothing about the titles it may contribute."""
+    """A missing target proves nothing about what it may add."""
     main = _includer(rst_repo, "missing.rst")
     before = main.read_text(encoding="utf-8")
     monkeypatch.chdir(rst_repo)
@@ -290,30 +304,19 @@ def test_fix_fast_refuses_an_includer_whose_target_cannot_be_read(
     code, out = _run(monkeypatch, capsys, "fix", "--fast", "main.rst")
 
     assert code == 1, out
-    assert "this file includes missing.rst at line 6, whose titles join this document's hierarchy" in out
+    assert f"this file includes missing.rst at line 6, {_INCLUDES_REFUSAL}" in out
     assert main.read_text(encoding="utf-8") == before
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    ("target", "options", "content"),
-    [
-        ("contact.rst", "", "Jane Doe\nphone: 0100\n"),
-        ("code.py", "\n   :literal:", "print('#####')\n"),
-    ],
-    ids=["title-free-fragment", "literal-include"],
-)
-def test_fix_fast_still_fixes_an_includer_whose_includes_cannot_contribute_titles(
-    rst_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    target: str,
-    options: str,
-    content: str,
+@pytest.mark.parametrize("option", [":literal:", ":code: python"], ids=["literal", "code"])
+def test_fix_fast_still_fixes_an_includer_whose_includes_are_text(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], option: str
 ) -> None:
-    """A title-free fragment, such as a contact block, and a literal include
-    add no titles, so the includer's hierarchy is its own."""
-    main = _includer(rst_repo, target, options)
+    """Only a literal or code include is lexically proven to add no
+    structure, so the includer's hierarchy is its own."""
+    target, content = "code.py", "print('#####')\n"
+    main = _includer(rst_repo, target, f"\n   {option}")
     (rst_repo / target).write_text(content, encoding="utf-8")
     monkeypatch.chdir(rst_repo)
 
@@ -360,8 +363,8 @@ def test_entitle_refuses_an_includer_whose_fragment_contributes_titles(
 
     assert code == 1, out
     assert (
-        "check_rst: main.rst: ERROR: entitle refused — this file includes part.rst at line 6, whose titles join "
-        "this document's hierarchy, and entitle judges one file alone"
+        "check_rst: main.rst: ERROR: entitle refused — this file includes part.rst at line 6, so its hierarchy "
+        "depends on what that file adds, and entitle judges one file alone"
     ) in out
     assert main.read_text(encoding="utf-8") == before
 
