@@ -301,8 +301,8 @@ def planning_facts(sphinx_src: pathlib.Path) -> PlanningFacts:
     extension, which is enough: the environment discovers its documents,
     the configuration holds the suffixes, and the event manager and the
     directive registry show any transformation.  A bare application has no
-    include-read or source-read listener and registers Sphinx's own include,
-    so any other state comes from the project.  Nothing is built, and the
+    prolog or epilog, no include-read or source-read listener, and registers
+    Sphinx's own include, so any other state comes from the project.  Nothing is built, and the
     output goes to a throwaway directory inside Sphinx's registry namespace.
     """
     import io
@@ -332,7 +332,13 @@ def planning_facts(sphinx_src: pathlib.Path) -> PlanningFacts:
         documents = frozenset(pathlib.Path(app.env.doc2path(name)).resolve() for name in app.env.found_docs)
         suffixes = tuple(dict.fromkeys((".rst", *app.config.source_suffix)))
         transform = None
-        if app.events.listeners.get("include-read"):
+        # Sphinx adds these to every document it parses, where a title style
+        # in either shifts the first-encounter ranking the composition models.
+        if app.config.rst_prolog:
+            transform = "an rst_prolog"
+        elif app.config.rst_epilog:
+            transform = "an rst_epilog"
+        elif app.events.listeners.get("include-read"):
             transform = "an include-read handler"
         elif app.events.listeners.get("source-read"):
             transform = "a source-read handler"
