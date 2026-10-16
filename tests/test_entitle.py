@@ -360,6 +360,7 @@ def test_cli_entitle_preview_prints_diff_and_exits_zero(
 ) -> None:
     path = _rst(tmp_path, "Old Title\n#########\n\nBody.\n")
     original = path.read_text(encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "entitle", "New Title", str(path)])
 
     with pytest.raises(SystemExit) as exc:
@@ -378,6 +379,7 @@ def test_cli_entitle_apply_writes_and_reports(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = _rst(tmp_path, "Old Title\n#########\n\nBody.\n")
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "entitle", "New Title", str(path), "--apply"])
 
     with pytest.raises(SystemExit) as exc:
@@ -415,6 +417,7 @@ def test_cli_entitle_apply_quiet_suppresses_confirmation(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = _rst(tmp_path, "Old Title\n#########\n\nBody.\n")
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "entitle", "New Title", str(path), "--apply", "--quiet"])
 
     with pytest.raises(SystemExit) as exc:
@@ -433,6 +436,7 @@ def test_cli_entitle_rejects_non_utf8_input(
 ) -> None:
     path = tmp_path / "doc.rst"
     path.write_bytes(b"Title\n#####\n\n\xff\xfe bad bytes\n")
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "entitle", "New Title", str(path)])
 
     with pytest.raises(SystemExit) as exc:
@@ -541,6 +545,7 @@ def test_cli_entitle_result_reports_no_second_top_level_error(
         Second body.
         """,
     )
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("sys.argv", ["check_rst.py", "entitle", "New Title", str(path), "--apply", "--quiet"])
     with pytest.raises(SystemExit) as exc:
         cli.main()

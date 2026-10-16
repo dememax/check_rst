@@ -566,8 +566,10 @@ def fast_include_guards(
             guards[real] = IncludeGuard("included", f"{shown(sites[0].includer)}:{sites[0].line}{more}")
         elif real in uncovered:
             guards[real] = IncludeGuard("uncovered", ", ".join(str(root) for root in roots) or "none")
-        elif graph.unreadable:
-            guards[real] = IncludeGuard("unreadable", ", ".join(shown(item) for item in graph.unreadable))
+        elif unreadable := [item for item in graph.unreadable if item.resolve() != real]:
+            # A file's own read failure is its command's to report, as for
+            # any file it cannot read; only another file can hide an include.
+            guards[real] = IncludeGuard("unreadable", ", ".join(shown(item) for item in unreadable))
         elif (site := _title_contributing_site(path, sphinx_src=sphinx_src)) is not None:
             # Q1: the includer's own plan ignores the titles its fragments
             # contribute, so changing its styles could restructure the

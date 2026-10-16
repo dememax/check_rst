@@ -326,10 +326,12 @@ def _run_hierarchy() -> NoReturn:
     raise SystemExit(0)
 
 
-def _run_entitle(args: argparse.Namespace) -> NoReturn:
-    """entitle's own fully self-contained verb body — one explicit file,
-    no project/Sphinx state, dispatched before project_root/config
-    resolution the same way _run_hierarchy is. Preview by default,
+def _run_entitle(args: argparse.Namespace, loaded_config: LoadedConfig) -> NoReturn:
+    """entitle's own verb body — one explicit file and no Sphinx state,
+    but fast mode's include discovery (CR-43, D9c): entitle always changes
+    the title model, so a file that may be included, a declared fragment,
+    an uncovered file, an incomplete include graph, or an include that may
+    add titles is refused before preview or write. Preview by default,
     matching list-table's own precedent for a new structural-mutation
     verb; --apply writes. Exit status answers whether the transformation
     was computed/written, not whether a diff happened to be non-empty —
@@ -347,6 +349,11 @@ def _run_entitle(args: argparse.Namespace) -> NoReturn:
         raise SystemExit(1)
     if _unmerged_files([path]):
         print(f"check_rst: {path}: unresolved Git merge conflict — resolve before entitling")
+        raise SystemExit(1)
+    args.declared_roles, args.role_record = _resolve_declared_roles(args, loaded_config, [path])
+    refusal = _fast_include_refusals(args, loaded_config, [path], verb="entitle").get(path.resolve())
+    if refusal is not None:
+        print(f"check_rst: {path}: ERROR: entitle refused — {refusal}")
         raise SystemExit(1)
     try:
         if args.apply:
@@ -987,8 +994,9 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         description=(
             "Modifier role: insert NAME as this document's new depth-1 title, demoting its "
             "existing top-level content into NAME's own children, then renormalize the whole "
-            "document with the same hierarchy/adornment fixer that fix already uses. Fully "
-            "self-contained: one explicit file, no project or Sphinx settings apply."
+            "document with the same hierarchy/adornment fixer that fix already uses. One "
+            "explicit file, judged alone without Sphinx: a file that may be included, or whose "
+            "includes may add titles, is refused."
         ),
         epilog=_DOCUMENTATION_EPILOG,
     )
@@ -1114,10 +1122,11 @@ def _validate_hierarchy_args(args: argparse.Namespace) -> None:
 
 
 def _validate_entitle_args(args: argparse.Namespace) -> None:
-    """entitle names one explicit file directly and never selects a
-    project — no Git-scope/recursive discovery, no Sphinx environment.
-    Same self-contained rejection shape as hierarchy; --no-config stays a
-    harmless no-op for the same reason. NAME's own well-formedness
+    """entitle names one explicit file directly and never selects one —
+    no Git-scope/recursive selection, no Sphinx environment. It still
+    reads the configuration and the include roles, with fast mode's
+    semantics, to search for the file's includers (CR-43, D9c), so only
+    the Sphinx options are rejected. NAME's own well-formedness
     (empty, multi-line, or indistinguishable from an adornment line) is
     validated once, inside _compute_entitle_lines itself, not duplicated
     here — that keeps the one definition of "a valid title text" in the
@@ -1125,7 +1134,6 @@ def _validate_entitle_args(args: argparse.Namespace) -> None:
     active = [
         flag
         for flag, value in (
-            ("--config", args.config),
             ("--sphinx-src", args.sphinx_src),
             ("--build-dir", args.build_dir),
         )
@@ -1617,8 +1625,6 @@ def _main() -> None:
         _run_snapshot_comparison(args)
     if args.command == "hierarchy":
         _run_hierarchy()
-    if args.command == "entitle":
-        _run_entitle(args)
 
     if args.word_samples is not None and args.word_samples < 0:
         print("check_rst: --word-samples must be >= 0")
@@ -1663,7 +1669,7 @@ def _main() -> None:
     # the later foreign-files/conf.py checks (Sphinx-mode-only) reject an
     # otherwise-valid list-table run. --config itself stays active either
     # way — it still roots project/Git-scope discovery for this verb.
-    sphinx_inactive = args.fix_only or args.diff_only or args.command in {"compare", "list-table"}
+    sphinx_inactive = args.fix_only or args.diff_only or args.command in {"compare", "list-table", "entitle"}
     if args.sphinx_src is None and "sphinx-src" in config:
         if sphinx_inactive:
             reason = "--fast" if (args.fix_only or args.diff_only) else args.command
@@ -1701,6 +1707,8 @@ def _main() -> None:
 
     if args.command == "compare":
         _run_git_comparison(args, project_root)
+    if args.command == "entitle":
+        _run_entitle(args, loaded_config)
 
     runtime_metadata = _runtime_metadata(
         verified=args.sphinx_src is not None,
@@ -1838,10 +1846,10 @@ def _json_check_requested(argv: list[str]) -> bool:
     )
 
 
-# Commands that build a title model honour the include roles (D9a); every
-# other command accepts and ignores them, like --build-dir.  entitle joins in
-# CR-43's fast-refusal pair (D9c).
-_ROLE_COMMANDS = frozenset({"check", "fix", "diff", "outline", "context"})
+# Commands that build a title model honour the include roles (D9a), and
+# entitle shares fast mode's use of them (D9c); every other command accepts
+# and ignores them, like --build-dir.
+_ROLE_COMMANDS = frozenset({"check", "fix", "diff", "outline", "context", "entitle"})
 
 
 def _resolve_declared_roles(
@@ -1895,25 +1903,25 @@ def _include_refusal_text(guard: _includes.IncludeGuard, verb: str) -> str:
     """Word an include guard as a refusal, with this command's own remedy.
 
     Only a possible include site, on either side, has a full-mode remedy:
-    full fix or diff can confirm and compose it.  A declared fragment, an
-    uncovered file and an incomplete graph each need the user's action
-    instead.
+    full fix or diff can confirm and compose it.  entitle has no full mode,
+    and fix does not wrap, so it says only that it judges one file alone.
+    A declared fragment, an uncovered file and an incomplete graph each
+    need the user's action instead.
     """
+    judged = (
+        ", and entitle judges one file alone"
+        if verb == "entitle"
+        else f", which fast mode cannot judge — run full {verb} to judge it in context"
+    )
     if guard.kind == "included":
-        return (
-            f"this file may be included by {guard.evidence}, so its title levels depend on that document, "
-            f"which fast mode cannot judge — run full {verb} to judge it in context"
-        )
+        return f"this file may be included by {guard.evidence}, so its title levels depend on that document{judged}"
     if guard.kind == "fragment":
         return (
             f"this file is declared a fragment ({guard.evidence}), so its title levels depend on an includer "
             "check_rst cannot see — edit its titles by hand, or remove the declaration if it is not a fragment"
         )
     if guard.kind == "includes":
-        return (
-            f"this file includes {guard.evidence}, whose titles join this document's hierarchy, "
-            f"which fast mode cannot judge — run full {verb} to judge it in context"
-        )
+        return f"this file includes {guard.evidence}, whose titles join this document's hierarchy{judged}"
     if guard.kind == "uncovered":
         return (
             f"this file lies outside every discovery root ({guard.evidence}), so check_rst cannot search for "

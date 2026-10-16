@@ -18,7 +18,8 @@ SYNOPSIS
 
 .. code-block:: text
 
-   check_rst entitle [--apply] [--quiet] NAME FILE
+   check_rst [--config FILE | --no-config] [--standalone PATTERN]...
+             [--fragment PATTERN]... entitle [--apply] [--quiet] NAME FILE
 
 *************
 DESCRIPTION
@@ -33,12 +34,26 @@ substitution definitions) is left in place above the new title, including in a
 titleless file.  Ordinary introductory prose and field lists remain body
 content and are wrapped even when they precede the first existing section.
 The preview compares the raw source with the exact text ``--apply`` writes,
-including composed byte-hygiene normalization and final-newline state.  The
-command is self-contained: it reads and writes exactly the one named file, with
-no project or Sphinx settings involved.  A top-level ``include`` directive is
-outside that one-file safety boundary and is refused before preview or write;
-included or transformed top-level titles require composition-aware manual
-restructuring.  A file whose titles ``fix`` would refuse to renormalize, such as
+including composed byte-hygiene normalization and final-newline state.
+
+The command writes exactly the one named file and judges it alone, without
+Sphinx: ``--sphinx-src`` and ``--build-dir`` are rejected, and a configured
+Sphinx source stays inactive.  A file's title levels can belong to a document
+that includes it, so ``entitle`` first searches the project for possible
+includers, as ``fix --fast`` does, honouring the configuration and the
+``--standalone`` and ``--fragment`` declarations.  Before preview or write, it
+refuses:
+
+* a file that may be included, or that is declared a fragment;
+* a file whose own includes may add titles;
+* a file outside every discovery root, whose includers cannot be searched;
+* any file while another file in the project cannot be read, since it may
+  hold an include.
+
+``entitle`` has no full mode, and ``fix`` does not wrap, so such a file needs
+composition-aware manual restructuring.  A top-level ``include`` directive is
+outside the one-file safety boundary too, and is refused even when it adds no
+titles.  A file whose titles ``fix`` would refuse to renormalize, such as
 one that uses a character both with and without an overline, is refused the
 same way; the message names the line and the ambiguity, and the guide's
 "Refused fixes" section explains how to resolve it.
@@ -64,8 +79,8 @@ EXIT STATUS
 *************
 
 Return ``0`` after a successful preview or a successful ``--apply``;
-return ``1`` for a rejected ``NAME``, a top-level ``include`` directive, an
-ambiguous title structure, a file that cannot be read or written, an
+return ``1`` for a rejected ``NAME``, a file refused for its include context,
+a top-level ``include`` directive, an ambiguous title structure, a file that cannot be read or written, an
 unresolved Git merge conflict, or an incompatible option combination.  ``2`` is reserved for an argparse-level
 syntax error (see :manpage:`check_rst(1)`, EXIT STATUS).  Unlike
 ``list-table``/``diff``,
