@@ -902,3 +902,42 @@ def test_variants_of_one_file_are_judged_apart(
 
     assert "include contexts need different" not in out
     assert paths["child"].read_text(encoding="utf-8") == _CHILD, out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("mid", "include_options", "line"),
+    [
+        ("..\vinclude:: child.rst\n", "", 1),
+        ("..\finclude:: child.rst\n", "", 1),
+        ("intro\vmore\n.. include:: child.rst\n", "\n   :start-line: 2", 2),
+    ],
+    ids=["vertical-tab", "form-feed", "line-clip-counts-a-vertical-tab"],
+)
+@pytest.mark.parametrize("mode", [("fix", "--fast"), ("fix",)], ids=["fast", "full"])
+def test_control_whitespace_follows_docutils_order(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mid: str,
+    include_options: str,
+    line: int,
+    mode: tuple[str, ...],
+) -> None:
+    """Codex's fourth P4 look: Python's splitlines() breaks at a vertical tab
+    or a form feed, while Docutils' string2lines turns both into spaces
+    first, so "..<VT>include:: child.rst" is an include.  But a line clip
+    counts lines with a raw splitlines(), so under ":start-line: 2" the
+    vertical tab does split "intro<VT>more", and the include is the third
+    line.  Discovery must follow that exact order: converting first misses
+    the second case as surely as splitting first misses the first."""
+    root = _NEST_ROOT + f".. include:: mid.rst{include_options}\n"
+    paths = _files(rst_repo, root=root, mid=mid, child=_CHILD)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, *mode, "child.rst")
+
+    assert paths["child"].read_text(encoding="utf-8") == _CHILD, out
+    if mode == ("fix", "--fast"):
+        assert code == 1, out
+        assert f"this file may be included by mid.rst:{line}" in out
