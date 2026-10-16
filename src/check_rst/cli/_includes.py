@@ -10,10 +10,10 @@ includers: a reverse, transitive include graph over a defined universe.
 
 The universe (decision D9d):
 
-* the discovery roots: an active configuration's directory; an active Sphinx
-  source directory when it lies outside that root; otherwise each selected
-  file's Git worktree; outside Git, the working directory for files beneath
-  it.  A selected file outside every root is *uncovered*, and its callers
+* the discovery roots: an active configuration's directory, otherwise each
+  selected file's Git worktree or, outside Git, the working directory for
+  files beneath it; and an active Sphinx source directory as a root of its
+  own, with or without configuration.  A selected file outside every root is *uncovered*, and its callers
   must refuse structural changes rather than judge it alone;
 * the automatic scan population: files with a source suffix under the roots,
   never Git metadata, never a Git-ignored path, never through a directory
@@ -24,8 +24,10 @@ The graph is lexical.  A lexical scan cannot tell an include directive from
 include-looking text inside a comment or a literal block, so every site it
 records is only *possible*: a parser-free caller must treat it as real and
 refuse, while a parsing caller may confirm it.  Site paths resolve like
-Docutils, relative to the file that contains the directive; under Sphinx a
-leading ``/`` names the source directory.
+Docutils, from the lexical path the containing file is opened by, so a file
+reached through a symlink is its own include context; under Sphinx a leading
+``/`` names the source directory.  Canonical paths serve only identity:
+role membership and matching a target to a selected file.
 """
 
 from __future__ import annotations
@@ -56,11 +58,14 @@ _GIT_METADATA = ".git"
 class LexicalInclude:
     """One possible ``include`` site found by a lexical scan.
 
-    ``includer`` is the canonical path of the file holding the directive and
-    ``line`` its 1-based physical line.  ``target`` is the argument resolved
-    lexically from the includer's directory, without following symlinks, so
-    distinct lexical paths stay distinct contexts; ``canonical_target``
-    follows symlinks, so role membership matches one real file.
+    ``includer`` is the absolute *lexical* path of the file holding the
+    directive, the path it was opened by, and ``line`` its 1-based physical
+    line.  ``target`` is the argument resolved from that lexical path without
+    following symlinks, as Docutils resolves it: an includer reached through a
+    symlink includes relative to the symlink's directory.  Distinct lexical
+    paths therefore stay distinct contexts, while ``canonical_includer`` and
+    ``canonical_target`` follow symlinks so that role membership and target
+    matching see one real file.
     """
 
     includer: pathlib.Path
@@ -74,6 +79,10 @@ class LexicalInclude:
     def structural(self) -> bool:
         """Whether the included file's titles can join the includer's."""
         return not any(name in _TEXT_ONLY_OPTIONS for name, _value in self.options)
+
+    @property
+    def canonical_includer(self) -> pathlib.Path:
+        return self.includer.resolve()
 
     @property
     def canonical_target(self) -> pathlib.Path:
@@ -100,8 +109,6 @@ def discovery_roots(
     roots: list[pathlib.Path] = []
     if config_root is not None:
         roots.append(config_root.resolve())
-        if sphinx_src is not None:
-            roots.append(sphinx_src.resolve())
     else:
         working = cwd.resolve()
         for path in selected:
@@ -111,6 +118,10 @@ def discovery_roots(
                 roots.append(pathlib.Path(repo.workdir).resolve())
             elif _within(real, working):
                 roots.append(working)
+    # An active Sphinx source is a root of its own, with or without a
+    # configuration; inside another root it is redundant and dropped below.
+    if sphinx_src is not None:
+        roots.append(sphinx_src.resolve())
     established: list[pathlib.Path] = []
     for root in roots:
         if any(_within(root, kept) for kept in established):
@@ -137,7 +148,13 @@ def scan_population(
     *,
     suffixes: Sequence[str] = (".rst",),
 ) -> tuple[pathlib.Path, ...]:
-    """Return the canonical automatic includer scan population under *roots*."""
+    """Return the automatic includer scan population under *roots*.
+
+    Paths are lexical, under the canonical roots: a file symlink keeps its own
+    path, because an includer resolves its includes from the path it is
+    opened by.  It counts only when it resolves to a regular file inside a
+    root.
+    """
     root_list = [root.resolve() for root in roots]
     found: set[pathlib.Path] = set()
     for root in root_list:
@@ -160,7 +177,7 @@ def scan_population(
                     continue
                 real = candidate.resolve()
                 if real.is_file() and any(_within(real, kept) for kept in root_list):
-                    found.add(real)
+                    found.add(candidate)
     return tuple(sorted(found))
 
 
@@ -179,7 +196,7 @@ def lexical_includes(
     Standard Docutils data includes (``<isonum.txt>``) name no project file
     and are skipped.  An argument may continue on the next indented line.
     """
-    includer = path.resolve()
+    includer = pathlib.Path(os.path.abspath(path))
     lines = (path.read_text(encoding="utf-8") if text is None else text).splitlines()
     sites: list[LexicalInclude] = []
     for index, line in enumerate(lines):
@@ -198,9 +215,14 @@ def lexical_includes(
         if not argument or (argument.startswith("<") and argument.endswith(">")):
             continue
         options: list[tuple[str, str]] = []
+        # An option belongs to the directive only inside its indented block:
+        # a shallower ":name:" line is outside it, as Docutils parses it.
         while cursor < len(lines):
             option = _OPTION_RE.match(lines[cursor])
-            if option is None:
+            if (
+                option is None
+                or _indent_width(lines[cursor][: len(lines[cursor]) - len(lines[cursor].lstrip())]) <= indent
+            ):
                 break
             options.append((option["name"].lower(), option["value"] or ""))
             cursor += 1
@@ -242,7 +264,7 @@ class IncludeGraph:
         sphinx_src: pathlib.Path | None = None,
     ) -> IncludeGraph:
         """Scan *population* and every structural include target it reaches."""
-        queue = collections.deque(path.resolve() for path in population)
+        queue = collections.deque(pathlib.Path(os.path.abspath(path)) for path in population)
         seen: set[pathlib.Path] = set()
         sites: list[LexicalInclude] = []
         unreadable: list[pathlib.Path] = []
@@ -258,9 +280,10 @@ class IncludeGraph:
                 continue
             for site in lexical_includes(path, text=text, sphinx_src=sphinx_src):
                 sites.append(site)
-                target = site.canonical_target
-                if site.structural and target not in seen and target.is_file():
-                    queue.append(target)
+                # Follow the lexical target: its own includes resolve from the
+                # path Docutils opens it by.
+                if site.structural and site.target not in seen and site.target.is_file():
+                    queue.append(site.target)
         return cls(sites, unreadable)
 
     def includers(self, path: pathlib.Path) -> tuple[LexicalInclude, ...]:
@@ -268,17 +291,18 @@ class IncludeGraph:
         return tuple(self._by_target.get(path.resolve(), ()))
 
     def transitive_includers(self, path: pathlib.Path) -> tuple[pathlib.Path, ...]:
-        """Return every file that may include *path*, nearest first."""
+        """Return the canonical files that may include *path*, nearest first."""
         order: list[pathlib.Path] = []
         queue = collections.deque([path.resolve()])
         visited: set[pathlib.Path] = set()
         while queue:
             current = queue.popleft()
             for site in self._by_target.get(current, ()):
-                if site.includer not in visited:
-                    visited.add(site.includer)
-                    order.append(site.includer)
-                    queue.append(site.includer)
+                includer = site.canonical_includer
+                if includer not in visited:
+                    visited.add(includer)
+                    order.append(includer)
+                    queue.append(includer)
         return tuple(order)
 
     def may_be_included(self, path: pathlib.Path) -> bool:

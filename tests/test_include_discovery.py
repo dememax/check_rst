@@ -273,7 +273,8 @@ def _docutils_text(path: Path) -> str:
     tree = docutils.core.publish_doctree(
         path.read_text(encoding="utf-8"), source_path=str(path), settings_overrides={"report_level": 5}
     )
-    return tree.astext()
+    text: str = tree.astext()
+    return text
 
 
 @pytest.mark.integration
