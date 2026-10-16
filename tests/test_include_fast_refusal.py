@@ -10,7 +10,9 @@ that leaves the file's titles and their styles as they are, such as pure
 adornment geometry, still applies, and byte hygiene always applies.
 
 The remedy is the command's own: full fix for fix --fast, full diff for
-diff --fast.
+diff --fast.  entitle shares fast mode's discovery and safety boundary
+(D9c), but it always changes the title model and has no full mode: it
+refuses any file that may be included and names no other command.
 """
 
 from __future__ import annotations
@@ -36,8 +38,10 @@ def _commit(repo: Path, *names: str) -> None:
     subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture"], check=True)
 
 
-def _run(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str]:
-    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", *argv])
+def _run(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], *argv: str, no_config: bool = True
+) -> tuple[int, str]:
+    monkeypatch.setattr("sys.argv", ["check_rst.py", *(["--no-config"] if no_config else []), *argv])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     code = exc.value.code
@@ -288,3 +292,131 @@ def test_fix_fast_still_fixes_an_includer_whose_includes_cannot_contribute_title
 
     assert code == 0, out
     assert main.read_text(encoding="utf-8").startswith("######\nMain\n######\n")
+
+
+# ---------------------------------------------------------------------------
+# entitle (D9c): fast mode's boundary, without a full-mode remedy
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("apply", [False, True], ids=["preview", "apply"])
+def test_entitle_refuses_a_file_that_may_be_included(
+    project: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], apply: bool
+) -> None:
+    """entitle used to wrap part.rst alone and break main.rst's hierarchy.
+    It has no full mode to suggest, and fix does not wrap."""
+    code, out = _run(monkeypatch, capsys, "entitle", "Book", "part.rst", *(["--apply"] if apply else []))
+
+    assert code == 1, out
+    assert (
+        "check_rst: part.rst: ERROR: entitle refused — this file may be included by main.rst:15, so its title "
+        "levels depend on that document, and entitle judges one file alone"
+    ) in out
+    assert "run full" not in out
+    assert "@@" not in out
+    assert (project / "part.rst").read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_entitle_refuses_an_includer_whose_fragment_contributes_titles(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main = _includer(rst_repo, "part.rst")
+    (rst_repo / "part.rst").write_text("Shared\n******\n\nBody.\n", encoding="utf-8")
+    before = main.read_text(encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "entitle", "Book", "main.rst", "--apply")
+
+    assert code == 1, out
+    assert (
+        "check_rst: main.rst: ERROR: entitle refused — this file includes part.rst at line 6, whose titles join "
+        "this document's hierarchy, and entitle judges one file alone"
+    ) in out
+    assert main.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.integration
+def test_entitle_reads_the_configuration_with_fast_mode_semantics(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The configured roles apply; the configured Sphinx settings stay
+    inactive, as in fast mode."""
+    (rst_repo / ".check_rst.toml").write_text('sphinx-src = "docs"\nfragments = ["contact.rst"]\n', encoding="utf-8")
+    contact = rst_repo / "contact.rst"
+    contact.write_text(_PART, encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "entitle", "Book", "contact.rst", no_config=False)
+
+    assert code == 1, out
+    assert "config: .check_rst.toml — fragments=contact.rst, sphinx-src=docs inactive (entitle)" in out
+    assert (
+        "check_rst: contact.rst: ERROR: entitle refused — this file is declared a fragment "
+        "(.check_rst.toml 'contact.rst'), so its title levels depend on an includer check_rst cannot see — "
+        "edit its titles by hand, or remove the declaration if it is not a fragment"
+    ) in out
+    assert contact.read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_entitle_accepts_an_explicit_configuration_and_still_wraps(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    doc = rst_repo / "doc.rst"
+    doc.write_text(_PART, encoding="utf-8")
+    config = rst_repo / "cfg.toml"
+    config.write_text('standalone = ["doc.rst"]\n', encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "--config", str(config), "entitle", "Book", "doc.rst", no_config=False)
+
+    assert code == 0, out
+    assert f"config: {config} — standalone=doc.rst" in out
+    assert "+Book" in out
+    assert doc.read_text(encoding="utf-8") == _PART, "a preview writes nothing"
+
+
+@pytest.mark.integration
+def test_entitle_matches_the_command_line_role_patterns(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (rst_repo / "doc.rst").write_text(_PART, encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "--fragment", "typo/*.rst", "entitle", "Book", "doc.rst")
+
+    assert code == 1, out
+    assert "check_rst: --fragment: fragments pattern 'typo/*.rst' matches no file" in out
+
+
+@pytest.mark.integration
+def test_entitle_refuses_a_file_outside_every_discovery_root(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    part = elsewhere / "part.rst"
+    part.write_text(_PART, encoding="utf-8")
+    monkeypatch.chdir(tmp_path_factory.mktemp("cwd"))
+
+    code, out = _run(monkeypatch, capsys, "entitle", "Book", str(part), "--apply")
+
+    assert code == 1, out
+    assert "entitle refused — this file lies outside every discovery root (" in out
+    assert "run from the project root or pass --config" in out
+    assert part.read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_entitle_still_wraps_a_file_nothing_includes(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    doc = rst_repo / "doc.rst"
+    doc.write_text(_PART, encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "entitle", "Book", "doc.rst", "--apply")
+
+    assert code == 0, out
+    assert doc.read_text(encoding="utf-8").startswith("######\nBook\n######\n")

@@ -692,7 +692,10 @@ def test_black_box_entitle_refuses_top_level_include_composition(tmp_path: Path)
     assert applied.returncode == 1
     for result in (preview, applied):
         assert result.stderr == ""
-        assert "top-level include composition is outside entitle's one-file safety boundary" in result.stdout
+        assert (
+            "this file includes first.rst at line 1, whose titles join this document's hierarchy, "
+            "and entitle judges one file alone"
+        ) in result.stdout
         assert "--- index.rst" not in result.stdout
     assert {path: path.read_bytes() for path in originals} == originals
 

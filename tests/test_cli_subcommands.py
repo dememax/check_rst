@@ -634,10 +634,9 @@ def test_list_table_quiet_help_matches_shared_wording() -> None:
 
 # ---------------------------------------------------------------------------
 # entitle: a new top-level title above a document's existing content.
-# Fully self-contained, same shape as hierarchy — --config/--sphinx-src/
-# --build-dir are all rejected (one explicit file, no project or Sphinx
-# state to root); --no-config stays a harmless no-op for the same reason
-# already established for hierarchy/compare --snapshots.
+# One explicit file and no Sphinx state, so --sphinx-src/--build-dir are
+# rejected; it shares fast mode's include discovery (CR-43, D9c), so
+# --config/--no-config and the include roles are accepted.
 # ---------------------------------------------------------------------------
 
 
@@ -660,10 +659,8 @@ def test_entitle_apply_and_quiet_flags() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    ("flag", "value"), [("--sphinx-src", "docs"), ("--build-dir", "/tmp/x"), ("--config", "x.toml")]
-)
-def test_entitle_rejects_project_identity_flags(flag: str, value: str) -> None:
+@pytest.mark.parametrize(("flag", "value"), [("--sphinx-src", "docs"), ("--build-dir", "/tmp/x")])
+def test_entitle_rejects_sphinx_flags(flag: str, value: str) -> None:
     args = _parse([flag, value, "entitle", "New Title", "file.rst"])
     with pytest.raises(SystemExit) as exc:
         cli._validate_entitle_args(args)
@@ -671,8 +668,13 @@ def test_entitle_rejects_project_identity_flags(flag: str, value: str) -> None:
 
 
 @pytest.mark.unit
-def test_entitle_allows_no_config() -> None:
-    args = _parse(["--no-config", "entitle", "New Title", "file.rst"])
+@pytest.mark.parametrize(
+    "flags",
+    [["--no-config"], ["--config", "x.toml"], ["--standalone", "a.rst", "--fragment", "b.rst"]],
+    ids=["no-config", "config", "roles"],
+)
+def test_entitle_accepts_configuration_and_include_roles(flags: list[str]) -> None:
+    args = _parse([*flags, "entitle", "New Title", "file.rst"])
     cli._validate_entitle_args(args)  # must not raise
 
 

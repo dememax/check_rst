@@ -501,16 +501,15 @@ def test_cli_entitle_rejects_missing_file(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("flag", ["--config", "--sphinx-src", "--build-dir"])
-def test_cli_entitle_rejects_project_identity_flags(
+@pytest.mark.parametrize("flag", ["--sphinx-src", "--build-dir"])
+def test_cli_entitle_rejects_sphinx_flags(
     flag: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = _rst(tmp_path, "Old Title\n#########\n\nBody.\n")
-    value = str(tmp_path) if flag != "--config" else str(tmp_path / "check_rst.toml")
-    monkeypatch.setattr("sys.argv", ["check_rst.py", flag, value, "entitle", "New Title", str(path)])
+    monkeypatch.setattr("sys.argv", ["check_rst.py", flag, str(tmp_path), "entitle", "New Title", str(path)])
 
     with pytest.raises(SystemExit) as exc:
         cli.main()
