@@ -244,8 +244,43 @@ def test_a_configured_sphinx_source_locates_a_rooted_include_in_fast_mode(
     code, out = _run(monkeypatch, capsys, *argv, no_config=False)
 
     assert code == 1, out
+    assert "sphinx-src=docs discovery-only (" in out
     assert "this file may be included by docs/sub/index.rst:9, so its title levels depend on that document" in out
     assert part.read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("argv", "command"),
+    [
+        (("fix", "--fast", "doc.rst"), "fix --fast"),
+        (("diff", "--fast", "doc.rst"), "diff --fast"),
+        (("entitle", "Book", "doc.rst"), "entitle"),
+    ],
+    ids=["fix", "diff", "entitle"],
+)
+def test_a_discovery_only_sphinx_source_must_be_a_sphinx_source(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv: tuple[str, ...],
+    command: str,
+) -> None:
+    """The configured source now decides where a "/" include points, so a
+    typo must fail rather than silently change discovery."""
+    (rst_repo / ".check_rst.toml").write_text('sphinx-src = "dosc"\n', encoding="utf-8")
+    doc = rst_repo / "doc.rst"
+    doc.write_text(_PART, encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, *argv, no_config=False)
+
+    assert code == 1, out
+    assert (
+        f"check_rst: no conf.py found in sphinx-src {rst_repo.resolve() / 'dosc'} — {command} never runs Sphinx, "
+        "but uses its source directory to find includers"
+    ) in out
+    assert doc.read_text(encoding="utf-8") == _PART
 
 
 def _rooted_project(repo: Path) -> Path:
@@ -452,9 +487,11 @@ def test_entitle_refuses_an_includer_whose_fragment_contributes_titles(
 def test_entitle_reads_the_configuration_with_fast_mode_semantics(
     rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The configured roles apply; the configured Sphinx settings stay
-    inactive, as in fast mode."""
+    """The configured roles apply.  The configured Sphinx source is used
+    only to find includers, as in fast mode, and Sphinx never runs."""
     (rst_repo / ".check_rst.toml").write_text('sphinx-src = "docs"\nfragments = ["contact.rst"]\n', encoding="utf-8")
+    (rst_repo / "docs").mkdir()
+    (rst_repo / "docs" / "conf.py").write_text('project = "p"\n', encoding="utf-8")
     contact = rst_repo / "contact.rst"
     contact.write_text(_PART, encoding="utf-8")
     monkeypatch.chdir(rst_repo)
@@ -462,7 +499,7 @@ def test_entitle_reads_the_configuration_with_fast_mode_semantics(
     code, out = _run(monkeypatch, capsys, "entitle", "Book", "contact.rst", no_config=False)
 
     assert code == 1, out
-    assert "config: .check_rst.toml — fragments=contact.rst, sphinx-src=docs inactive (entitle)" in out
+    assert "config: .check_rst.toml — fragments=contact.rst, sphinx-src=docs discovery-only (entitle)" in out
     assert (
         "check_rst: contact.rst: ERROR: entitle refused — this file is declared a fragment "
         "(.check_rst.toml 'contact.rst'), so its title levels depend on an includer check_rst cannot see — "

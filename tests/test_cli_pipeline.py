@@ -1040,9 +1040,13 @@ def test_cli_fix_only_ignores_configured_sphinx_and_never_parses(
     document.write_text(_BAD_BLOCK, encoding="utf-8")
     config = tmp_path / "check-rst.toml"
     config.write_text(
-        'sphinx-src = "missing-docs"\nbuild-dir = "missing-build"\n',
+        'sphinx-src = "docs"\nbuild-dir = "missing-build"\n',
         encoding="utf-8",
     )
+    # Fast mode checks that the source directory is a Sphinx source, since it
+    # finds includers through it, but never executes conf.py.
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "conf.py").write_text("raise SystemExit('conf.py must not run')\n", encoding="utf-8")
 
     def unexpected_phase(*_args: object, **_kwargs: object) -> None:
         pytest.fail("--fix-only must not parse RST or construct/run Sphinx")
@@ -1060,7 +1064,7 @@ def test_cli_fix_only_ignores_configured_sphinx_and_never_parses(
 
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    assert "sphinx-src=missing-docs inactive (--fast)" in out
+    assert "sphinx-src=docs discovery-only (--fast)" in out
     assert "build-dir=missing-build inactive (--fast)" in out
     assert _helpers.CALL_COUNTS["_parse_rst"] == 0
     assert _helpers.CALL_COUNTS["_build_sphinx_env"] == 0
@@ -1083,9 +1087,13 @@ def test_cli_diff_fast_ignores_configured_sphinx_and_never_parses(
     document.write_text(_BAD_BLOCK, encoding="utf-8")
     config = tmp_path / "check-rst.toml"
     config.write_text(
-        'sphinx-src = "missing-docs"\nbuild-dir = "missing-build"\n',
+        'sphinx-src = "docs"\nbuild-dir = "missing-build"\n',
         encoding="utf-8",
     )
+    # Fast mode checks that the source directory is a Sphinx source, since it
+    # finds includers through it, but never executes conf.py.
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "conf.py").write_text("raise SystemExit('conf.py must not run')\n", encoding="utf-8")
 
     def unexpected_phase(*_args: object, **_kwargs: object) -> None:
         pytest.fail("diff --fast must not parse RST or construct/run Sphinx")
@@ -1102,7 +1110,7 @@ def test_cli_diff_fast_ignores_configured_sphinx_and_never_parses(
         cli.main()
 
     out = capsys.readouterr().out
-    assert "sphinx-src=missing-docs inactive (--fast)" in out
+    assert "sphinx-src=docs discovery-only (--fast)" in out
     assert "build-dir=missing-build inactive (--fast)" in out
     assert _helpers.CALL_COUNTS["_parse_rst"] == 0
     assert _helpers.CALL_COUNTS["_build_sphinx_env"] == 0
