@@ -100,6 +100,9 @@ class FindingCode(enum.StrEnum):
     # One character with and without an overline: two levels to Docutils, one
     # level to the old placeholder convention.  Never fixable; refuses the fix.
     HIERARCHY_AMBIGUOUS_STYLE = "hierarchy.ambiguous-style"
+    # CR-43: a title-model change that depends on an include context check_rst
+    # cannot judge.  A non-fixable ERROR when such a change is refused.
+    INCLUDE_CONTEXT_UNAVAILABLE = "include.context-unavailable"
     # Semantic lint left to author judgment.
     TEXT_HOMOGLYPH = "text.homoglyph"
     INLINE_NESTED_MARKUP = "inline.nested-markup"
@@ -253,9 +256,10 @@ class FixPlan:
     counts: FixCounts
     text_space_counts: TextSpaceCounts
     blank_lines_removed: int
-    # Title-model ambiguities that blocked every title and adornment change in
-    # this file.  The plan still carries byte hygiene and the other stages;
-    # the caller reports each refusal and exits 1.
+    # Title-model ambiguities, or an include context check_rst cannot judge
+    # (CR-43), that blocked every title and adornment change in this file.
+    # The plan still carries byte hygiene and the other stages; the caller
+    # reports each refusal and exits 1.
     refusals: tuple[Finding, ...] = ()
 
     @property

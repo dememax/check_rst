@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import bisect
+import dataclasses
 import difflib
 import itertools
 import pathlib
@@ -1257,6 +1258,63 @@ def _changed_line_count(before: str, after: str) -> int:
 
 
 def _plan_fix(
+    path: pathlib.Path,
+    whole_file: bool,
+    *,
+    include_structure: bool,
+    include_blank_lines: bool = False,
+    collapse_title_spaces: bool = False,
+    single_space_prose: bool = False,
+    project_root: pathlib.Path | None = None,
+    include_guard: str | None = None,
+) -> FixPlan:
+    """Compute a fix, refusing a title-model change the include guard forbids.
+
+    *include_guard* is the refusal text for a file whose include context the
+    caller cannot judge (CR-43): a possible fragment, a declared one, an
+    uncovered file, or an incomplete include graph.  The file may still change
+    in every way that keeps its title model, meaning its titles and their
+    styles in order: byte hygiene, the editorial stages, and pure adornment
+    geometry.  Such a change is the same in every context.  A plan that would
+    add, drop or restyle a title is replaced by the plan without the
+    structural stage, carrying an include.context-unavailable refusal anchored
+    on the first title that would change.
+    """
+
+    def planned(structure: bool) -> FixPlan:
+        return _plan_fix_unguarded(
+            path,
+            whole_file,
+            include_structure=structure,
+            include_blank_lines=include_blank_lines,
+            collapse_title_spaces=collapse_title_spaces,
+            single_space_prose=single_space_prose,
+            project_root=project_root,
+        )
+
+    plan = planned(include_structure)
+    if include_guard is None or not include_structure:
+        return plan
+    normalized, _findings, _counts = _normalize_source_detailed(plan.original)
+    before = _title_style_events(normalized.splitlines())
+    after = _title_style_events(plan.fixed.splitlines())
+    if [style for _index, style in before] == [style for _index, style in after]:
+        return plan
+    changed = next((old for old, new in zip(before, after, strict=False) if old[1] != new[1]), None)
+    if changed is None:
+        changed = before[len(after)] if len(before) > len(after) else after[len(before)]
+    unstructured = planned(False)
+    refusal = Finding(
+        lineno=changed[0] + 1,
+        severity=Severity.ERROR,
+        text=include_guard,
+        fixable=False,
+        code=FindingCode.INCLUDE_CONTEXT_UNAVAILABLE,
+    )
+    return dataclasses.replace(unstructured, refusals=(*plan.refusals, refusal))
+
+
+def _plan_fix_unguarded(
     path: pathlib.Path,
     whole_file: bool,
     *,

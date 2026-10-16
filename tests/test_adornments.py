@@ -2806,6 +2806,8 @@ def test_cli_fast_fix_repairs_title_immediately_after_list_item(
     path = tmp_path / "doc.rst"
     source = "- item\nSection\n=======\n\nBody.\n"
     path.write_text(source, encoding="utf-8")
+    # Run from the file's own directory, so a discovery root covers it (D9d).
+    monkeypatch.chdir(tmp_path)
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "fix", "--fast", str(path)])
     with pytest.raises(SystemExit) as fix_exit:

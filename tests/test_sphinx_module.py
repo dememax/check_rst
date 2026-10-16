@@ -560,6 +560,8 @@ def test_skip_fixable_exit_status_matches_check_after_fix(
     finding that survives fix.  Every Phase 1 defect in these fixtures is
     fixable, so the pre-fix skip-fixable status must equal the post-fix
     check status exactly."""
+    # Run from the project, so a discovery root covers the file (D9d).
+    monkeypatch.chdir(tmp_path)
     doc = _write_verified_doc(tmp_path, text)
 
     skip_fixable_code, _ = _verified_run(tmp_path, monkeypatch, capsys, "check", "--skip-fixable", str(doc))

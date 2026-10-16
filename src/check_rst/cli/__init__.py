@@ -123,6 +123,7 @@ def _run_fix_only(
     scope: str,
     quiet: bool,
     verbose: bool,
+    include_guards: dict[pathlib.Path, str] | None = None,
 ) -> NoReturn:
     """Plan every selected mutation, then write and report structured results."""
     if not quiet:
@@ -138,6 +139,7 @@ def _run_fix_only(
                     whole_file,
                     include_structure=include_structure,
                     project_root=project_root,
+                    include_guard=(include_guards or {}).get(path.resolve()),
                 )
             )
         except UnicodeDecodeError as exc:
@@ -662,6 +664,8 @@ _FAST_ALLOWLIST: dict[str, frozenset[str]] = {
             "no_adornments",
             "recursive",
             "exclude",
+            "standalone",
+            "fragment",
             "quiet",
             "verbose",
             "max_output_lines",
@@ -676,6 +680,8 @@ _FAST_ALLOWLIST: dict[str, frozenset[str]] = {
             "no_adornments",
             "recursive",
             "exclude",
+            "standalone",
+            "fragment",
             "quiet",
         }
     ),
@@ -1164,6 +1170,7 @@ def _run_diff_only(
     project_root: pathlib.Path,
     *,
     no_adornments: bool,
+    include_guards: dict[pathlib.Path, str] | None = None,
 ) -> NoReturn:
     """diff's own non-fast, read-only preview: byte-hygiene + adornment/
     hierarchy diff only, no lint/statistics/Sphinx (that's Phase 1-3, the
@@ -1174,7 +1181,13 @@ def _run_diff_only(
     errors = 0
     for path in files:
         try:
-            plan = _plan_fix(path, whole_file, include_structure=not no_adornments, project_root=project_root)
+            plan = _plan_fix(
+                path,
+                whole_file,
+                include_structure=not no_adornments,
+                project_root=project_root,
+                include_guard=(include_guards or {}).get(path.resolve()),
+            )
         except UnicodeDecodeError as exc:
             err_line = exc.object.count(b"\n", 0, exc.start) + 1
             _emit_report_line(
@@ -1750,6 +1763,7 @@ def _main() -> None:
             scope=scope,
             quiet=args.quiet,
             verbose=args.verbose,
+            include_guards=_fast_include_refusals(args, loaded_config, files, verb="fix"),
         )
 
     if args.context is not None:
@@ -1770,7 +1784,13 @@ def _main() -> None:
             )
 
     if args.diff_only:
-        _run_diff_only(files, whole_file, project_root, no_adornments=args.no_adornments)
+        _run_diff_only(
+            files,
+            whole_file,
+            project_root,
+            no_adornments=args.no_adornments,
+            include_guards=_fast_include_refusals(args, loaded_config, files, verb="diff"),
+        )
 
     _run_check_pipeline(
         args,
@@ -1869,6 +1889,52 @@ def _resolve_declared_roles(
             {"pattern": item.pattern, "source": item.source, "matches": [shown(path) for path in matched]}
         )
     return roles, record
+
+
+def _include_refusal_text(guard: _includes.IncludeGuard, verb: str) -> str:
+    """Word an include guard as a refusal, with this command's own remedy.
+
+    Only a possible include site has a full-mode remedy: full fix or diff can
+    confirm and compose it.  A declared fragment, an uncovered file and an
+    incomplete graph each need the user's action instead.
+    """
+    if guard.kind == "included":
+        return (
+            f"this file may be included by {guard.evidence}, so its title levels depend on that document, "
+            f"which fast mode cannot judge — run full {verb} to judge it in context"
+        )
+    if guard.kind == "fragment":
+        return (
+            f"this file is declared a fragment ({guard.evidence}), so its title levels depend on an includer "
+            "check_rst cannot see — edit its titles by hand, or remove the declaration if it is not a fragment"
+        )
+    if guard.kind == "uncovered":
+        return (
+            f"this file lies outside every discovery root ({guard.evidence}), so check_rst cannot search for "
+            "its includers — run from the project root or pass --config"
+        )
+    return (
+        f"the include graph is incomplete: {guard.evidence} cannot be read, so check_rst cannot rule out that "
+        "it includes this file — make it readable or ignore it"
+    )
+
+
+def _fast_include_refusals(
+    args: argparse.Namespace,
+    loaded_config: LoadedConfig,
+    files: list[pathlib.Path],
+    *,
+    verb: str,
+) -> dict[pathlib.Path, str]:
+    """Return the CR-43 refusal text of each selected file fast mode cannot judge alone."""
+    guards = _includes.fast_include_guards(
+        files,
+        roles=args.declared_roles,
+        config_root=loaded_config.root if loaded_config.source else None,
+        sphinx_src=args.sphinx_src,
+        cwd=pathlib.Path.cwd(),
+    )
+    return {path: _include_refusal_text(guard, verb) for path, guard in guards.items()}
 
 
 def _json_failure_document(message: str, exit_code: int) -> dict[str, Any]:

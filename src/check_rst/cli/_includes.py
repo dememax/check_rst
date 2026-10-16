@@ -458,3 +458,69 @@ def resolve_roles(declared: Sequence[RolePattern], roots: Sequence[pathlib.Path]
         fragments=frozenset(members["fragments"]),
         matches=tuple(matches),
     )
+
+
+# ---------------------------------------------------------------------------
+# The conservative fast refusal (rule 7)
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class IncludeGuard:
+    """Why a selected file's title model cannot be judged alone, parser-free.
+
+    ``kind`` is ``"fragment"`` (a declared fragment), ``"included"`` (a
+    possible structural include site names the file), ``"uncovered"`` (no
+    discovery root covers it) or ``"unreadable"`` (the include graph is
+    incomplete).  ``evidence`` is what the message cites: the declaring
+    pattern, the first include site, the roots, or the unreadable files.
+    """
+
+    kind: str
+    evidence: str
+
+
+def fast_include_guards(
+    files: Sequence[pathlib.Path],
+    *,
+    roles: DeclaredRoles | None,
+    config_root: pathlib.Path | None,
+    sphinx_src: pathlib.Path | None,
+    cwd: pathlib.Path,
+) -> dict[pathlib.Path, IncludeGuard]:
+    """Return, by canonical path, the guard of each selected file that has one.
+
+    A parser-free caller cannot confirm or compose an include context, so any
+    of these reasons is enough for it to refuse a change to the file's title
+    model.  One reason is reported per file, the most specific first.
+    """
+    working = cwd.resolve()
+
+    def shown(path: pathlib.Path) -> str:
+        absolute = pathlib.Path(os.path.abspath(path))
+        return absolute.relative_to(working).as_posix() if absolute.is_relative_to(working) else absolute.as_posix()
+
+    roots, uncovered = discovery_roots(files, config_root=config_root, sphinx_src=sphinx_src, cwd=cwd)
+    graph = IncludeGraph.build(scan_population(roots), sphinx_src=sphinx_src)
+    declared: dict[pathlib.Path, RolePattern] = {}
+    if roles is not None:
+        for item, matched in roles.matches:
+            if item.role == "fragments":
+                for path in matched:
+                    declared.setdefault(path.resolve(), item)
+    guards: dict[pathlib.Path, IncludeGuard] = {}
+    for path in files:
+        real = path.resolve()
+        sites = graph.includers(real)
+        if real in declared:
+            item = declared[real]
+            guards[real] = IncludeGuard("fragment", f"{item.source} {item.pattern!r}")
+        elif sites:
+            others = len({site.includer for site in sites}) - 1
+            more = f" and {others} more" if others else ""
+            guards[real] = IncludeGuard("included", f"{shown(sites[0].includer)}:{sites[0].line}{more}")
+        elif real in uncovered:
+            guards[real] = IncludeGuard("uncovered", ", ".join(str(root) for root in roots) or "none")
+        elif graph.unreadable:
+            guards[real] = IncludeGuard("unreadable", ", ".join(shown(item) for item in graph.unreadable))
+    return guards
