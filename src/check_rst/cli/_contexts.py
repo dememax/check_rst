@@ -28,16 +28,22 @@ edit, confined to the file.  An edit that also changes another file, a line
 a clip cuts, or one of Docutils' synthetic lines is refused, because fix
 changes only the file it plans.  Each mapping is proven by recomposing the
 context from the mapped file: the result must be the planner's own output.
+Then Docutils itself parses the root with its real include directives, the
+planned text standing in for the file, and must read the section tree the
+planner expects (contract rule 5, P4d).
 """
 
 from __future__ import annotations
 
 import collections
+import contextlib
 import dataclasses
 import difflib
+import pathlib
 from typing import TYPE_CHECKING
 
 import docutils.frontend
+import docutils.io
 import docutils.nodes
 import docutils.parsers.rst
 import docutils.utils
@@ -51,8 +57,8 @@ from ._includes import IncludeGraph, IncludeGuard, LexicalInclude, lexical_inclu
 from ._types import Finding, FindingCode, Severity
 
 if TYPE_CHECKING:
-    import pathlib
-    from collections.abc import Sequence
+    import os
+    from collections.abc import Iterator, Sequence
 
     from ._includes import IncludeUniverse
     from ._sphinx import PlanningFacts
@@ -209,6 +215,82 @@ def _text_sites(path: pathlib.Path, lines: Sequence[str], sites: Sequence[Lexica
             if any(isinstance(ancestor, _VERBATIM) for ancestor in ancestors):
                 proven.add(site_line)
     return {site_line for token, site_line in tokens.items() if site_line in proven and token not in seen}
+
+
+@contextlib.contextmanager
+def _planned_input(text: str) -> Iterator[None]:
+    """Make Docutils' FileInput, which ``Include.read_file`` opens, read
+    *text*.  Docutils then clips it exactly as it clips the file."""
+    original = docutils.io.FileInput
+
+    class _PlannedInput(docutils.io.FileInput):
+        def read(self) -> str:
+            return text
+
+    vars(docutils.io)["FileInput"] = _PlannedInput
+    try:
+        yield
+    finally:
+        vars(docutils.io)["FileInput"] = original
+
+
+def _planned_include(own: pathlib.Path, own_text: str, sphinx_src: pathlib.Path | None) -> type[Directive]:
+    """Docutils' own include, reading *own* as its planned text, with
+    Sphinx's reading of a leading "/" when a source directory is known."""
+
+    class _PlannedInclude(DocutilsInclude):
+        def run(self) -> Sequence[docutils.nodes.Node]:
+            if sphinx_src is not None and self.arguments[0].startswith("/"):
+                self.arguments[0] = str(sphinx_src / self.arguments[0].lstrip("/"))
+            return super().run()
+
+        def read_file(self, path: str | os.PathLike[str]) -> str:
+            if pathlib.Path(path).resolve() == own:
+                with _planned_input(own_text):
+                    return super().read_file(path)
+            return super().read_file(path)
+
+    return _PlannedInclude
+
+
+def _docutils_depths(
+    root: pathlib.Path, root_text: str, own: pathlib.Path, own_text: str, sphinx_src: pathlib.Path | None
+) -> list[int]:
+    """Return the nesting depth of every section Docutils parses in *root*.
+
+    The parse runs Docutils' real include directives, with *own* read as its
+    planned text, so it checks the lexical composition and the planned titles
+    together.  No transform runs, so a lone top section stays a section.
+    """
+    settings = docutils.frontend.get_default_settings(docutils.parsers.rst.Parser())
+    settings.halt_level = 5
+    settings.report_level = 5
+    document = docutils.utils.new_document(str(root), settings)
+    registry = _directive_registry()
+    old = registry.get("include")
+    directives.register_directive("include", _planned_include(own, own_text, sphinx_src))
+    try:
+        docutils.parsers.rst.Parser().parse(root_text, document)
+    finally:
+        if old is None:
+            registry.pop("include", None)
+        else:
+            directives.register_directive("include", old)
+    depths: list[int] = []
+    for section in document.findall(docutils.nodes.section):
+        depth = 1
+        parent = section.parent
+        while parent is not None:
+            depth += isinstance(parent, docutils.nodes.section)
+            parent = parent.parent
+        depths.append(depth)
+    return depths
+
+
+def _ranked_depths(lines: list[str]) -> list[int]:
+    """Return each title's level as Docutils ranks styles: by first encounter."""
+    ranks: dict[tuple[str, bool], int] = {}
+    return [ranks.setdefault(style, len(ranks) + 1) for _index, style in _title_style_events(lines)]
 
 
 def _check_composable(site: LexicalInclude) -> None:
@@ -427,7 +509,31 @@ class ContextStage:
                     "this file — make that document's titles consistent by hand",
                 ),
             )
+        if not self._parses_as_planned(root, mapped, fixed):
+            return _Outcome(
+                label,
+                refusal=self._finding(
+                    min(start for start, _end, _new in edits) + 1,
+                    f"in the document {self._shown(root)} composes, Docutils would read the planned titles as a "
+                    "different section tree, so fix leaves them unchanged — edit its titles by hand in context",
+                ),
+            )
         return _Outcome(label, tuple(mapped))
+
+    def _parses_as_planned(self, root: pathlib.Path, mapped: list[str], fixed: list[str]) -> bool:
+        """Rule 5: Docutils' own parse of the planned root has the planned
+        section tree.  A parse that fails proves nothing, so it refuses."""
+        own_text = "\n".join(mapped) + "\n"
+        root_lines = mapped if root.resolve() == self.own else self.composer.disk_lines(root)
+        if root_lines is None:
+            return False
+        try:
+            parsed = _docutils_depths(
+                root, "\n".join(root_lines) + "\n", self.own, own_text, self.composer.universe.sphinx_src
+            )
+        except Exception:  # any parser failure: the plan is unproven
+            return False
+        return parsed == _ranked_depths(fixed)
 
     def _composed_ranges(self, composition: _Composition, ranges: _Ranges) -> list[tuple[int, int]]:
         """Translate the file's own 1-based ranges into composed coordinates.
