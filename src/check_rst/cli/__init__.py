@@ -330,8 +330,8 @@ def _run_entitle(args: argparse.Namespace, loaded_config: LoadedConfig) -> NoRet
     """entitle's own verb body — one explicit file and no Sphinx state,
     but fast mode's include discovery (CR-43, D9c): entitle always changes
     the title model, so a file that may be included, a declared fragment,
-    an uncovered file, an incomplete include graph, or an include that may
-    add titles is refused before preview or write. Preview by default,
+    an uncovered file, an incomplete include graph, or a possible structural
+    include of its own is refused before preview or write. Preview by default,
     matching list-table's own precedent for a new structural-mutation
     verb; --apply writes. Exit status answers whether the transformation
     was computed/written, not whether a diff happened to be non-empty —
@@ -995,8 +995,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
             "Modifier role: insert NAME as this document's new depth-1 title, demoting its "
             "existing top-level content into NAME's own children, then renormalize the whole "
             "document with the same hierarchy/adornment fixer that fix already uses. One "
-            "explicit file, judged alone without Sphinx: a file that may be included, or whose "
-            "includes may add titles, is refused."
+            "explicit file, judged alone without Sphinx: a file that may be included, or that "
+            "includes a file other than as literal text, is refused."
         ),
         epilog=_DOCUMENTATION_EPILOG,
     )
@@ -1939,7 +1939,7 @@ def _include_refusal_text(guard: _includes.IncludeGuard, verb: str) -> str:
             "check_rst cannot see — edit its titles by hand, or remove the declaration if it is not a fragment"
         )
     if guard.kind == "includes":
-        return f"this file includes {guard.evidence}, whose titles join this document's hierarchy{judged}"
+        return f"this file includes {guard.evidence}, so its hierarchy depends on what that file adds{judged}"
     if guard.kind == "uncovered":
         return (
             f"this file lies outside every discovery root ({guard.evidence}), so check_rst cannot search for "

@@ -45,15 +45,16 @@ includers, as ``fix --fast`` does, honouring the configuration and the
 refuses:
 
 * a file that may be included, or that is declared a fragment;
-* a file whose own includes may add titles;
+* a file that includes another file, other than as ``:literal:`` or
+  ``:code:`` text, since fast discovery cannot prove what it adds;
 * a file outside every discovery root, whose includers cannot be searched;
 * any file while another file in the project cannot be read, since it may
   hold an include.
 
 ``entitle`` has no full mode, and ``fix`` does not wrap, so such a file needs
 composition-aware manual restructuring.  A top-level ``include`` directive is
-outside the one-file safety boundary too, and is refused even when it adds no
-titles.  A file whose titles ``fix`` would refuse to renormalize, such as
+outside the one-file safety boundary too, and is refused even when it is
+literal text.  A file whose titles ``fix`` would refuse to renormalize, such as
 one that uses a character both with and without an overline, is refused the
 same way; the message names the line and the ambiguity, and the guide's
 "Refused fixes" section explains how to resolve it.
