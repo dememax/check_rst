@@ -471,13 +471,58 @@ class IncludeGuard:
 
     ``kind`` is ``"fragment"`` (a declared fragment), ``"included"`` (a
     possible structural include site names the file), ``"uncovered"`` (no
-    discovery root covers it) or ``"unreadable"`` (the include graph is
-    incomplete).  ``evidence`` is what the message cites: the declaring
-    pattern, the first include site, the roots, or the unreadable files.
+    discovery root covers it), ``"unreadable"`` (the include graph is
+    incomplete) or ``"includes"`` (the file itself includes a fragment that
+    may contribute titles).  ``evidence`` is what the message cites: the
+    declaring pattern, the first include site, the roots, the unreadable
+    files, or the included target and its site's line.
     """
 
     kind: str
     evidence: str
+
+
+def _may_contribute_titles(
+    target: pathlib.Path,
+    *,
+    sphinx_src: pathlib.Path | None,
+    visiting: set[pathlib.Path],
+) -> bool:
+    """Whether an included *target* may add titles to its includer.
+
+    Any line that could be a title adornment counts, so a transition or a
+    literal ``::`` does too: a parser-free caller may over-refuse but must
+    never miss a title.  A target that cannot be read proves nothing, and the
+    question follows the target's own structural includes, once per file.
+    """
+    real = target.resolve()
+    if real in visiting:
+        return False
+    visiting.add(real)
+    try:
+        text = target.read_text(encoding="utf-8")
+    except OSError, UnicodeDecodeError:
+        return True
+    if any(_helpers._is_adornment(line.rstrip()) for line in text.splitlines()):
+        return True
+    return any(
+        _may_contribute_titles(site.target, sphinx_src=sphinx_src, visiting=visiting)
+        for site in lexical_includes(target, text=text, sphinx_src=sphinx_src)
+        if site.structural
+    )
+
+
+def _title_contributing_site(path: pathlib.Path, *, sphinx_src: pathlib.Path | None) -> LexicalInclude | None:
+    """Return the first structural include in *path* that may add titles."""
+    try:
+        sites = lexical_includes(path, sphinx_src=sphinx_src)
+    except OSError, UnicodeDecodeError:
+        return None
+    visiting = {path.resolve()}
+    for site in sites:
+        if site.structural and _may_contribute_titles(site.target, sphinx_src=sphinx_src, visiting=visiting):
+            return site
+    return None
 
 
 def fast_include_guards(
@@ -523,4 +568,9 @@ def fast_include_guards(
             guards[real] = IncludeGuard("uncovered", ", ".join(str(root) for root in roots) or "none")
         elif graph.unreadable:
             guards[real] = IncludeGuard("unreadable", ", ".join(shown(item) for item in graph.unreadable))
+        elif (site := _title_contributing_site(path, sphinx_src=sphinx_src)) is not None:
+            # Q1: the includer's own plan ignores the titles its fragments
+            # contribute, so changing its styles could restructure the
+            # composed document.
+            guards[real] = IncludeGuard("includes", f"{shown(site.target)} at line {site.line}")
     return guards

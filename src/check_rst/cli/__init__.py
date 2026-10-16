@@ -1894,9 +1894,10 @@ def _resolve_declared_roles(
 def _include_refusal_text(guard: _includes.IncludeGuard, verb: str) -> str:
     """Word an include guard as a refusal, with this command's own remedy.
 
-    Only a possible include site has a full-mode remedy: full fix or diff can
-    confirm and compose it.  A declared fragment, an uncovered file and an
-    incomplete graph each need the user's action instead.
+    Only a possible include site, on either side, has a full-mode remedy:
+    full fix or diff can confirm and compose it.  A declared fragment, an
+    uncovered file and an incomplete graph each need the user's action
+    instead.
     """
     if guard.kind == "included":
         return (
@@ -1907,6 +1908,11 @@ def _include_refusal_text(guard: _includes.IncludeGuard, verb: str) -> str:
         return (
             f"this file is declared a fragment ({guard.evidence}), so its title levels depend on an includer "
             "check_rst cannot see — edit its titles by hand, or remove the declaration if it is not a fragment"
+        )
+    if guard.kind == "includes":
+        return (
+            f"this file includes {guard.evidence}, whose titles join this document's hierarchy, "
+            f"which fast mode cannot judge — run full {verb} to judge it in context"
         )
     if guard.kind == "uncovered":
         return (
