@@ -74,11 +74,16 @@ _STANDALONE = "standalone use"
 @dataclasses.dataclass(frozen=True, slots=True)
 class _Origin:
     """Where one composed line comes from: a canonical file and its 0-based
-    physical line, *partial* when a clip boundary falls inside it."""
+    physical line, *partial* when a clip boundary falls inside it.
+
+    *reported* is the 1-based line Docutils gives it: Docutils numbers an
+    inserted text from its own first line, so a clip shifts the number.
+    """
 
     path: pathlib.Path
     index: int
     partial: bool = False
+    reported: int = 0
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -289,10 +294,15 @@ def _planned_include(own: pathlib.Path, own_text: str, sphinx_src: pathlib.Path 
     return _PlannedInclude
 
 
-def _docutils_depths(
+type _Section = tuple[pathlib.Path | None, int | None, int]
+"""A section's identity: its title's canonical source, the line Docutils
+reports for the title (its underline), and its nesting depth."""
+
+
+def _docutils_sections(
     root: pathlib.Path, root_text: str, own: pathlib.Path, own_text: str, sphinx_src: pathlib.Path | None
-) -> list[int]:
-    """Return the nesting depth of every section Docutils parses in *root*.
+) -> list[_Section]:
+    """Return every section Docutils parses in *root*, in document order.
 
     The parse runs Docutils' real include directives, with *own* read as its
     planned text, so it checks the lexical composition and the planned titles
@@ -304,21 +314,31 @@ def _docutils_depths(
     document = docutils.utils.new_document(str(root), settings)
     with _builtins_only(_planned_include(own, own_text, sphinx_src)):
         docutils.parsers.rst.Parser().parse(root_text, document)
-    depths: list[int] = []
+    sections: list[_Section] = []
     for section in document.findall(docutils.nodes.section):
         depth = 1
         parent = section.parent
         while parent is not None:
             depth += isinstance(parent, docutils.nodes.section)
             parent = parent.parent
-        depths.append(depth)
-    return depths
+        title = section.children[0] if section.children else None
+        source = getattr(title, "source", None)
+        line = getattr(title, "line", None)
+        sections.append((pathlib.Path(source).resolve() if isinstance(source, str) else None, line, depth))
+    return sections
 
 
-def _ranked_depths(lines: list[str]) -> list[int]:
-    """Return each title's level as Docutils ranks styles: by first encounter."""
+def _planned_sections(composition: _Composition) -> list[_Section]:
+    """Return the sections the planner expects, in document order: each
+    title's underline origin, and its level as Docutils ranks styles, by
+    first encounter."""
     ranks: dict[tuple[str, bool], int] = {}
-    return [ranks.setdefault(style, len(ranks) + 1) for _index, style in _title_style_events(lines)]
+    sections: list[_Section] = []
+    for index, style in _title_style_events(list(composition.lines)):
+        origin = composition.origins[index + 1] if index + 1 < len(composition.origins) else None
+        rank = ranks.setdefault(style, len(ranks) + 1)
+        sections.append((origin.path, origin.reported, rank) if origin is not None else (None, None, rank))
+    return sections
 
 
 def _check_composable(site: LexicalInclude) -> None:
@@ -414,6 +434,7 @@ class Composer:
 
         def expand(path: pathlib.Path, selection: _Selection, stack: tuple[tuple[object, ...], ...]) -> None:
             real = path.resolve()
+            base = selection[0][1] if selection else 0
             full = text_of(path) or []
             sites = {
                 site.line - 1: (site, verdict)
@@ -427,7 +448,7 @@ class Composer:
                 found = sites.get(index)
                 if found is None or cut:
                     lines.append(text)
-                    origins.append(_Origin(real, index, cut))
+                    origins.append(_Origin(real, index, cut, index - base + 1))
                     offset += 1
                     continue
                 site, verdict = found
@@ -559,7 +580,8 @@ class ContextStage:
                 ),
             )
         mapped = self._apply(lines, edits)
-        if mapped is None or list(self.composer.compose(root, self.own, mapped).lines) != fixed:
+        recomposed = self.composer.compose(root, self.own, mapped) if mapped is not None else None
+        if mapped is None or recomposed is None or list(recomposed.lines) != fixed:
             return _Outcome(
                 label,
                 refusal=self._finding(
@@ -568,7 +590,7 @@ class ContextStage:
                     "this file — make that document's titles consistent by hand",
                 ),
             )
-        if not self._parses_as_planned(root, mapped, fixed):
+        if not self._parses_as_planned(root, mapped, recomposed):
             return _Outcome(
                 label,
                 refusal=self._finding(
@@ -579,20 +601,22 @@ class ContextStage:
             )
         return _Outcome(label, tuple(mapped))
 
-    def _parses_as_planned(self, root: pathlib.Path, mapped: list[str], fixed: list[str]) -> bool:
+    def _parses_as_planned(self, root: pathlib.Path, mapped: list[str], planned: _Composition) -> bool:
         """Rule 5: Docutils' own parse of the planned root has the planned
-        section tree.  A parse that fails proves nothing, so it refuses."""
+        section tree, title by title: the same source line becomes a section
+        at the same depth.  A parse that fails proves nothing, so it refuses."""
         own_text = "\n".join(mapped) + "\n"
         root_lines = mapped if root.resolve() == self.own else self.composer.disk_lines(root)
         if root_lines is None:
             return False
         try:
-            parsed = _docutils_depths(
+            parsed = _docutils_sections(
                 root, "\n".join(root_lines) + "\n", self.own, own_text, self.composer.universe.sphinx_src
             )
         except Exception:  # any parser failure: the plan is unproven
             return False
-        return parsed == _ranked_depths(fixed)
+        expected = _planned_sections(planned)
+        return all(path is not None for path, _line, _depth in expected) and parsed == expected
 
     def _composed_ranges(self, composition: _Composition, ranges: _Ranges) -> list[tuple[int, int]]:
         """Translate the file's own 1-based ranges into composed coordinates.
