@@ -674,11 +674,12 @@ class IncludeUniverse:
         config_root: pathlib.Path | None,
         sphinx_src: pathlib.Path | None,
         cwd: pathlib.Path,
+        suffixes: Sequence[str] = (".rst",),
     ) -> None:
         self.working = cwd.resolve()
         self.sphinx_src = sphinx_src
         self.roots, self.uncovered = discovery_roots(files, config_root=config_root, sphinx_src=sphinx_src, cwd=cwd)
-        self.graph = IncludeGraph.scan(self.roots, sphinx_src=sphinx_src)
+        self.graph = IncludeGraph.scan(self.roots, sphinx_src=sphinx_src, suffixes=suffixes)
         self.declared: dict[pathlib.Path, RolePattern] = {}
         self.standalone: frozenset[pathlib.Path] = roles.standalone if roles is not None else frozenset()
         if roles is not None:

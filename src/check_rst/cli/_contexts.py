@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from ._includes import IncludeUniverse
+    from ._sphinx import PlanningFacts
 
 type _Ranges = list[tuple[int, int]] | None
 type _Selection = list[tuple[str, int, bool]]
@@ -540,7 +541,10 @@ class ContextStage:
 
 
 def full_mode_planning(
-    universe: IncludeUniverse, composer: Composer, path: pathlib.Path
+    universe: IncludeUniverse,
+    composer: Composer,
+    path: pathlib.Path,
+    sphinx: PlanningFacts | None = None,
 ) -> tuple[IncludeGuard | None, ContextStage | None]:
     """Return *path*'s unavailable-context guard and its context stage.
 
@@ -548,6 +552,10 @@ def full_mode_planning(
     with no include of its own and no declaration, is its own only context.
     The stage judges the available contexts; the guard, when one context is
     unavailable, still refuses any edit that changes the title model.
+
+    In verified mode, *sphinx* adds the project's facts: a document of the
+    environment has a standalone context, and a project that may transform
+    an include leaves only an include-free standalone context available.
     """
     real = path.resolve()
     guard = universe.unavailable_guard(path)
@@ -561,9 +569,17 @@ def full_mode_planning(
         site.structural and not composer.is_refuted(site)
         for site in lexical_includes(path, text="\n".join(own_lines), sphinx_src=universe.sphinx_src)
     )
-    standalone = (not graph.may_be_included(real) and real not in universe.declared) or real in universe.standalone
+    standalone = (
+        (not graph.may_be_included(real) and real not in universe.declared)
+        or real in universe.standalone
+        or (sphinx is not None and real in sphinx.documents)
+    )
     if not roots and not own_includes:
         return guard, None
+    if sphinx is not None and sphinx.transform is not None:
+        guard = guard or IncludeGuard("transformed", sphinx.transform)
+        alone = [(path, _STANDALONE)] if standalone and not own_includes else []
+        return guard, (ContextStage(composer, path, alone) if alone else None)
     candidates = [(root, universe.shown(root)) for root in roots]
     if standalone:
         candidates.append((path, _STANDALONE))

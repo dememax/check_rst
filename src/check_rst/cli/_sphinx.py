@@ -279,6 +279,68 @@ def _build_sphinx_env(
     return app.env, warning_stream.getvalue()
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class PlanningFacts:
+    """What the Sphinx project decides about include contexts (CR-43 P4c).
+
+    ``documents`` are the canonical paths of the environment's documents,
+    each a standalone context (D9b).  ``suffixes`` are its source suffixes,
+    the scan population (D9d).  ``transform``, when set, names why an
+    include may add something other than its target's lines (Q4).
+    """
+
+    documents: frozenset[pathlib.Path]
+    suffixes: tuple[str, ...]
+    transform: str | None
+
+
+def planning_facts(sphinx_src: pathlib.Path) -> PlanningFacts:
+    """Read the project's include facts from a constructed, unbuilt app.
+
+    Constructing the application executes conf.py and sets up every
+    extension, which is enough: the environment discovers its documents,
+    the configuration holds the suffixes, and the event manager and the
+    directive registry show any transformation.  A bare application has no
+    include-read or source-read listener and registers Sphinx's own include,
+    so any other state comes from the project.  Nothing is built, and the
+    output goes to a throwaway directory inside Sphinx's registry namespace.
+    """
+    import io
+    import tempfile
+
+    from docutils.parsers.rst import directives
+    from sphinx.application import Sphinx
+    from sphinx.directives.other import Include as SphinxInclude
+    from sphinx.util.docutils import docutils_namespace
+
+    with tempfile.TemporaryDirectory(prefix="check-rst-facts-") as scratch, docutils_namespace():
+        try:
+            app = Sphinx(
+                srcdir=str(sphinx_src),
+                confdir=str(sphinx_src),
+                outdir=str(pathlib.Path(scratch) / "out"),
+                doctreedir=str(pathlib.Path(scratch) / "doctrees"),
+                buildername="dummy",
+                status=io.StringIO(),
+                warning=io.StringIO(),
+            )
+        # Any failure of conf.py or an extension: a broken configuration is
+        # Phase 2's to report, and until then nothing about the project's
+        # includes is known.
+        except Exception:
+            return PlanningFacts(frozenset(), (".rst",), "a configuration check_rst cannot load")
+        documents = frozenset(pathlib.Path(app.env.doc2path(name)).resolve() for name in app.env.found_docs)
+        suffixes = tuple(dict.fromkeys((".rst", *app.config.source_suffix)))
+        transform = None
+        if app.events.listeners.get("include-read"):
+            transform = "an include-read handler"
+        elif app.events.listeners.get("source-read"):
+            transform = "a source-read handler"
+        elif vars(directives).get("_directives", {}).get("include") is not SphinxInclude:
+            transform = "an extension's include directive"
+        return PlanningFacts(documents, suffixes, transform)
+
+
 def _build_sphinx_env_checked(
     sphinx_src: pathlib.Path,
     build_dir: pathlib.Path,

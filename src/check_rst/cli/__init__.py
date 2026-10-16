@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from check_rst import DOCUMENTATION_URL, __copyright__, __license__, __version__
 
-from . import _comparison, _contexts, _formatting, _helpers, _includes, _output
+from . import _comparison, _contexts, _formatting, _helpers, _includes, _output, _sphinx
 from ._config import LoadedConfig, _load_config
 from ._formatting import _plan_fix, diff_entitle, fix_entitle, render_plan_diff
 from ._helpers import (
@@ -1962,6 +1962,11 @@ def _include_refusal_text(guard: _includes.IncludeGuard, verb: str) -> str:
         )
     if guard.kind == "includes":
         return f"this file includes {guard.evidence}, so its hierarchy depends on what that file adds{judged}"
+    if guard.kind == "transformed":
+        return (
+            f"its title levels depend on include contexts this project's Sphinx configuration may transform "
+            f"({guard.evidence}), so check_rst cannot compose them — edit its titles by hand in context"
+        )
     if guard.kind == "uncomposable":
         return (
             f"its title levels depend on the include at {guard.evidence}, which check_rst cannot compose "
@@ -1993,18 +1998,22 @@ def _full_include_planning(
     """Return, by canonical path, each selected file's full-mode include
     guard text and context stage (CR-43 P4a); a file absent from the result
     keeps today's standalone plan."""
+    # Verified mode reads the project's own facts (P4c): its documents,
+    # its source suffixes, and whether it may transform an include.
+    facts = _sphinx.planning_facts(args.sphinx_src) if args.sphinx_src is not None else None
     universe = _includes.IncludeUniverse(
         files,
         roles=args.declared_roles,
         config_root=loaded_config.root if loaded_config.source else None,
         sphinx_src=_discovery_sphinx_src(args, loaded_config),
         cwd=pathlib.Path.cwd(),
+        suffixes=facts.suffixes if facts is not None else (".rst",),
     )
     composer = _contexts.Composer(universe)
     composer.refute_text_sites()
     planning: dict[pathlib.Path, tuple[str | None, StructureStage | None]] = {}
     for path in files:
-        guard, stage = _contexts.full_mode_planning(universe, composer, path)
+        guard, stage = _contexts.full_mode_planning(universe, composer, path, facts)
         if guard is not None or stage is not None:
             planning[path.resolve()] = (None if guard is None else _include_refusal_text(guard, args.command), stage)
     return planning
