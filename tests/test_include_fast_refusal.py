@@ -248,6 +248,61 @@ def test_a_configured_sphinx_source_locates_a_rooted_include_in_fast_mode(
     assert part.read_text(encoding="utf-8") == _PART
 
 
+def _rooted_project(repo: Path) -> Path:
+    (repo / "docs" / "sub").mkdir(parents=True)
+    (repo / "docs" / "sub" / "index.rst").write_text(
+        "######\nMain\n######\n\n*****\nSub\n*****\n\n.. include:: /part.rst\n", encoding="utf-8"
+    )
+    part = repo / "docs" / "part.rst"
+    part.write_text(_PART, encoding="utf-8")
+    return part
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "argv",
+    [("fix", "--fast", "docs/part.rst"), ("entitle", "Book", "docs/part.rst", "--apply")],
+    ids=["fix", "entitle"],
+)
+def test_a_rooted_include_without_a_sphinx_source_refuses_style_changes(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], argv: tuple[str, ...]
+) -> None:
+    """Checkpoint C1, decided with Codex: with no Sphinx source known, as
+    under --no-config, "/part.rst" may name docs/part.rst, so the graph is
+    incomplete rather than guessed."""
+    part = _rooted_project(rst_repo)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, *argv)
+
+    assert code == 1, out
+    assert (
+        "refused — the include graph is incomplete: docs/sub/index.rst:9 includes '/part.rst', a path relative "
+        "to a Sphinx source directory, and none is configured, so check_rst cannot tell which file it names — "
+        "set sphinx-src in the configuration"
+    ) in out
+    assert part.read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_an_includer_reports_its_own_rooted_include_as_an_include(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Its own unresolved include cannot hide an includer of itself."""
+    _rooted_project(rst_repo)
+    index = rst_repo / "docs" / "sub" / "index.rst"
+    index.write_text(index.read_text(encoding="utf-8").replace("######\nMain\n######", "Main\n####"), encoding="utf-8")
+    before = index.read_text(encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "fix", "--fast", "docs/sub/index.rst")
+
+    assert code == 1, out
+    assert f"this file includes /part.rst at line 8, {_INCLUDES_REFUSAL}" in out
+    assert "the include graph is incomplete" not in out
+    assert index.read_text(encoding="utf-8") == before
+
+
 # ---------------------------------------------------------------------------
 # The includer side (Q1)
 # ---------------------------------------------------------------------------

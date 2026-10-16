@@ -190,6 +190,36 @@ def test_an_ignored_directory_that_cannot_be_listed_is_never_entered(inc: types.
     assert graph.unreadable == ()
 
 
+@pytest.mark.integration
+def test_a_rooted_include_without_a_sphinx_source_is_unresolved(inc: types.ModuleType, tmp_path: Path) -> None:
+    """Under Sphinx a leading "/" names the source directory; without one
+    known, a target that is no file at that absolute path is ambiguous."""
+    root = tmp_path.resolve()
+    index = _write(root / "docs" / "sub" / "index.rst", "Text.\n\n.. include:: /part.rst\n")
+    part = _write(root / "docs" / "part.rst", "Text.\n")
+
+    unknown = inc.IncludeGraph.scan((root,))
+    known = inc.IncludeGraph.scan((root,), sphinx_src=root / "docs")
+
+    assert [(site.includer, site.line, site.argument) for site in unknown.unresolved] == [(index, 3, "/part.rst")]
+    assert known.unresolved == ()
+    assert known.may_be_included(part)
+
+
+@pytest.mark.integration
+def test_a_rooted_include_naming_an_existing_file_is_resolved(inc: types.ModuleType, tmp_path: Path) -> None:
+    """Docutils includes the file at that absolute path, and under Sphinx the
+    same argument names nothing, so it is no ambiguity."""
+    root = tmp_path.resolve()
+    part = _write(root / "part.rst", "Text.\n")
+    _write(root / "main.rst", f"Text.\n\n.. include:: {part}\n")
+
+    graph = inc.IncludeGraph.scan((root,))
+
+    assert graph.unresolved == ()
+    assert graph.may_be_included(part)
+
+
 # ---------------------------------------------------------------------------
 # Lexical include sites
 # ---------------------------------------------------------------------------
