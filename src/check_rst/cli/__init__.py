@@ -2001,6 +2001,7 @@ def _full_include_planning(
         cwd=pathlib.Path.cwd(),
     )
     composer = _contexts.Composer(universe)
+    composer.refute_text_sites()
     planning: dict[pathlib.Path, tuple[str | None, StructureStage | None]] = {}
     for path in files:
         guard, stage = _contexts.full_mode_planning(universe, composer, path)

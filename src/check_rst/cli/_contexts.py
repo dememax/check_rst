@@ -18,6 +18,11 @@ the directive block, followed by the two lines Docutils appends to every
 inclusion: a blank line and an end-of-inclusion comment.  Any other include
 makes the context unavailable.
 
+An indented lexical site is proven text when a parse of its file places it
+in a literal block, a comment, or another verbatim node; it is then no
+include (P4b).  Nothing else refutes a site: content an unknown directive
+leaves unparsed may still be parsed by Sphinx.
+
 A structural edit applies only when every available context needs the same
 edit, confined to the file.  An edit that also changes another file, a line
 a clip cuts, or one of Docutils' synthetic lines is refused, because fix
@@ -27,13 +32,22 @@ context from the mapped file: the result must be the planner's own output.
 
 from __future__ import annotations
 
+import collections
 import dataclasses
 import difflib
 from typing import TYPE_CHECKING
 
+import docutils.frontend
+import docutils.nodes
+import docutils.parsers.rst
+import docutils.utils
+from docutils.parsers.rst import Directive, directives
+from docutils.parsers.rst.directives.misc import Include as DocutilsInclude
+
+from ._composition import _directive_registry
 from ._formatting import _structure_plan, _title_style_events
 from ._helpers import _normalize_source, _read_source
-from ._includes import IncludeGuard, LexicalInclude, lexical_includes
+from ._includes import IncludeGraph, IncludeGuard, LexicalInclude, lexical_includes
 from ._types import Finding, FindingCode, Severity
 
 if TYPE_CHECKING:
@@ -117,6 +131,85 @@ def _clip(lines: Sequence[str], options: dict[str, str]) -> _Selection | None:
     ]
 
 
+# Nodes whose text Docutils keeps verbatim: a line inside one is text.
+_VERBATIM = (
+    docutils.nodes.literal_block,
+    docutils.nodes.comment,
+    docutils.nodes.raw,
+    docutils.nodes.doctest_block,
+    docutils.nodes.math_block,
+)
+
+
+def _probe_directive(seen: set[str]) -> type[Directive]:
+    """An ``include`` that records its argument and reads nothing."""
+
+    class _ProbeInclude(Directive):
+        required_arguments = 1
+        final_argument_whitespace = True
+        option_spec = DocutilsInclude.option_spec
+
+        def run(self) -> list[docutils.nodes.Node]:
+            seen.add(self.arguments[0])
+            return []
+
+    return _ProbeInclude
+
+
+def _text_sites(path: pathlib.Path, lines: Sequence[str], sites: Sequence[LexicalInclude]) -> set[int]:
+    """Return the 1-based lines of *sites* that a parse of *path* proves text.
+
+    Each site's argument becomes a unique token, and the file is parsed with
+    an ``include`` that only records the tokens it receives.  A token in a
+    verbatim node is text, unless it is inside an error report, where Docutils
+    quotes an unknown directive's whole block.  A recorded token is a real
+    include, and an unseen one proves nothing.
+    """
+    probed = list(lines)
+    tokens: dict[str, int] = {}
+    for site in sites:
+        text = probed[site.line - 1]
+        cut = text.rfind(site.argument)
+        if cut < 0:
+            continue  # the argument continues on the next line: unprobed
+        token = f"check-rst-probe-{site.line}-end"
+        probed[site.line - 1] = text[:cut] + token + text[cut + len(site.argument) :]
+        tokens[token] = site.line
+    if not tokens:
+        return set()
+    seen: set[str] = set()
+    settings = docutils.frontend.get_default_settings(docutils.parsers.rst.Parser())
+    settings.halt_level = 5
+    settings.report_level = 5
+    settings.file_insertion_enabled = False
+    document = docutils.utils.new_document(str(path), settings)
+    registry = _directive_registry()
+    old = registry.get("include")
+    directives.register_directive("include", _probe_directive(seen))
+    try:
+        docutils.parsers.rst.Parser().parse("\n".join(probed), document)
+    finally:
+        if old is None:
+            registry.pop("include", None)
+        else:
+            directives.register_directive("include", old)
+    proven: set[int] = set()
+    for node in document.findall(docutils.nodes.Text):
+        for token, site_line in tokens.items():
+            if token not in node:
+                continue
+            ancestors: list[docutils.nodes.Element] = []
+            parent = node.parent
+            while parent is not None:
+                ancestors.append(parent)
+                parent = parent.parent
+            if any(isinstance(ancestor, docutils.nodes.system_message) for ancestor in ancestors):
+                continue
+            if any(isinstance(ancestor, _VERBATIM) for ancestor in ancestors):
+                proven.add(site_line)
+    return {site_line for token, site_line in tokens.items() if site_line in proven and token not in seen}
+
+
 def _check_composable(site: LexicalInclude) -> None:
     if site.indent > 0:
         raise _UncomposableError(site, "indented inside another construct")
@@ -138,6 +231,30 @@ class Composer:
     def __init__(self, universe: IncludeUniverse) -> None:
         self.universe = universe
         self._lines: dict[pathlib.Path, list[str] | None] = {}
+        # (canonical includer, 1-based line) of lexical sites proven text.
+        self.refuted: set[tuple[pathlib.Path, int]] = set()
+
+    def refute_text_sites(self) -> None:
+        """Prove which indented lexical sites are text, and drop them from
+        the universe's graph, so they neither include nor are included."""
+        indented: dict[pathlib.Path, list[LexicalInclude]] = collections.defaultdict(list)
+        for site in self.universe.graph.sites:
+            if site.structural and site.indent > 0:
+                indented[site.includer].append(site)
+        for includer, sites in indented.items():
+            lines = self.disk_lines(includer)
+            if lines is not None:
+                self.refuted.update((includer.resolve(), line) for line in _text_sites(includer, lines, sites))
+        if self.refuted:
+            graph = self.universe.graph
+            self.universe.graph = IncludeGraph(
+                [site for site in graph.sites if not self.is_refuted(site)],
+                graph.unreadable,
+                [site for site in graph.unresolved if not self.is_refuted(site)],
+            )
+
+    def is_refuted(self, site: LexicalInclude) -> bool:
+        return (site.canonical_includer, site.line) in self.refuted
 
     def disk_lines(self, path: pathlib.Path) -> list[str] | None:
         real = path.resolve()
@@ -166,7 +283,7 @@ class Composer:
             sites = {
                 site.line - 1: site
                 for site in lexical_includes(path, text="\n".join(full), sphinx_src=self.universe.sphinx_src)
-                if site.structural
+                if site.structural and not self.is_refuted(site)
             }
             position = {index: offset for offset, (_text, index, _cut) in enumerate(selection)}
             offset = 0
@@ -441,7 +558,8 @@ def full_mode_planning(
         return guard or IncludeGuard("uncomposable", site, "it is part of an include cycle"), None
     own_lines = composer.disk_lines(path)
     own_includes = own_lines is not None and any(
-        site.structural for site in lexical_includes(path, text="\n".join(own_lines), sphinx_src=universe.sphinx_src)
+        site.structural and not composer.is_refuted(site)
+        for site in lexical_includes(path, text="\n".join(own_lines), sphinx_src=universe.sphinx_src)
     )
     standalone = (not graph.may_be_included(real) and real not in universe.declared) or real in universe.standalone
     if not roots and not own_includes:
