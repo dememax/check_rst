@@ -409,3 +409,56 @@ def test_a_lexical_alias_of_an_includer_joins_the_check(
     assert "check_rst: also checking alias.rst, which includes part.rst" in out
     assert "also checking shared/mid.rst" not in out
     assert "'Part' comes through the include at alias.rst:5, so check alias.rst" in out
+
+
+def _sphinx_includer(repo: Path, conf: str, main_extra: str = "") -> Path:
+    """A Sphinx project whose selected document part.rst is included by
+    main.rst; the base is committed, then part.rst is broken."""
+    docs = repo / "docs"
+    docs.mkdir()
+    (docs / "conf.py").write_text(conf, encoding="utf-8")
+    (docs / "index.rst").write_text("#######\nIndex\n#######\n", encoding="utf-8")
+    (docs / "main.rst").write_text(_MAIN + main_extra, encoding="utf-8")
+    part = docs / "part.rst"
+    part.write_text(_PART, encoding="utf-8")
+    _commit(repo, "docs")
+    part.write_text(_BROKEN_PART, encoding="utf-8")
+    return docs / "main.rst"
+
+
+@pytest.mark.integration
+def test_an_excluded_joined_includer_gets_the_bare_structural_check(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Codex's P5 review, L4.  main.rst is excluded from the Sphinx project,
+    so it is no Sphinx document: joined, it must get Docutils' structural
+    check in Phase 1, never become a Phase 2 target that aborts the run."""
+    _sphinx_includer(rst_repo, 'project = "p"\nexclude_patterns = ["main.rst"]\n')
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(
+        monkeypatch, capsys, "--sphinx-src", "docs", "--build-dir", str(rst_repo / "_build"), "check", "docs/part.rst"
+    )
+
+    assert code == 1, out
+    assert "not part of the --sphinx-src environment" not in out
+    assert "second effective top-level title 'Shared' follows 'Main'" in out
+
+
+@pytest.mark.integration
+def test_a_joined_sphinx_document_is_checked_without_becoming_a_build_target(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """main.rst is a Sphinx document: its effective structure is Phase 2's to
+    check, from the environment, but it is no requested build target, so
+    its own Sphinx build warnings are not this run's."""
+    _sphinx_includer(rst_repo, 'project = "p"\n', main_extra="\nSee :doc:`missing`.\n")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(
+        monkeypatch, capsys, "--sphinx-src", "docs", "--build-dir", str(rst_repo / "_build"), "check", "docs/part.rst"
+    )
+
+    assert code == 1, out
+    assert "second effective top-level title 'Shared' follows 'Main'" in out
+    assert "unknown document: 'missing'" not in out
