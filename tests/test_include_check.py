@@ -377,3 +377,35 @@ def test_a_standalone_context_makes_the_clip_boundary_disagree(
     assert code == 1, out
     assert "its include contexts need different title edits here: main.rst and standalone use disagree" in out
     assert paths["part"].read_text(encoding="utf-8") == _CLIPPED_PART
+
+
+# ---------------------------------------------------------------------------
+# Codex's P5 review
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_a_lexical_alias_of_an_includer_joins_the_check(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """alias.rst is a symlink to shared/mid.rst, whose ".. include::
+    part.rst" names the selected part.rst only through alias.rst; through
+    shared/mid.rst it names shared/part.rst.  The canonical walk joined
+    shared/mid.rst, which is fine, and missed alias.rst, which the edit
+    broke, so check exited 0."""
+    (rst_repo / "shared").mkdir()
+    (rst_repo / "shared" / "mid.rst").write_text("#####\nMid\n#####\n\n.. include:: part.rst\n", encoding="utf-8")
+    (rst_repo / "alias.rst").symlink_to("shared/mid.rst")
+    (rst_repo / "shared" / "part.rst").write_text("*****\nSub\n*****\n", encoding="utf-8")
+    part = rst_repo / "part.rst"
+    part.write_text("******\nPart\n******\n", encoding="utf-8")
+    _commit(rst_repo, "shared/mid.rst", "alias.rst", "shared/part.rst", "part.rst")
+    part.write_text("######\nPart\n######\n", encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "check", "part.rst")
+
+    assert code == 1, out
+    assert "check_rst: also checking alias.rst, which includes part.rst" in out
+    assert "also checking shared/mid.rst" not in out
+    assert "'Part' comes through the include at alias.rst:5, so check alias.rst" in out
