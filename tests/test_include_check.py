@@ -496,3 +496,20 @@ def test_a_finding_names_every_context_that_proves_it(
 
     assert out.count("part.rst:2: ERROR:") == 1, out
     assert "part.rst:2: ERROR: in the documents main.rst and other.rst compose, underline-only title" in out
+
+
+@pytest.mark.integration
+def test_a_non_preferred_character_stays_visible_beside_an_unavailable_context(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Codex's P5 review, L1: whether a proven title's character is in the
+    preferred hierarchy does not depend on any context, so its style
+    WARNING stays, beside the unavailable-context one."""
+    _files(rst_repo, contact="~~~~~~~~\nShared\n~~~~~~~~\n\nBody.\n")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "--fragment", "contact.rst", "check", "contact.rst")
+
+    assert code == 0, out
+    assert "WARNING: adornment '~' is valid but outside the tool's preferred hierarchy" in out
+    assert "WARNING: this file is declared a fragment" in out
