@@ -150,3 +150,132 @@ def test_check_reports_an_includer_edit_fix_must_refuse(
 
     assert code == 1, out
     assert "its title change also needs part.rst:1 to change, and fix changes only this file" in out
+
+
+# ---------------------------------------------------------------------------
+# Unavailable contexts (P5b): rules 2, 3 and 5
+# ---------------------------------------------------------------------------
+
+_DECLARED = (
+    "WARNING: this file is declared a fragment (--fragment 'contact.rst'), so its title levels depend on an "
+    "includer check_rst cannot see"
+)
+
+
+@pytest.mark.integration
+def test_check_warns_once_for_a_fragment_it_cannot_judge(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Rule 5: one WARNING, on the first title, and normally exit 0.  No
+    context proves the standalone remap, so it is not reported."""
+    _files(rst_repo, contact=_PART)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "--fragment", "contact.rst", "check", "contact.rst")
+
+    assert code == 0, out
+    assert out.count(f"contact.rst:2: {_DECLARED}") == 1, out
+    assert _STANDALONE_REMAP not in out
+
+
+@pytest.mark.integration
+def test_a_title_free_fragment_gets_no_warning(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _files(rst_repo, contact="Jane Doe\nphone: 0100\n")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "--fragment", "contact.rst", "check", "contact.rst")
+
+    assert code == 0, out
+    assert "declared a fragment" not in out
+
+
+@pytest.mark.integration
+def test_an_unavailable_context_makes_a_proven_finding_non_fixable(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Rules 2 and 3: main.rst proves the overline the fragment needs, but
+    the declared, unseen includer may disagree, so fix refuses it and check
+    no longer calls it fixable."""
+    _files(rst_repo, main=_MAIN, part=_DASH)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "--fragment", "part.rst", "check", "--skip-fixable", "part.rst")
+
+    assert code == 1, out
+    assert "part.rst:2: ERROR: in the document main.rst composes, underline-only title" in out
+    assert "part.rst:1: WARNING: this file is declared a fragment (--fragment 'part.rst')" in out
+
+
+@pytest.mark.integration
+def test_a_nested_include_warns_on_its_own_directive(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The uncertainty comes only through main.rst's nested include, so the
+    includer's WARNING sits on that directive; the fragment's sits on its
+    first title, and its standalone remap is proven nowhere."""
+    _files(rst_repo, main="######\nMain\n######\n\n.. note::\n\n   .. include:: part.rst\n", part=_PART)
+    monkeypatch.chdir(rst_repo)
+    reason = "which check_rst cannot compose (indented inside another construct)"
+
+    main_code, main_out = _run(monkeypatch, capsys, "check", "main.rst")
+    part_code, part_out = _run(monkeypatch, capsys, "check", "part.rst")
+
+    assert main_code == 0, main_out
+    assert f"main.rst:7: WARNING: its title levels depend on the include at main.rst:7, {reason}" in main_out
+    assert part_code == 0, part_out
+    assert f"part.rst:2: WARNING: its title levels depend on the include at main.rst:7, {reason}" in part_out
+    assert _STANDALONE_REMAP not in part_out
+
+
+@pytest.mark.integration
+def test_an_uncovered_file_proven_error_is_no_longer_fixable(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mutation fidelity: fix refuses the uncovered file's remap (D9d step
+    5), so --skip-fixable must not hide it."""
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    part = elsewhere / "part.rst"
+    part.write_text(_PART, encoding="utf-8")
+    monkeypatch.chdir(tmp_path_factory.mktemp("cwd"))
+
+    code, out = _run(monkeypatch, capsys, "check", "--skip-fixable", str(part))
+
+    assert code == 1, out
+    assert _STANDALONE_REMAP in out
+    assert "WARNING: this file lies outside every discovery root (" in out
+
+
+@pytest.mark.integration
+def test_the_unavailable_context_warning_is_retainable_and_goes_stale(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Retention identity is the path, the code, and the anchor line's
+    digest: a reviewed WARNING stays hidden until its unique anchor
+    changes."""
+    import hashlib
+
+    contact = _files(rst_repo, contact="========\nUnique anchor title\n========\n\nBody.\n")["contact"]
+    digest = hashlib.sha256(b"Unique anchor title").hexdigest()
+    (rst_repo / ".check_rst-retained.toml").write_text(
+        f'version = 1\n\n[[retain]]\npath = "contact.rst"\ncode = "include.context-unavailable"\n'
+        f'source-sha256 = "{digest}"\nreason = "Reviewed: a fragment of an external template."\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(rst_repo)
+
+    def run() -> str:
+        monkeypatch.setattr("sys.argv", ["check_rst.py", "--fragment", "contact.rst", "check", "contact.rst"])
+        with pytest.raises(SystemExit):
+            cli.main()
+        return capsys.readouterr().out
+
+    retained = run()
+    contact.write_text("========\nA changed anchor\n========\n\nBody.\n", encoding="utf-8")
+    stale = run()
+
+    assert "declared a fragment" not in retained, retained
+    assert "1 retained WARNING(s)" in retained, retained
+    assert "retain entry 1 (contact.rst, include.context-unavailable) matches no current WARNING" in stale
+    assert "contact.rst:2: WARNING: this file is declared a fragment" in stale
