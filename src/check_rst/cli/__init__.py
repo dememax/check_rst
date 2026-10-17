@@ -2012,6 +2012,9 @@ def _full_include_planning(
     # Verified mode reads the project's own facts (P4c): its documents,
     # its source suffixes, and whether it may transform an include.
     facts = _sphinx.planning_facts(args.sphinx_src) if args.sphinx_src is not None else None
+    # Which files Sphinx reads as documents decides how a joined includer's
+    # effective structure is checked (P5c, Codex's three sets).
+    args.sphinx_documents = facts.documents if facts is not None else frozenset()
     universe = _includes.IncludeUniverse(
         files,
         roles=args.declared_roles,

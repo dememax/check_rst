@@ -170,6 +170,34 @@ class IncludePlanning:
     anchor: int | None = None
 
 
+def _sphinx_scope(args: argparse.Namespace, files: list[pathlib.Path]) -> tuple[list[pathlib.Path], list[pathlib.Path]]:
+    """Return the Sphinx build targets and the joined Sphinx documents.
+
+    CR-43 P5c keeps three sets apart (Codex's P5 review).  Phase 1 judges
+    every file.  The build targets are the requested files under sphinx-src:
+    they alone are re-read, built and scoped for Sphinx's own warnings.  A
+    joined includer that Sphinx reads as a document has its effective
+    structure checked in Phase 2 from the environment, without becoming a
+    target.  One Sphinx does not read gets Docutils' structural check in
+    Phase 1.  Without a target there is no verified Phase 2, so then no
+    joined file is deferred to it.
+    """
+    if args.sphinx_src is None:
+        return [], []
+    joined: frozenset[pathlib.Path] = getattr(args, "whole_file_paths", frozenset())
+    documents: frozenset[pathlib.Path] = getattr(args, "sphinx_documents", frozenset())
+    source = args.sphinx_src.resolve()
+    targets = [
+        path
+        for path in files
+        if pathlib.Path(os.path.abspath(path)) not in joined and path.resolve().is_relative_to(source)
+    ]
+    joined_documents = [
+        path for path in files if pathlib.Path(os.path.abspath(path)) in joined and path.resolve() in documents
+    ]
+    return targets, (joined_documents if targets else [])
+
+
 def _include_planning(args: argparse.Namespace, path: pathlib.Path) -> IncludePlanning:
     """Return *path*'s full-mode include planning, by its lexical path: two
     aliases of one file are two documents with their own contexts."""
@@ -419,10 +447,13 @@ def _run_phase1(
         print("-" * 40)
 
     joined: frozenset[pathlib.Path] = getattr(args, "whole_file_paths", frozenset())
+    targets, joined_documents = _sphinx_scope(args, files)
+    sphinx_owned = {pathlib.Path(os.path.abspath(path)) for path in [*targets, *joined_documents]}
     for path in files:
         # A fragment's includer, joined to the check (CR-43 P5c), is judged
         # whole-file even when the run is scoped to Git hunks.
-        file_whole = whole_file or pathlib.Path(os.path.abspath(path)) in joined
+        is_joined = pathlib.Path(os.path.abspath(path)) in joined
+        file_whole = whole_file or is_joined
         if not path.exists():
             if args.json:
                 state.json_records[path] = {
@@ -437,9 +468,12 @@ def _run_phase1(
             continue
 
         pstr = str(path)
-        verified_path = args.sphinx_src is not None and path.resolve().is_relative_to(args.sphinx_src.resolve())
+        verified_path = pathlib.Path(os.path.abspath(path)) in sphinx_owned
         if args.sphinx_src is not None and not verified_path and not args.quiet:
-            print(f"{pstr}: outside sphinx-src — Phase 0/1 only")
+            inside = path.resolve().is_relative_to(args.sphinx_src.resolve())
+            print(
+                f"{pstr}: {'not a Sphinx document' if is_joined and inside else 'outside sphinx-src'} — Phase 0/1 only"
+            )
         state.files_checked += 1
 
         # Phase 0 — byte hygiene, before anything parses the file.  Always
@@ -698,11 +732,8 @@ def _run_sphinx_phases(
     # ------------------------------------------------------------ Phase 2 & 3
     if not args.quiet:
         print()
-    verified_files = (
-        []
-        if args.sphinx_src is None
-        else [path for path in files if path.resolve().is_relative_to(args.sphinx_src.resolve())]
-    )
+    # The build targets: the requested files under sphinx-src (P5c).
+    verified_files, joined_documents = _sphinx_scope(args, files)
     if args.sphinx_src is None or not verified_files:
         if not args.quiet:
             reason = "no --sphinx-src given" if args.sphinx_src is None else "selected files are outside sphinx-src"
@@ -802,17 +833,27 @@ def _run_sphinx_phases(
             # rebuild this same project-wide graph on every iteration of this
             # very loop, against the one shared env it never changes for).
             toctree_anomalies = _toctree_anomalies(env)
-            for path in files:
+            joined_set = {pathlib.Path(os.path.abspath(path)) for path in joined_documents}
+            for path in [*verified_files, *joined_documents]:
+                # A joined document's effective structure only: its other
+                # verified checks belong to a run that selects it.
+                structure_only = pathlib.Path(os.path.abspath(path)) in joined_set
                 bare_filename_doc = state.documents.get(path)
                 if bare_filename_doc is None:
                     continue
                 bare_filename_docname = _docname_for(env, path)
                 if bare_filename_docname is None:
                     continue
-                bare_filename_v = _owned_findings_filter(path, files, project_root)(
-                    check_bare_filenames(env, bare_filename_docname, bare_filename_doc)
+                bare_filename_v = (
+                    []
+                    if structure_only
+                    else _owned_findings_filter(path, files, project_root)(
+                        check_bare_filenames(env, bare_filename_docname, bare_filename_doc)
+                    )
                 )
-                multiple_toctree_v = check_multiple_toctree_parents(env, [path], anomalies=toctree_anomalies)
+                multiple_toctree_v = (
+                    [] if structure_only else check_multiple_toctree_parents(env, [path], anomalies=toctree_anomalies)
+                )
                 single_top_v: list[Finding] = []
                 if not args.no_adornments:
                     get_doctree = getattr(env, "get_doctree", None)
@@ -833,7 +874,7 @@ def _run_sphinx_phases(
                 verified_candidates = [
                     finding
                     for finding in [*bare_filename_v, *single_top_v, *multiple_toctree_v]
-                    if _root_finding_in_scope(finding, bare_filename_doc, whole_file)
+                    if _root_finding_in_scope(finding, bare_filename_doc, whole_file or structure_only)
                 ]
                 verified_v = _apply_retentions(
                     state,
@@ -1004,8 +1045,11 @@ def _run_sphinx_phases(
                 project_root,
             )
             sphinx_v = [_attach_did_you_mean(f, env) for f in sphinx_v]
+            # Sphinx's own warnings are scoped to the build targets: a joined
+            # includer's are not this run's (P5c).
+            target_documents = {path: state.documents[path] for path in verified_files if path in state.documents}
             sphinx_v = [
-                finding for finding in sphinx_v if _sphinx_finding_in_scope(finding, state.documents, whole_file)
+                finding for finding in sphinx_v if _sphinx_finding_in_scope(finding, target_documents, whole_file)
             ]
             sphinx_v = [
                 dataclasses.replace(finding, project_wide=True) if finding.lineno <= 0 else finding
