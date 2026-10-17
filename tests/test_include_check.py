@@ -462,3 +462,20 @@ def test_a_joined_sphinx_document_is_checked_without_becoming_a_build_target(
     assert code == 1, out
     assert "second effective top-level title 'Shared' follows 'Main'" in out
     assert "unknown document: 'missing'" not in out
+
+
+@pytest.mark.integration
+def test_a_title_free_fragment_whose_include_adds_titles_warns_on_the_include(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Codex's P5 review, L3: contact.rst has no title of its own, but its
+    include of titled.rst adds one, so its effective content has
+    context-sensitive structure.  The WARNING sits on that include line,
+    and a contact block with no include still gets none."""
+    _files(rst_repo, contact="Intro text.\n\n.. include:: titled.rst\n", titled="========\nTitled\n========\n\nBody.\n")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "--fragment", "contact.rst", "check", "contact.rst")
+
+    assert code == 0, out
+    assert f"contact.rst:3: {_DECLARED}" in out
