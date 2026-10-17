@@ -562,6 +562,31 @@ class IncludeGraph:
                     queue.append(includer)
         return tuple(order)
 
+    def lexical_includers(self, path: pathlib.Path) -> tuple[pathlib.Path, ...]:
+        """Return, nearest first, the lexical paths of the files that may
+        include *path*, directly or transitively.
+
+        An include resolves from the path its file is opened by, so each
+        lexical path of an includer is its own document.  The walk upward is
+        canonical, which enumerates every site of a file, and can only add an
+        alias whose own include names another file: an extra document to
+        check, never a missing one.
+        """
+        order: list[pathlib.Path] = []
+        seen: set[pathlib.Path] = set()
+        queue = collections.deque([path.resolve()])
+        expanded: set[pathlib.Path] = set()
+        while queue:
+            current = queue.popleft()
+            for site in self._by_target.get(current, ()):
+                if site.includer not in seen:
+                    seen.add(site.includer)
+                    order.append(site.includer)
+                if site.canonical_includer not in expanded:
+                    expanded.add(site.canonical_includer)
+                    queue.append(site.canonical_includer)
+        return tuple(order)
+
     def may_be_included(self, path: pathlib.Path) -> bool:
         return bool(self._by_target.get(path.resolve()))
 

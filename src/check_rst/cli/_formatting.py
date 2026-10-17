@@ -326,6 +326,12 @@ def check_single_top_level(
 
     first = top_level[0]
 
+    # The outermost include is always in the document checked here, named
+    # by its own lexical path: provenance sources are canonical, and an
+    # alias is a document of its own (Codex's P5 review).
+    working = pathlib.Path.cwd()
+    shown = path.relative_to(working) if path.is_absolute() and path.is_relative_to(working) else path
+
     def through(entry: OutlineEntry) -> str:
         """Name the include an included title comes through (CR-43): the
         finding carries the fragment's coordinates, but the document to
@@ -333,8 +339,7 @@ def check_single_top_level(
         chain = entry.provenance.include_chain if entry.provenance is not None else ()
         if not chain:
             return ""
-        site = chain[0]
-        return f"; {entry.title!r} comes through the include at {site.source}:{site.lineno}, so check {site.source}"
+        return f"; {entry.title!r} comes through the include at {shown}:{chain[0].lineno}, so check {shown}"
 
     return [
         Finding(

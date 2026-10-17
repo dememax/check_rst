@@ -1775,7 +1775,7 @@ def _main() -> None:
         if args.command in {"check", "fix", "diff"} and not (args.fix_only or args.diff_only) and not args.no_adornments
         else ({}, [])
     )
-    args.whole_file_paths = frozenset(includer.resolve() for includer, _fragment in joined)
+    args.whole_file_paths = frozenset(pathlib.Path(os.path.abspath(includer)) for includer, _fragment in joined)
     for includer, fragment in joined:
         files.append(includer)
         if not args.quiet:
@@ -2024,9 +2024,11 @@ def _full_include_planning(
     composer.confirm_sites()
     joined: list[tuple[pathlib.Path, str]] = []
     if args.command == "check":
-        known = {path.resolve() for path in files}
+        # Lexical identity throughout: two aliases of one file are two
+        # documents, each with its own includes (Codex's P5 review).
+        known = {pathlib.Path(os.path.abspath(path)) for path in files}
         for path in files:
-            for includer in universe.graph.transitive_includers(path):
+            for includer in universe.graph.lexical_includers(path):
                 if includer not in known:
                     known.add(includer)
                     joined.append((pathlib.Path(universe.shown(includer)), universe.shown(path)))
@@ -2037,7 +2039,7 @@ def _full_include_planning(
             continue
         guard = plan.guard
         own_site = guard.site if guard is not None and guard.site is not None else None
-        planning[path.resolve()] = IncludePlanning(
+        planning[pathlib.Path(os.path.abspath(path))] = IncludePlanning(
             None if guard is None else _include_refusal_text(guard, args.command),
             plan.stage,
             plan.standalone,

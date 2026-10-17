@@ -7,6 +7,7 @@ from __future__ import annotations
 import collections
 import dataclasses
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -170,9 +171,10 @@ class IncludePlanning:
 
 
 def _include_planning(args: argparse.Namespace, path: pathlib.Path) -> IncludePlanning:
-    """Return *path*'s full-mode include planning."""
+    """Return *path*'s full-mode include planning, by its lexical path: two
+    aliases of one file are two documents with their own contexts."""
     planning: dict[pathlib.Path, IncludePlanning] = getattr(args, "include_planning", {})
-    return planning.get(path.resolve(), IncludePlanning())
+    return planning.get(pathlib.Path(os.path.abspath(path)), IncludePlanning())
 
 
 def _judged_in_context(
@@ -420,7 +422,7 @@ def _run_phase1(
     for path in files:
         # A fragment's includer, joined to the check (CR-43 P5c), is judged
         # whole-file even when the run is scoped to Git hunks.
-        file_whole = whole_file or path.resolve() in joined
+        file_whole = whole_file or pathlib.Path(os.path.abspath(path)) in joined
         if not path.exists():
             if args.json:
                 state.json_records[path] = {
