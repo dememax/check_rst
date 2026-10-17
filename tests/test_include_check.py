@@ -279,3 +279,50 @@ def test_the_unavailable_context_warning_is_retainable_and_goes_stale(
     assert "1 retained WARNING(s)" in retained, retained
     assert "retain entry 1 (contact.rst, include.context-unavailable) matches no current WARNING" in stale
     assert "contact.rst:2: WARNING: this file is declared a fragment" in stale
+
+
+# ---------------------------------------------------------------------------
+# Includers join the check set (P5c)
+# ---------------------------------------------------------------------------
+
+# The edit fix --fast used to make: part.rst's "=" title remapped to "#",
+# which in main.rst is a second top-level title.
+_BROKEN_PART = "########\nShared\n########\n\nBody.\n"
+_SECOND_TITLE = "part.rst:2: ERROR: second effective top-level title 'Shared' follows 'Main'"
+_HINT = "'Shared' comes through the include at main.rst:15, so check main.rst"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("scope", [("part.rst",), ()], ids=["explicit", "git-scope"])
+def test_an_includer_broken_by_a_fragment_edit_turns_check_red(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], scope: tuple[str, ...]
+) -> None:
+    """The includers of a selected fragment join the check set, read-only and
+    whole-file: the fragment is consistent with itself, but main.rst now has
+    two document titles.  The validation loop's third step must turn red,
+    in Git hunk scope too."""
+    paths = _files(rst_repo, main=_MAIN, part=_PART)
+    _commit(rst_repo, "main.rst", "part.rst")
+    paths["part"].write_text(_BROKEN_PART, encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "check", *scope)
+
+    assert code == 1, out
+    assert "check_rst: also checking main.rst, which includes part.rst" in out
+    assert _SECOND_TITLE in out
+    assert paths["main"].read_text(encoding="utf-8") == _MAIN
+
+
+@pytest.mark.integration
+def test_the_second_title_hint_names_the_includer(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _files(rst_repo, main=_MAIN, part=_BROKEN_PART)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "check", "main.rst")
+
+    assert code == 1, out
+    assert _SECOND_TITLE in out
+    assert _HINT in out
