@@ -140,13 +140,16 @@ _INCLUDE_REFUSAL_CODES = frozenset({FindingCode.INCLUDE_CONTEXT_UNAVAILABLE, Fin
 
 
 # Structural codes whose fix never changes which lines are titles or their
-# styles: the same in every context (rule 1).  The title-model refusals stay
-# reported too, whatever the context: they are the file's own ambiguities.
+# styles: the same in every context (rule 1).  A proven title's
+# non-preferred character is a style fact of the character itself (Codex's
+# P5 review, L1).  The title-model refusals stay reported too, whatever the
+# context: they are the file's own ambiguities.
 _CONTEXT_INDEPENDENT_CODES = frozenset(
     {
         FindingCode.ADORNMENT_LENGTH,
         FindingCode.ADORNMENT_TITLE_SPACES,
         FindingCode.ADORNMENT_BLANK_AFTER,
+        FindingCode.HIERARCHY_NONPREFERRED_CHAR,
         FindingCode.ADORNMENT_SHARED_LINE,
         FindingCode.ADORNMENT_UNSEPARATED_TITLE,
         FindingCode.HIERARCHY_AMBIGUOUS_STYLE,
