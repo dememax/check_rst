@@ -328,3 +328,52 @@ def test_the_second_title_hint_names_the_includer(
     assert code == 1, out
     assert _SECOND_TITLE in out
     assert _HINT in out
+
+
+# ---------------------------------------------------------------------------
+# K6 (P5d): a clip-boundary edit is judged in context, not on the whole file
+# ---------------------------------------------------------------------------
+
+_CLIPPING_MAIN = _MAIN.replace(".. include:: part.rst\n", ".. include:: part.rst\n   :start-line: 2\n")
+_CLIPPED_PART = "skipped one\nskipped two\nShared\n------\n\nBody.\n"
+_CLIPPED_FIXED = "skipped one\nskipped two\n--------\nShared\n--------\n\nBody.\n"
+
+
+@pytest.mark.integration
+def test_a_clip_boundary_edit_is_judged_in_its_context(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Codex's K6 ruling.  The overline fix inserts above the first selected
+    title lands, physically, right after a clipped-away line, so read whole
+    the file has a shared adornment line.  Every visible context clips that
+    line away, and nothing declares or builds the file as a document, so
+    the whole-file reading has no authority: fix applies the edit, and
+    check judges the result clean."""
+    paths = _files(rst_repo, main=_CLIPPING_MAIN, part=_CLIPPED_PART)
+    monkeypatch.chdir(rst_repo)
+
+    fix_code, fix_out = _run(monkeypatch, capsys, "fix", "part.rst")
+    check_code, check_out = _run(monkeypatch, capsys, "check", "part.rst")
+
+    assert paths["part"].read_text(encoding="utf-8") == _CLIPPED_FIXED, fix_out
+    assert fix_code == 0, fix_out
+    assert check_code == 0, check_out
+    assert "adornment.shared-line" not in check_out
+    assert "is both the underline of" not in check_out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("command", ["fix", "check"])
+def test_a_standalone_context_makes_the_clip_boundary_disagree(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    """The other half of K6: declared standalone, the whole-file reading is a
+    context, which disagrees with the clipped one, so both commands refuse."""
+    paths = _files(rst_repo, main=_CLIPPING_MAIN, part=_CLIPPED_PART)
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "--standalone", "part.rst", command, "part.rst")
+
+    assert code == 1, out
+    assert "its include contexts need different title edits here: main.rst and standalone use disagree" in out
+    assert paths["part"].read_text(encoding="utf-8") == _CLIPPED_PART
