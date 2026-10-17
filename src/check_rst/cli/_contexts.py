@@ -493,6 +493,20 @@ def _style_token(style: tuple[str, bool]) -> str:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class ContextPlan:
+    """A file's full-mode include planning (CR-43 P4 and P5).
+
+    *guard* names an unavailable context, *stage* judges the available
+    ones, and *standalone* says whether the file's own standalone use is a
+    context.  With neither, the file keeps today's standalone plan.
+    """
+
+    guard: IncludeGuard | None = None
+    stage: ContextStage | None = None
+    standalone: bool = True
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class _Outcome:
     """One context's verdict: the file's planned lines, or a refusal."""
 
@@ -784,7 +798,7 @@ def full_mode_planning(
     composer: Composer,
     path: pathlib.Path,
     sphinx: PlanningFacts | None = None,
-) -> tuple[IncludeGuard | None, ContextStage | None]:
+) -> ContextPlan:
     """Return *path*'s unavailable-context guard and its context stage.
 
     ``(None, None)`` keeps today's standalone plan: a file nothing includes,
@@ -799,10 +813,16 @@ def full_mode_planning(
     real = path.resolve()
     guard = universe.unavailable_guard(path)
     graph = universe.graph
+    standalone = (
+        (not graph.may_be_included(real) and real not in universe.declared)
+        or real in universe.standalone
+        or (sphinx is not None and real in sphinx.documents)
+    )
     roots, cycle = graph.root_contexts(real, standalone=universe.standalone)
     if cycle is not None:
         site = f"{universe.shown(cycle.includer)}:{cycle.line}"
-        return guard or IncludeGuard("uncomposable", site, "it is part of an include cycle"), None
+        cyclic = IncludeGuard("uncomposable", site, "it is part of an include cycle", cycle)
+        return ContextPlan(guard or cyclic, None, standalone)
     if (
         not roots
         and real in graph.scanned
@@ -810,22 +830,17 @@ def full_mode_planning(
     ):
         # The graph read this file whole and found no include of its own:
         # its standalone plan stands, and the check reads it only once.
-        return guard, None
+        return ContextPlan(guard, None, standalone)
     own_lines = composer.disk_lines(path)
     own_selection = effective_input("\n".join(own_lines), ()) if own_lines else None
     own_parsed = [line for line, _index, _cut in own_selection or []]
     own_includes = any(verdict not in _NO_INCLUDE for _site, verdict in composer.structural_sites(path, own_parsed))
-    standalone = (
-        (not graph.may_be_included(real) and real not in universe.declared)
-        or real in universe.standalone
-        or (sphinx is not None and real in sphinx.documents)
-    )
     if not roots and not own_includes:
-        return guard, None
+        return ContextPlan(guard, None, standalone)
     if sphinx is not None and sphinx.transform is not None:
         guard = guard or IncludeGuard("transformed", sphinx.transform)
         alone = [(path, _STANDALONE)] if standalone and not own_includes else []
-        return guard, (ContextStage(composer, path, alone) if alone else None)
+        return ContextPlan(guard, ContextStage(composer, path, alone) if alone else None, standalone)
     candidates = [(root, universe.shown(root)) for root in roots]
     if standalone:
         candidates.append((path, _STANDALONE))
@@ -836,10 +851,10 @@ def full_mode_planning(
         except _UncomposableError as error:
             if guard is None:
                 site = f"{universe.shown(error.site.includer)}:{error.site.line}"
-                guard = IncludeGuard("uncomposable", site, error.reason)
+                guard = IncludeGuard("uncomposable", site, error.reason, error.site)
             continue
         # A lexical root whose own path never reaches the file, through a
         # clip or an alias, is no context of it.
         if any(origin is not None and origin.path == real for origin in composition.origins):
             available.append((root, label))
-    return guard, (ContextStage(composer, path, available) if available else None)
+    return ContextPlan(guard, ContextStage(composer, path, available) if available else None, standalone)

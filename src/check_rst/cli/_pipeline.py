@@ -18,16 +18,18 @@ if TYPE_CHECKING:
     import argparse
     from collections.abc import Callable
 
-    from ._formatting import StructureStage
+    from ._contexts import ContextStage
+
 
 from . import _reports, _sphinx
 from ._composition import CompositionIndex
-from ._contexts import ContextStage
 from ._document import Document, build_outline
 from ._formatting import (
     _apply_fix_plan,
     _fix_resolved_title_diagnostics,
     _plan_fix,
+    _structure_plan,
+    _title_style_events,
     check_adornments,
     check_hierarchy,
     check_single_top_level,
@@ -136,10 +138,88 @@ class _PipelineState:
 _INCLUDE_REFUSAL_CODES = frozenset({FindingCode.INCLUDE_CONTEXT_UNAVAILABLE, FindingCode.INCLUDE_CONTEXT_CONFLICT})
 
 
-def _include_planning(args: argparse.Namespace, path: pathlib.Path) -> tuple[str | None, StructureStage | None]:
-    """Return *path*'s full-mode include guard text and context stage."""
-    planning: dict[pathlib.Path, tuple[str | None, StructureStage | None]] = getattr(args, "include_planning", {})
-    return planning.get(path.resolve(), (None, None))
+# Structural codes whose fix never changes which lines are titles or their
+# styles: the same in every context (rule 1).  The title-model refusals stay
+# reported too, whatever the context: they are the file's own ambiguities.
+_CONTEXT_INDEPENDENT_CODES = frozenset(
+    {
+        FindingCode.ADORNMENT_LENGTH,
+        FindingCode.ADORNMENT_TITLE_SPACES,
+        FindingCode.ADORNMENT_BLANK_AFTER,
+        FindingCode.ADORNMENT_SHARED_LINE,
+        FindingCode.ADORNMENT_UNSEPARATED_TITLE,
+        FindingCode.HIERARCHY_AMBIGUOUS_STYLE,
+    }
+)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class IncludePlanning:
+    """A selected file's full-mode include planning, as Phase 1 uses it.
+
+    *guard_text* words an unavailable context, *stage* judges the available
+    ones, *standalone* says whether the file's standalone use is a context,
+    and *anchor* is the 1-based line of the file's own include that check_rst
+    cannot compose, when the uncertainty comes only through it.
+    """
+
+    guard_text: str | None = None
+    stage: ContextStage | None = None
+    standalone: bool = True
+    anchor: int | None = None
+
+
+def _include_planning(args: argparse.Namespace, path: pathlib.Path) -> IncludePlanning:
+    """Return *path*'s full-mode include planning."""
+    planning: dict[pathlib.Path, IncludePlanning] = getattr(args, "include_planning", {})
+    return planning.get(path.resolve(), IncludePlanning())
+
+
+def _judged_in_context(
+    planning: IncludePlanning,
+    lines: list[str],
+    ranges: list[tuple[int, int]] | None,
+    standalone_findings: list[Finding],
+    *,
+    plan_refused: bool,
+) -> list[Finding]:
+    """Return a file's structural findings judged in its include contexts.
+
+    P5a: the available contexts' findings replace the standalone ones; with
+    none, a file that has no standalone use keeps only the findings that are
+    the same in every context.  P5b, beside an unavailable context: a finding
+    is fixable only when fix applies it, so a refused title-model change
+    leaves none fixable (rules 2 and 3), and one retainable WARNING says
+    what cannot be judged (rule 5).  It sits on the file's own uncomposable
+    include, or else on its first title; a file with neither gets none.
+    *plan_refused* says that fix or diff already reported the refusal.
+    """
+    if planning.stage is not None:
+        findings = planning.stage.check(lines, ranges)
+    elif planning.standalone:
+        findings = list(standalone_findings)
+    else:
+        findings = [finding for finding in standalone_findings if finding.code in _CONTEXT_INDEPENDENT_CODES]
+    if planning.guard_text is None:
+        return findings
+    candidate = (planning.stage or _structure_plan)(lines, ranges)[0]
+    if [style for _index, style in _title_style_events(lines)] != [
+        style for _index, style in _title_style_events(candidate)
+    ]:
+        findings = [dataclasses.replace(finding, fixable=False) for finding in findings]
+    titles = _title_style_events(lines)
+    anchor = planning.anchor or (titles[0][0] + 1 if titles else None)
+    if anchor is not None and not plan_refused:
+        findings.append(
+            Finding(
+                lineno=anchor,
+                severity=Severity.WARNING,
+                text=planning.guard_text,
+                fixable=False,
+                code=FindingCode.INCLUDE_CONTEXT_UNAVAILABLE,
+            )
+        )
+    return findings
 
 
 def _plan_normal_fixes(
@@ -151,7 +231,8 @@ def _plan_normal_fixes(
 ) -> None:
     """Plan the complete full-pipeline fix selection before any write."""
     for path in files:
-        include_guard, structure = _include_planning(args, path)
+        planning = _include_planning(args, path)
+        include_guard, structure = planning.guard_text, planning.stage
         try:
             state.fix_plans[path] = _plan_fix(
                 path,
@@ -431,7 +512,8 @@ def _run_phase1(
                 state.total_warnings += w
 
         if args.diff:
-            include_guard, structure = _include_planning(args, path)
+            planning = _include_planning(args, path)
+            include_guard, structure = planning.guard_text, planning.stage
             diff_plan = _plan_fix(
                 path,
                 whole_file,
@@ -467,16 +549,22 @@ def _run_phase1(
             # source mutation, includes, and HTML-resolved conditions), so its
             # single-title check runs in Phase 2 after the environment exists.
             single_top_v = check_single_top_level(path, doc=document) if not verified_path else []
-            context_guard, context_stage = _include_planning(args, path)
-            if isinstance(context_stage, ContextStage) and context_guard is None:
-                # CR-43 P5a (K5): a file with include contexts is judged in
+            planning = _include_planning(args, path)
+            if planning.stage is not None or planning.guard_text is not None:
+                # CR-43 P5 (K5): a file with include contexts is judged in
                 # them, never as the standalone document it may not be.  In
                 # fix and diff, the plan's own refusals are already reported.
-                adornment_v = context_stage.check(document.lines, None if whole_file else document.ranges)
+                adornment_v = _judged_in_context(
+                    planning,
+                    document.lines,
+                    None if whole_file else document.ranges,
+                    adornment_v + hierarchy_v,
+                    plan_refused=bool(include_refusals),
+                )
                 if args.fix or args.diff:
                     adornment_v = [finding for finding in adornment_v if finding.code not in _INCLUDE_REFUSAL_CODES]
                 hierarchy_v = []
-                if not context_stage.has_standalone:
+                if not (planning.stage.has_standalone if planning.stage is not None else planning.standalone):
                     single_top_v = []
             all_v = adornment_v + hierarchy_v + single_top_v
             adornments_clean = not all_v

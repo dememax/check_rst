@@ -937,6 +937,7 @@ def test_cli_text_and_json_agree_on_included_finding_sources(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     root = _write_including_root(tmp_path, ".. include:: frag.rst\n\n.. include:: frag.rst\n")
 
     monkeypatch.setattr("sys.argv", ["check_rst.py", "check", str(root)])
@@ -1018,6 +1019,7 @@ def test_unproven_finding_lines_stay_visible_but_approximate(
 ) -> None:
     """A field name carries no line or raw source of its own: the finding
     keeps its best line, never pretends it is exact, and never disappears."""
+    monkeypatch.chdir(tmp_path)
     path = tmp_path / "doc.rst"
     path.write_text("#######\nTitle\n#######\n\n:\u0410uthor: value\n\nSee \u0410gain here.\n", encoding="utf-8")
 
@@ -1105,6 +1107,7 @@ def test_selected_fragment_reports_its_findings_in_its_own_run_only(
 ) -> None:
     """When the fragment is itself an input, its run owns its findings;
     every including root repeating them would print identical lines."""
+    monkeypatch.chdir(tmp_path)
     root = _write_including_root(tmp_path, ".. include:: frag.rst\n")
     fragment = tmp_path / "frag.rst"
 

@@ -72,6 +72,7 @@ def doc(tmp_path: Path) -> Path:
 def test_retained_warning_is_hidden_counted_and_kept_in_json(
     tmp_path: Path, doc: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     _sidecar(tmp_path, _entry("doc.rst", "pseudo-heading.bold-opener", "**Register item.** kept on purpose."))
 
     code, out = _run(monkeypatch, capsys, "check", str(doc))

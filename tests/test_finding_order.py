@@ -67,6 +67,7 @@ def _finding_lines(out: str, path: Path) -> list[str]:
 def test_phase1_findings_follow_source_order_across_checkers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     path = tmp_path / "doc.rst"
     path.write_text(_MIXED, encoding="utf-8")
 
@@ -96,6 +97,7 @@ def test_shared_explanation_follows_the_first_finding_it_explains(
 def test_json_findings_follow_the_same_source_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     path = tmp_path / "doc.rst"
     path.write_text(_MIXED, encoding="utf-8")
 
@@ -109,6 +111,7 @@ def test_grid_cell_traversal_does_not_disturb_source_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Docutils visits grid cells column by column; output must not."""
+    monkeypatch.chdir(tmp_path)
     path = tmp_path / "doc.rst"
     path.write_text(
         textwrap.dedent("""\

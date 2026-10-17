@@ -39,7 +39,7 @@ from ._output import (
     _hints_shown,
     _print_fix_only_status,
 )
-from ._pipeline import _run_check_pipeline
+from ._pipeline import IncludePlanning, _run_check_pipeline
 from ._reports import (
     _diff_json_dumps,
     _format_json_diff,
@@ -61,7 +61,6 @@ from ._sphinx import (
 )
 
 if TYPE_CHECKING:
-    from ._formatting import StructureStage
     from ._types import FixPlan, FixResult, ListTableIssue
 
 
@@ -1995,10 +1994,10 @@ def _full_include_planning(
     args: argparse.Namespace,
     loaded_config: LoadedConfig,
     files: list[pathlib.Path],
-) -> dict[pathlib.Path, tuple[str | None, StructureStage | None]]:
+) -> dict[pathlib.Path, IncludePlanning]:
     """Return, by canonical path, each selected file's full-mode include
-    guard text and context stage (CR-43 P4a); a file absent from the result
-    keeps today's standalone plan."""
+    planning (CR-43 P4 and P5); a file absent from the result keeps today's
+    standalone plan and check."""
     # Verified mode reads the project's own facts (P4c): its documents,
     # its source suffixes, and whether it may transform an include.
     facts = _sphinx.planning_facts(args.sphinx_src) if args.sphinx_src is not None else None
@@ -2012,11 +2011,19 @@ def _full_include_planning(
     )
     composer = _contexts.Composer(universe)
     composer.confirm_sites()
-    planning: dict[pathlib.Path, tuple[str | None, StructureStage | None]] = {}
+    planning: dict[pathlib.Path, IncludePlanning] = {}
     for path in files:
-        guard, stage = _contexts.full_mode_planning(universe, composer, path, facts)
-        if guard is not None or stage is not None:
-            planning[path.resolve()] = (None if guard is None else _include_refusal_text(guard, args.command), stage)
+        plan = _contexts.full_mode_planning(universe, composer, path, facts)
+        if plan.guard is None and plan.stage is None:
+            continue
+        guard = plan.guard
+        own_site = guard.site if guard is not None and guard.site is not None else None
+        planning[path.resolve()] = IncludePlanning(
+            None if guard is None else _include_refusal_text(guard, args.command),
+            plan.stage,
+            plan.standalone,
+            own_site.line if own_site is not None and own_site.canonical_includer == path.resolve() else None,
+        )
     return planning
 
 

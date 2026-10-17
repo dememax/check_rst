@@ -817,6 +817,8 @@ class IncludeGuard:
     evidence: str
     # Why an include cannot be composed, for the "uncomposable" kind.
     reason: str = ""
+    # The include site the evidence names, for the "uncomposable" kind.
+    site: LexicalInclude | None = None
 
 
 def _first_structural_site(path: pathlib.Path, *, sphinx_src: pathlib.Path | None) -> LexicalInclude | None:

@@ -3086,6 +3086,7 @@ def test_skip_fixable_suppresses_underline_only(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Underline-only title errors are suppressed with --skip-fixable."""
+    monkeypatch.chdir(tmp_path)
     p = _rst(
         tmp_path,
         """\
@@ -3113,6 +3114,7 @@ def test_skip_fixable_suppresses_hierarchy_error(
 ) -> None:
     """Hierarchy-order errors (prefix-rule violations) are suppressed with
     --skip-fixable — they are exactly what --fix's remap resolves."""
+    monkeypatch.chdir(tmp_path)
     p = _rst(
         tmp_path,
         """\

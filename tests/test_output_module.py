@@ -158,6 +158,7 @@ def test_cli_max_output_lines_two_reserves_statistics_and_failed_footer(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     document = tmp_path / "test.rst"
     document.write_text(_BAD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
@@ -183,6 +184,7 @@ def test_cli_max_output_lines_omits_trailer_when_nothing_was_suppressed(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     document = tmp_path / "test.rst"
     document.write_text(_BAD_BLOCK, encoding="utf-8")
     monkeypatch.setattr(
@@ -206,6 +208,7 @@ def test_cli_max_output_lines_classifies_suppressed_warnings(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     document = tmp_path / "test.rst"
     document.write_text(
         _GOOD_BLOCK + "\n**Bold opener** starts a paragraph.\n",

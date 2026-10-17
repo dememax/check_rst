@@ -42,6 +42,7 @@ def _doc(tmp_path: Path, text: str) -> Path:
 def test_no_warnings_summary_reports_the_hidden_count(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     path = _doc(tmp_path, _ONE_WARNING)
 
     code, out = _run(monkeypatch, capsys, "--no-config", "check", "--no-warnings", str(path))
@@ -55,6 +56,7 @@ def test_no_warnings_summary_reports_the_hidden_count(
 def test_no_warnings_json_keeps_visible_and_suppressed_counts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     path = _doc(tmp_path, _ONE_WARNING)
 
     _code, out = _run(monkeypatch, capsys, "--no-config", "check", "--no-warnings", "--format=json", str(path))
@@ -70,6 +72,7 @@ def test_no_warnings_json_keeps_visible_and_suppressed_counts(
 def test_skip_fixable_summary_and_json_count_suppressed_fixable_findings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     path = _doc(tmp_path, _TWO_FIXABLE)
 
     code, out = _run(monkeypatch, capsys, "--no-config", "check", "--skip-fixable", str(path))
