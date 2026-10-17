@@ -20,7 +20,9 @@ from check_rst import cli
 if TYPE_CHECKING:
     from pathlib import Path
 
-_MAIN = "######\nMain\n######\n\n*********\nSubtitle\n*********\n\n=======\nIntro\n=======\n\nText.\n\n.. include:: part.rst\n"
+# CR-43's main.rst, as its reproduction fixes it first: an includer that
+# joins the check (P5c) must itself be clean for these assertions.
+_MAIN = "######\nMain\n######\n\n**********\nSubtitle\n**********\n\n=======\nIntro\n=======\n\nText.\n\n.. include:: part.rst\n"
 _PART = "========\nShared\n========\n\nBody.\n"
 _DASH = "Shared\n------\n\nBody.\n"
 _STANDALONE_REMAP = "fix remaps '=' to '#'"

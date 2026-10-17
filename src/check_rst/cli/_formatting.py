@@ -54,6 +54,8 @@ from ._types import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from ._types import OutlineEntry
+
 
 def check_hygiene(path: pathlib.Path) -> list[Finding]:
     """Phase 0 lint.  All findings have severity ERROR and are --fix-able."""
@@ -323,6 +325,17 @@ def check_single_top_level(
         return []
 
     first = top_level[0]
+
+    def through(entry: OutlineEntry) -> str:
+        """Name the include an included title comes through (CR-43): the
+        finding carries the fragment's coordinates, but the document to
+        check is the one that includes it."""
+        chain = entry.provenance.include_chain if entry.provenance is not None else ()
+        if not chain:
+            return ""
+        site = chain[0]
+        return f"; {entry.title!r} comes through the include at {site.source}:{site.lineno}, so check {site.source}"
+
     return [
         Finding(
             lineno=(entry.lineno if entry.provenance is None or entry.provenance.exact else 0),
@@ -330,7 +343,7 @@ def check_single_top_level(
             text=(
                 f"second effective top-level title {entry.title!r} follows "
                 f"{first.title!r} ({entry.style!r} style) — a document may have only one title; "
-                "multiple titles leave none promoted as the document title"
+                f"multiple titles leave none promoted as the document title{through(entry)}"
             ),
             source=entry.provenance.source if entry.provenance is not None else None,
             fixable=False,

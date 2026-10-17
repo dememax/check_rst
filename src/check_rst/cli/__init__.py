@@ -1769,12 +1769,17 @@ def _main() -> None:
         _resolve_declared_roles(args, loaded_config, files) if args.command in _ROLE_COMMANDS else (None, None)
     )
     # CR-43: check, full fix and full diff judge each file in its include
-    # contexts.
-    args.include_planning = (
+    # contexts, and check also judges a selected fragment's includers.
+    args.include_planning, joined = (
         _full_include_planning(args, loaded_config, files)
         if args.command in {"check", "fix", "diff"} and not (args.fix_only or args.diff_only) and not args.no_adornments
-        else {}
+        else ({}, [])
     )
+    args.whole_file_paths = frozenset(includer.resolve() for includer, _fragment in joined)
+    for includer, fragment in joined:
+        files.append(includer)
+        if not args.quiet:
+            print(f"check_rst: also checking {includer}, which includes {fragment} (whole-file, read-only)")
 
     if args.command == "list-table":
         _run_list_table(files, only=args.only, skip=args.skip, apply=args.apply, quiet=args.quiet)
@@ -1994,10 +1999,16 @@ def _full_include_planning(
     args: argparse.Namespace,
     loaded_config: LoadedConfig,
     files: list[pathlib.Path],
-) -> dict[pathlib.Path, IncludePlanning]:
-    """Return, by canonical path, each selected file's full-mode include
-    planning (CR-43 P4 and P5); a file absent from the result keeps today's
-    standalone plan and check."""
+) -> tuple[dict[pathlib.Path, IncludePlanning], list[tuple[pathlib.Path, str]]]:
+    """Return, by canonical path, each file's full-mode include planning
+    (CR-43 P4 and P5), and for check the includers that join the run.
+
+    A file absent from the planning keeps today's standalone plan and check.
+    check also judges every transitive includer of a selected file, read-only
+    and whole-file (P5c), so that an edit which leaves a fragment consistent
+    but breaks the document including it still fails the check.  Each joined
+    includer comes paired with the selected file that brought it in.
+    """
     # Verified mode reads the project's own facts (P4c): its documents,
     # its source suffixes, and whether it may transform an include.
     facts = _sphinx.planning_facts(args.sphinx_src) if args.sphinx_src is not None else None
@@ -2011,8 +2022,16 @@ def _full_include_planning(
     )
     composer = _contexts.Composer(universe)
     composer.confirm_sites()
+    joined: list[tuple[pathlib.Path, str]] = []
+    if args.command == "check":
+        known = {path.resolve() for path in files}
+        for path in files:
+            for includer in universe.graph.transitive_includers(path):
+                if includer not in known:
+                    known.add(includer)
+                    joined.append((pathlib.Path(universe.shown(includer)), universe.shown(path)))
     planning: dict[pathlib.Path, IncludePlanning] = {}
-    for path in files:
+    for path in [*files, *(includer for includer, _fragment in joined)]:
         plan = _contexts.full_mode_planning(universe, composer, path, facts)
         if plan.guard is None and plan.stage is None:
             continue
@@ -2024,7 +2043,7 @@ def _full_include_planning(
             plan.standalone,
             own_site.line if own_site is not None and own_site.canonical_includer == path.resolve() else None,
         )
-    return planning
+    return planning, joined
 
 
 def _fast_include_refusals(

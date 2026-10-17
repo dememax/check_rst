@@ -574,13 +574,11 @@ class ContextStage:
                     origin = composition.origins[finding.lineno - 1] if 0 < finding.lineno <= len(composed) else None
                     if origin is None or origin.path != self.own:
                         continue
-                    own.append(
-                        dataclasses.replace(
-                            finding,
-                            lineno=origin.index + 1,
-                            text=f"in the document {self._shown(root)} composes, {finding.text}",
-                        )
-                    )
+                    # The file's own composed document needs no naming.
+                    text = finding.text
+                    if root.resolve() != self.own:
+                        text = f"in the document {self._shown(root)} composes, {text}"
+                    own.append(dataclasses.replace(finding, lineno=origin.index + 1, text=text))
             for finding in own:
                 found.setdefault((finding.code, finding.lineno), finding)
         return sorted(found.values(), key=lambda finding: finding.lineno)

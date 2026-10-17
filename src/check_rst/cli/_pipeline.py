@@ -416,7 +416,11 @@ def _run_phase1(
         print(f"Phase 1: RST rules{mode_tag} ({scope})")
         print("-" * 40)
 
+    joined: frozenset[pathlib.Path] = getattr(args, "whole_file_paths", frozenset())
     for path in files:
+        # A fragment's includer, joined to the check (CR-43 P5c), is judged
+        # whole-file even when the run is scoped to Git hunks.
+        file_whole = whole_file or path.resolve() in joined
         if not path.exists():
             if args.json:
                 state.json_records[path] = {
@@ -543,8 +547,8 @@ def _run_phase1(
         phase1_v: list[Finding] = list(include_refusals)
         adornments_clean = False
         if not args.no_adornments:
-            adornment_v = check_adornments(path, whole_file, doc=document)
-            hierarchy_v = check_hierarchy(path, doc=document, whole_file=whole_file)
+            adornment_v = check_adornments(path, file_whole, doc=document)
+            hierarchy_v = check_hierarchy(path, doc=document, whole_file=file_whole)
             # Verified mode must use Sphinx's effective parse (extensions,
             # source mutation, includes, and HTML-resolved conditions), so its
             # single-title check runs in Phase 2 after the environment exists.
@@ -557,7 +561,7 @@ def _run_phase1(
                 adornment_v = _judged_in_context(
                     planning,
                     document.lines,
-                    None if whole_file else document.ranges,
+                    None if file_whole else document.ranges,
                     adornment_v + hierarchy_v,
                     plan_refused=bool(include_refusals),
                 )
@@ -583,7 +587,7 @@ def _run_phase1(
                     state.title_restatements[path.resolve()] = _fix_resolved_title_diagnostics(
                         path,
                         document.text,
-                        None if whole_file else document.ranges,
+                        None if file_whole else document.ranges,
                     )
             else:
                 phase1_v.extend(all_v)
@@ -591,17 +595,17 @@ def _run_phase1(
         own = _owned_findings_filter(path, files, project_root)
         # WARNING-only families: choosing one of two roles, judging a
         # pseudo-heading, or confirming a script slip is semantic.
-        phase1_v.extend(own(check_nested_inline_markup(path, whole_file, doc=document)))
+        phase1_v.extend(own(check_nested_inline_markup(path, file_whole, doc=document)))
         directive_v: list[Finding] | None = None
         if not args.no_directives:
-            directive_v = own(check_directives(path, whole_file, args.verbose, doc=document))
+            directive_v = own(check_directives(path, file_whole, args.verbose, doc=document))
             phase1_v.extend(directive_v)
         phase1_v.extend(own(check_homoglyphs(path, doc=document)))
 
         phase1_v = _apply_retentions(state, path, document, _in_source_order(phase1_v), project_root)
         open_v = [finding for finding in phase1_v if finding.retained is None]
         retained_v = [finding for finding in phase1_v if finding.retained is not None]
-        if whole_file:
+        if file_whole:
             # Only a whole-file check can prove that an entry no longer
             # matches anything; a hunk-scoped run never judges staleness.
             own_path = _relative_to_root(path.resolve(), project_root.resolve())
