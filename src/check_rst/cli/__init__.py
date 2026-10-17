@@ -2042,11 +2042,14 @@ def _full_include_planning(
             continue
         guard = plan.guard
         own_site = guard.site if guard is not None and guard.site is not None else None
+        anchor = own_site.line if own_site is not None and own_site.canonical_includer == path.resolve() else None
+        if guard is not None and anchor is None:
+            anchor = _contexts.contributed_anchor(composer, path)
         planning[pathlib.Path(os.path.abspath(path))] = IncludePlanning(
             None if guard is None else _include_refusal_text(guard, args.command),
             plan.stage,
             plan.standalone,
-            own_site.line if own_site is not None and own_site.canonical_includer == path.resolve() else None,
+            anchor,
         )
     return planning, joined
 

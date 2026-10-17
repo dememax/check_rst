@@ -106,6 +106,9 @@ class _Composition:
     root: pathlib.Path
     lines: tuple[str, ...]
     origins: tuple[_Origin | None, ...]
+    # The 1-based line of the root's own include each line arrived through,
+    # None for the root's own lines.
+    vias: tuple[int | None, ...] = ()
 
 
 class _UncomposableError(Exception):
@@ -425,6 +428,7 @@ class Composer:
         """
         lines: list[str] = []
         origins: list[_Origin | None] = []
+        vias: list[int | None] = []
 
         def text_of(path: pathlib.Path) -> str | None:
             """The text Docutils reads; the planned file's own lines are
@@ -434,7 +438,9 @@ class Composer:
         def physical_of(path: pathlib.Path) -> Sequence[str]:
             return own_lines if path.resolve() == own else (self.disk_lines(path) or [])
 
-        def expand(path: pathlib.Path, selection: Selection, stack: tuple[tuple[object, ...], ...]) -> None:
+        def expand(
+            path: pathlib.Path, selection: Selection, stack: tuple[tuple[object, ...], ...], via: int | None
+        ) -> None:
             real = path.resolve()
             physical = physical_of(path)
             # The lines Docutils parses, from effective_input: clipped,
@@ -454,6 +460,7 @@ class Composer:
                 found = sites.get(offset)
                 if found is None:
                     lines.append(text)
+                    vias.append(via)
                     # Docutils numbers an inserted text from its own first line.
                     expanded = index < len(physical) and "\t" in physical[index]
                     origins.append(_Origin(real, index, cut, offset + 1, expanded))
@@ -477,15 +484,19 @@ class Composer:
                 identity = (site.canonical_target, *(options.get(name) for name in _CLIP_OPTIONS))
                 if identity in stack:
                     raise _UncomposableError(site, "it is part of an include cycle")
-                expand(site.target, clipped, (*stack, identity))
+                through = via if via is not None else site.line
+                expand(site.target, clipped, (*stack, identity), through)
                 lines.extend(["", f'.. end of inclusion from "{site.argument}"'])
                 origins.extend([None, None])
+                vias.extend([through, through])
                 offset = relative.block_end
 
         # The root is read whole at Docutils' default tab_width setting, 8.
         empty: Variant = ()
-        expand(root, effective_input(text_of(root) or "", empty) or [], ((root.resolve(), None, None, None, None),))
-        return _Composition(root, tuple(lines), tuple(origins))
+        expand(
+            root, effective_input(text_of(root) or "", empty) or [], ((root.resolve(), None, None, None, None),), None
+        )
+        return _Composition(root, tuple(lines), tuple(origins), tuple(vias))
 
 
 def _style_token(style: tuple[str, bool]) -> str:
@@ -789,6 +800,33 @@ class ContextStage:
             f"its include contexts need different title edits here: {first.label} and {other.label} disagree, "
             "so fix cannot choose one — make the documents that include it agree",
         )
+
+
+def contributed_anchor(composer: Composer, path: pathlib.Path) -> int | None:
+    """Return the line of *path*'s own include that brings in its first
+    effective title, when the file has no title of its own (Codex's P5
+    review, L3).
+
+    Such a file still has context-sensitive structure: its includes add it.
+    An own include that cannot be composed is the anchor itself; a file with
+    titles of its own, or with none in its effective content, has none here.
+    """
+    lines = composer.disk_lines(path)
+    if not lines or _title_style_events(lines):
+        return None
+    real = path.resolve()
+    try:
+        composition = composer.compose(path, real, lines)
+    except _UncomposableError as error:
+        return error.site.line if error.site.canonical_includer == real else None
+    return next(
+        (
+            composition.vias[index]
+            for index, _style in _title_style_events(list(composition.lines))
+            if composition.vias[index] is not None
+        ),
+        None,
+    )
 
 
 def full_mode_planning(
