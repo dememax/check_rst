@@ -353,13 +353,20 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
     _canonical_title for why display width, not code points.
     """
     doc = _resolve_document(path, doc)
-    lines = doc.lines
-    ranges: list[tuple[int, int]] | None = None if whole_file else doc.ranges
+    return adornment_findings(doc.lines, None if whole_file else doc.ranges, doc.doctree)
+
+
+def adornment_findings(
+    lines: list[str], ranges: list[tuple[int, int]] | None, doctree: docutils.nodes.document | None = None
+) -> list[Finding]:
+    """check_adornments on *lines*: the findings for the lines in *ranges*,
+    by the same parser-free model fix applies.  *doctree*, when given, only
+    words what that model cannot prove.  CR-43 calls it on composed lines."""
 
     def err(code: FindingCode, lineno: int, text: str) -> Finding:
         return Finding(lineno=lineno, severity=Severity.ERROR, text=text, fixable=True, code=code)
 
-    refusals = _structure_refusals(lines, ranges, doc.doctree)
+    refusals = _structure_refusals(lines, ranges, doctree)
     if refusals:
         # Mutation fidelity: fix makes no title or adornment change to this
         # file, so no finding here may claim to be fixable.
@@ -367,7 +374,7 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
 
     # Mutation findings come from the same parser-free model fix uses; the
     # doctree only words what that model cannot prove (CR-29).
-    findings: list[Finding] = _unseparated_title_findings(lines, doc.doctree, blocking=False)
+    findings: list[Finding] = _unseparated_title_findings(lines, doctree, blocking=False)
     modeled_titles = dict(_title_style_events(lines))
 
     # Detect underline-only titles (overline is required) in the shared
@@ -539,8 +546,13 @@ def check_hierarchy(path: pathlib.Path, doc: Document | None = None, *, whole_fi
     of the ERROR-level order rule.
     """
     document = _resolve_document(path, doc)
-    lines = document.lines
-    ranges = None if whole_file else document.ranges
+    return hierarchy_findings(document.lines, None if whole_file else document.ranges)
+
+
+def hierarchy_findings(lines: list[str], ranges: list[tuple[int, int]] | None) -> list[Finding]:
+    """check_hierarchy on *lines*, whose hierarchy is whole: *ranges* only
+    scopes the titles another finding already reports.  CR-43 calls it on
+    composed lines."""
     if _structure_refusals(lines, ranges):
         # The remap depends on a reading fix refuses to choose; check_adornments
         # reports the ambiguity itself.

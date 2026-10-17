@@ -1769,10 +1769,11 @@ def _main() -> None:
     args.declared_roles, args.role_record = (
         _resolve_declared_roles(args, loaded_config, files) if args.command in _ROLE_COMMANDS else (None, None)
     )
-    # CR-43: full fix and diff judge each file in its include contexts.
+    # CR-43: check, full fix and full diff judge each file in its include
+    # contexts.
     args.include_planning = (
         _full_include_planning(args, loaded_config, files)
-        if args.command in {"fix", "diff"} and not (args.fix_only or args.diff_only) and not args.no_adornments
+        if args.command in {"check", "fix", "diff"} and not (args.fix_only or args.diff_only) and not args.no_adornments
         else {}
     )
 

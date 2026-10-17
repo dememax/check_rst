@@ -457,8 +457,12 @@ class IncludeGraph:
         sites: Iterable[LexicalInclude],
         unreadable: Iterable[pathlib.Path] = (),
         unresolved: Iterable[LexicalInclude] = (),
+        scanned: Iterable[pathlib.Path] = (),
     ) -> None:
         self.sites = tuple(sites)
+        # The canonical files read whole: the graph lists every site of each,
+        # so a file there with no site has no include of its own.
+        self.scanned = frozenset(scanned)
         # A file that could not be read cannot prove it includes nothing, and
         # an unresolved site cannot say what it includes; callers that need
         # the graph to be complete can refuse on either.
@@ -507,6 +511,7 @@ class IncludeGraph:
         sites: list[LexicalInclude] = []
         unreadable = list(unreadable)
         unresolved: list[LexicalInclude] = []
+        scanned: set[pathlib.Path] = set()
         while queue:
             path, variant = queue.popleft()
             if (path, variant) in seen:
@@ -521,6 +526,8 @@ class IncludeGraph:
             text = texts[path]
             if text is None:
                 continue
+            if variant == empty:
+                scanned.add(path.resolve())
             for site in variant_sites(path, text, variant, sphinx_src=sphinx_src):
                 sites.append(site)
                 # The filesystem target is Docutils' reading only; Sphinx's
@@ -534,7 +541,7 @@ class IncludeGraph:
                 # its own includes resolve from the path Docutils opens it by.
                 if site.structural and site.target.is_file():
                     queue.append((site.target, site.target_variant))
-        return cls(sites, unreadable, unresolved)
+        return cls(sites, unreadable, unresolved, scanned)
 
     def includers(self, path: pathlib.Path) -> tuple[LexicalInclude, ...]:
         """Return the direct structural sites that may include *path*."""

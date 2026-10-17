@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 from . import _reports, _sphinx
 from ._composition import CompositionIndex
+from ._contexts import ContextStage
 from ._document import Document, build_outline
 from ._formatting import (
     _apply_fix_plan,
@@ -466,6 +467,17 @@ def _run_phase1(
             # source mutation, includes, and HTML-resolved conditions), so its
             # single-title check runs in Phase 2 after the environment exists.
             single_top_v = check_single_top_level(path, doc=document) if not verified_path else []
+            context_guard, context_stage = _include_planning(args, path)
+            if isinstance(context_stage, ContextStage) and context_guard is None:
+                # CR-43 P5a (K5): a file with include contexts is judged in
+                # them, never as the standalone document it may not be.  In
+                # fix and diff, the plan's own refusals are already reported.
+                adornment_v = context_stage.check(document.lines, None if whole_file else document.ranges)
+                if args.fix or args.diff:
+                    adornment_v = [finding for finding in adornment_v if finding.code not in _INCLUDE_REFUSAL_CODES]
+                hierarchy_v = []
+                if not context_stage.has_standalone:
+                    single_top_v = []
             all_v = adornment_v + hierarchy_v + single_top_v
             adornments_clean = not all_v
             if args.skip_fixable:

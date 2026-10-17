@@ -51,7 +51,7 @@ import docutils.utils
 from docutils.parsers.rst import Directive, directives, roles
 from docutils.parsers.rst.directives.misc import Include as DocutilsInclude
 
-from ._formatting import _structure_plan, _title_style_events
+from ._formatting import _structure_plan, _title_style_events, adornment_findings, hierarchy_findings
 from ._helpers import _normalize_source, _read_source
 from ._includes import (
     IncludeGraph,
@@ -395,6 +395,7 @@ class Composer:
                 [site for site in graph.sites if kept(site)],
                 graph.unreadable,
                 [site for site in graph.unresolved if kept(site)],
+                graph.scanned,
             )
 
     def disk_text(self, path: pathlib.Path) -> str | None:
@@ -522,6 +523,53 @@ class ContextStage:
             self._cache[key] = self._judge(lines, ranges)
         cached_lines, refusals = self._cache[key]
         return list(cached_lines), refusals
+
+    @property
+    def has_standalone(self) -> bool:
+        """Whether the file's own standalone use is one of its contexts."""
+        return any(label == _STANDALONE for _root, label in self.roots)
+
+    def check(self, lines: list[str], ranges: _Ranges) -> list[Finding]:
+        """Return the file's structural findings judged in its contexts (P5a).
+
+        A refusal of the plan, a conflict between the contexts, an edit
+        outside the file or a composed ambiguity, is then the only finding:
+        like a refused fix, a refused file has no finding that claims a fix
+        (rule 4).  Otherwise each context's adornment and hierarchy findings
+        on the file's own lines are mapped back to them, worded with the
+        document that composes them.  Findings on another file's lines are
+        that file's to report when it is checked.
+        """
+        _planned, refusals = self(lines, ranges)
+        if refusals:
+            return list(refusals)
+        found: dict[tuple[str, int], Finding] = {}
+        for root, _label in self.roots:
+            composition = self.composer.compose(root, self.own, lines)
+            if all(
+                origin is not None and origin.path == self.own and not origin.partial for origin in composition.origins
+            ):
+                own = adornment_findings(list(lines), ranges) + hierarchy_findings(list(lines), ranges)
+            else:
+                composed = list(composition.lines)
+                composed_ranges = self._composed_ranges(composition, ranges)
+                own = []
+                for finding in adornment_findings(composed, composed_ranges) + hierarchy_findings(
+                    composed, composed_ranges
+                ):
+                    origin = composition.origins[finding.lineno - 1] if 0 < finding.lineno <= len(composed) else None
+                    if origin is None or origin.path != self.own:
+                        continue
+                    own.append(
+                        dataclasses.replace(
+                            finding,
+                            lineno=origin.index + 1,
+                            text=f"in the document {self._shown(root)} composes, {finding.text}",
+                        )
+                    )
+            for finding in own:
+                found.setdefault((finding.code, finding.lineno), finding)
+        return sorted(found.values(), key=lambda finding: finding.lineno)
 
     def _judge(self, lines: list[str], ranges: _Ranges) -> tuple[list[str], tuple[Finding, ...]]:
         outcomes = [self._plan_in(root, label, lines, ranges) for root, label in self.roots]
@@ -755,6 +803,14 @@ def full_mode_planning(
     if cycle is not None:
         site = f"{universe.shown(cycle.includer)}:{cycle.line}"
         return guard or IncludeGuard("uncomposable", site, "it is part of an include cycle"), None
+    if (
+        not roots
+        and real in graph.scanned
+        and not any(site.canonical_includer == real and not site.variant for site in graph.sites)
+    ):
+        # The graph read this file whole and found no include of its own:
+        # its standalone plan stands, and the check reads it only once.
+        return guard, None
     own_lines = composer.disk_lines(path)
     own_selection = effective_input("\n".join(own_lines), ()) if own_lines else None
     own_parsed = [line for line, _index, _cut in own_selection or []]
