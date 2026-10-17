@@ -568,9 +568,12 @@ class ContextStage:
         _planned, refusals = self(lines, ranges)
         if refusals:
             return list(refusals)
-        found: dict[tuple[str, int], Finding] = {}
+        # One physical finding per (code, line), with every context that
+        # proves it: rule 2 names the contexts in which it holds.
+        found: dict[tuple[str, int], tuple[Finding, list[str], bool]] = {}
         for root, _label in self.roots:
             composition = self.composer.compose(root, self.own, lines)
+            itself = root.resolve() == self.own
             if all(
                 origin is not None and origin.path == self.own and not origin.partial for origin in composition.origins
             ):
@@ -583,16 +586,31 @@ class ContextStage:
                     composed, composed_ranges
                 ):
                     origin = composition.origins[finding.lineno - 1] if 0 < finding.lineno <= len(composed) else None
-                    if origin is None or origin.path != self.own:
-                        continue
-                    # The file's own composed document needs no naming.
-                    text = finding.text
-                    if root.resolve() != self.own:
-                        text = f"in the document {self._shown(root)} composes, {text}"
-                    own.append(dataclasses.replace(finding, lineno=origin.index + 1, text=text))
+                    if origin is not None and origin.path == self.own:
+                        own.append(dataclasses.replace(finding, lineno=origin.index + 1))
             for finding in own:
-                found.setdefault((finding.code, finding.lineno), finding)
-        return sorted(found.values(), key=lambda finding: finding.lineno)
+                entry = found.setdefault((finding.code, finding.lineno), (finding, [], False))
+                if itself:
+                    found[finding.code, finding.lineno] = (entry[0], entry[1], True)
+                elif self._shown(root) not in entry[1]:
+                    entry[1].append(self._shown(root))
+        return sorted(
+            (self._named(finding, documents, itself) for finding, documents, itself in found.values()),
+            key=lambda finding: finding.lineno,
+        )
+
+    @staticmethod
+    def _named(finding: Finding, documents: list[str], itself: bool) -> Finding:
+        """Word *finding* with the contexts that prove it.  The file's own
+        document needs no naming, unless other documents agree with it."""
+        if not documents:
+            return finding
+        if len(documents) == 1:
+            phrase = f"the document {documents[0]} composes"
+        else:
+            phrase = f"the documents {', '.join(documents[:-1])} and {documents[-1]} compose"
+        prefix = f"in its standalone use and in {phrase}" if itself else f"in {phrase}"
+        return dataclasses.replace(finding, text=f"{prefix}, {finding.text}")
 
     def _judge(self, lines: list[str], ranges: _Ranges) -> tuple[list[str], tuple[Finding, ...]]:
         outcomes = [self._plan_in(root, label, lines, ranges) for root, label in self.roots]
