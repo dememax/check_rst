@@ -479,3 +479,20 @@ def test_a_title_free_fragment_whose_include_adds_titles_warns_on_the_include(
 
     assert code == 0, out
     assert f"contact.rst:3: {_DECLARED}" in out
+
+
+@pytest.mark.integration
+def test_a_finding_names_every_context_that_proves_it(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Codex's P5 review: rule 2 names the contexts in which a proven
+    finding holds.  Both includers need the same overline, so the one
+    physical finding names both."""
+    other = _MAIN.replace("######\nMain\n######", "#######\nOther\n#######")
+    _files(rst_repo, main=_MAIN, other=other, part=_DASH)
+    monkeypatch.chdir(rst_repo)
+
+    _code, out = _run(monkeypatch, capsys, "check", "part.rst")
+
+    assert out.count("part.rst:2: ERROR:") == 1, out
+    assert "part.rst:2: ERROR: in the documents main.rst and other.rst compose, underline-only title" in out
