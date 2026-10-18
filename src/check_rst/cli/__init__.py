@@ -1827,6 +1827,12 @@ def _main() -> None:
             include_guards=_fast_include_refusals(args, loaded_config, files, verb="diff"),
         )
 
+    if args.sphinx_src is not None and not hasattr(args, "sphinx_documents"):
+        # CR-43 L6: which selected files Sphinx reads as documents decides
+        # their build scope, also where no include planning ran.  An
+        # unloadable configuration keeps the old scope, so Phase 2 reports it.
+        facts = _sphinx.planning_facts(args.sphinx_src)
+        args.sphinx_documents = facts.documents if facts.loaded else None
     _run_check_pipeline(
         args,
         files,
@@ -2014,7 +2020,7 @@ def _full_include_planning(
     facts = _sphinx.planning_facts(args.sphinx_src) if args.sphinx_src is not None else None
     # Which files Sphinx reads as documents decides how a joined includer's
     # effective structure is checked (P5c, Codex's three sets).
-    args.sphinx_documents = facts.documents if facts is not None else frozenset()
+    args.sphinx_documents = facts.documents if facts is not None and facts.loaded else None
     universe = _includes.IncludeUniverse(
         files,
         roles=args.declared_roles,

@@ -287,11 +287,14 @@ class PlanningFacts:
     each a standalone context (D9b).  ``suffixes`` are its source suffixes,
     the scan population (D9d).  ``transform``, when set, names why an
     include may add something other than its target's lines (Q4).
+    ``loaded`` is False when the configuration could not be loaded: then
+    nothing is known, not even which files are documents.
     """
 
     documents: frozenset[pathlib.Path]
     suffixes: tuple[str, ...]
     transform: str | None
+    loaded: bool = True
 
 
 def planning_facts(sphinx_src: pathlib.Path) -> PlanningFacts:
@@ -328,7 +331,7 @@ def planning_facts(sphinx_src: pathlib.Path) -> PlanningFacts:
         # Phase 2's to report, and until then nothing about the project's
         # includes is known.
         except Exception:
-            return PlanningFacts(frozenset(), (".rst",), "a configuration check_rst cannot load")
+            return PlanningFacts(frozenset(), (".rst",), "a configuration check_rst cannot load", loaded=False)
         documents = frozenset(pathlib.Path(app.env.doc2path(name)).resolve() for name in app.env.found_docs)
         suffixes = tuple(dict.fromkeys((".rst", *app.config.source_suffix)))
         transform = None

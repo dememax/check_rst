@@ -177,28 +177,30 @@ def _sphinx_scope(args: argparse.Namespace, files: list[pathlib.Path]) -> tuple[
     """Return the Sphinx build targets and the joined Sphinx documents.
 
     CR-43 P5c keeps three sets apart (Codex's P5 review).  Phase 1 judges
-    every file.  The build targets are the requested files under sphinx-src:
-    they alone are re-read, built and scoped for Sphinx's own warnings.  A
-    joined includer that Sphinx reads as a document has its effective
-    structure checked in Phase 2 from the environment, without becoming a
-    target.  One Sphinx does not read gets Docutils' structural check in
-    Phase 1.  Without a target there is no verified Phase 2, so then no
-    joined file is deferred to it.
+    every file.  The build targets are the requested files that Sphinx reads
+    as documents: they alone are re-read, built and scoped for Sphinx's own
+    warnings.  A requested source Sphinx excludes is no target, never
+    rejected for that (L6): exclusion classifies nothing under D9, and the
+    source may be a fragment or a Docutils document of its own.  A joined
+    includer Sphinx reads as a document has its effective structure checked
+    in Phase 2 from the environment, even with no target, without becoming
+    one.  Any other file gets Docutils' structural check in Phase 1.  When
+    the documents are unknown (an unloadable configuration), every requested
+    file under sphinx-src stays a target, so Phase 2 reports the failure.
     """
     if args.sphinx_src is None:
         return [], []
     joined: frozenset[pathlib.Path] = getattr(args, "whole_file_paths", frozenset())
-    documents: frozenset[pathlib.Path] = getattr(args, "sphinx_documents", frozenset())
+    documents: frozenset[pathlib.Path] | None = getattr(args, "sphinx_documents", None)
     source = args.sphinx_src.resolve()
-    targets = [
-        path
-        for path in files
-        if pathlib.Path(os.path.abspath(path)) not in joined and path.resolve().is_relative_to(source)
-    ]
+    requested = [path for path in files if pathlib.Path(os.path.abspath(path)) not in joined]
+    if documents is None:
+        return [path for path in requested if path.resolve().is_relative_to(source)], []
+    targets = [path for path in requested if path.resolve() in documents]
     joined_documents = [
         path for path in files if pathlib.Path(os.path.abspath(path)) in joined and path.resolve() in documents
     ]
-    return targets, (joined_documents if targets else [])
+    return targets, joined_documents
 
 
 def _include_planning(args: argparse.Namespace, path: pathlib.Path) -> IncludePlanning:
@@ -474,9 +476,7 @@ def _run_phase1(
         verified_path = pathlib.Path(os.path.abspath(path)) in sphinx_owned
         if args.sphinx_src is not None and not verified_path and not args.quiet:
             inside = path.resolve().is_relative_to(args.sphinx_src.resolve())
-            print(
-                f"{pstr}: {'not a Sphinx document' if is_joined and inside else 'outside sphinx-src'} — Phase 0/1 only"
-            )
+            print(f"{pstr}: {'not a Sphinx document' if inside else 'outside sphinx-src'} — Phase 0/1 only")
         state.files_checked += 1
 
         # Phase 0 — byte hygiene, before anything parses the file.  Always
@@ -737,9 +737,19 @@ def _run_sphinx_phases(
         print()
     # The build targets: the requested files under sphinx-src (P5c).
     verified_files, joined_documents = _sphinx_scope(args, files)
-    if args.sphinx_src is None or not verified_files:
+    inside = args.sphinx_src is not None and any(
+        path.resolve().is_relative_to(args.sphinx_src.resolve()) for path in files
+    )
+    no_sphinx_reason = (
+        "no --sphinx-src given"
+        if args.sphinx_src is None
+        else "no selected file is a Sphinx document"
+        if inside
+        else "selected files are outside sphinx-src"
+    )
+    if args.sphinx_src is None or not (verified_files or joined_documents):
         if not args.quiet:
-            reason = "no --sphinx-src given" if args.sphinx_src is None else "selected files are outside sphinx-src"
+            reason = no_sphinx_reason
             print(
                 f"Phase 2: Python Sphinx rules (heuristic — {reason}: "
                 "code-block detection is best-effort text search, not a real Sphinx "
@@ -808,7 +818,7 @@ def _run_sphinx_phases(
 
         if not args.quiet:
             print()
-            skip_reason = "selected files are outside sphinx-src" if outside_sphinx else "no --sphinx-src given"
+            skip_reason = no_sphinx_reason
             print(f"Phase 3: Sphinx build — skipped ({skip_reason})")
     else:
         keep_build = args.build_dir is not None
@@ -1036,17 +1046,24 @@ def _run_sphinx_phases(
             elif not args.quiet:
                 print("  (no Python code-block findings — run outline to see the resolved structure)")
 
-            if not args.quiet:
-                print()
-                print(f"Phase 3: Sphinx build integrity ({build_dir})")
-                print("-" * 40)
-
-            sphinx_v = phase2_v + _sphinx.run_sphinx(
-                [f for f in verified_files if f.exists()],
-                build_dir,
-                args.sphinx_src,
-                project_root,
-            )
+            if not verified_files:
+                # Phase 2 ran only for a joined document's effective
+                # structure (L6): no selected file is a build target.
+                if not args.quiet:
+                    print()
+                    print("Phase 3: Sphinx build — skipped (no selected file is a Sphinx document)")
+                sphinx_v = list(phase2_v)
+            else:
+                if not args.quiet:
+                    print()
+                    print(f"Phase 3: Sphinx build integrity ({build_dir})")
+                    print("-" * 40)
+                sphinx_v = phase2_v + _sphinx.run_sphinx(
+                    [f for f in verified_files if f.exists()],
+                    build_dir,
+                    args.sphinx_src,
+                    project_root,
+                )
             sphinx_v = [_attach_did_you_mean(f, env) for f in sphinx_v]
             # Sphinx's own warnings are scoped to the build targets: a joined
             # includer's are not this run's (P5c).
