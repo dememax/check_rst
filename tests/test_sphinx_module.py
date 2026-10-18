@@ -635,12 +635,16 @@ def test_title_enforcement_keeps_rst_epilogue_provenance(tmp_path: Path) -> None
 
 
 @pytest.mark.integration
-def test_cli_verified_mode_rejects_file_excluded_by_sphinx_environment(
+def test_cli_verified_mode_judges_an_excluded_source_in_phase_1(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Inside srcdir is insufficient when Sphinx itself excluded the source."""
+    """CR-43 L6 (Codex's P5 approval review): exclusion is no classification
+    under D9.  A source Sphinx excludes may be a Docutils or Pandoc document
+    of its own, so with no includer it is judged as a standalone document in
+    Phase 0/1, never rejected for its Sphinx membership, and it is no build
+    target.  (Until L6 this pinned the rejection.)"""
     (tmp_path / "conf.py").write_text(
         'project = "test"\nexclude_patterns = ["excluded.rst"]\n',
         encoding="utf-8",
@@ -655,7 +659,6 @@ def test_cli_verified_mode_rejects_file_excluded_by_sphinx_environment(
             "--sphinx-src",
             str(tmp_path),
             "check",
-            "--quiet",
             str(excluded),
         ],
     )
@@ -663,10 +666,10 @@ def test_cli_verified_mode_rejects_file_excluded_by_sphinx_environment(
     with pytest.raises(SystemExit) as exc:
         cli.main()
 
-    assert exc.value.code == 1
     out = capsys.readouterr().out
-    assert "not part of the --sphinx-src environment" in out
-    assert "no warnings or errors in the checked files" not in out
+    assert exc.value.code == 0, out
+    assert "not part of the --sphinx-src environment" not in out
+    assert f"{excluded}: not a Sphinx document — Phase 0/1 only" in out
 
 
 # '-' is fixed at level 4 by "L4 under 3" (nested #->*->=->-); "L reused

@@ -477,8 +477,11 @@ def test_verified_mode_composes_a_fragment_the_project_excludes(
 ) -> None:
     part = _sphinx_project(rst_repo)
 
-    _code, out = _run_verified(rst_repo, monkeypatch, capsys, "fix", "docs/part.rst")
+    code, out = _run_verified(rst_repo, monkeypatch, capsys, "fix", "docs/part.rst")
 
+    # CR-43 L6: the excluded fragment is no Sphinx build target, so the run
+    # succeeds instead of aborting on its Sphinx membership.
+    assert code == 0, out
     assert "need different title styles" not in out
     assert part.read_text(encoding="utf-8") == _PART, out
 

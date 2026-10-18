@@ -513,3 +513,25 @@ def test_a_non_preferred_character_stays_visible_beside_an_unavailable_context(
     assert code == 0, out
     assert "WARNING: adornment '~' is valid but outside the tool's preferred hierarchy" in out
     assert "WARNING: this file is declared a fragment" in out
+
+
+@pytest.mark.integration
+def test_an_excluded_selected_fragment_still_gets_its_includers_effective_check(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CR-43 L6 (Codex's P5 approval review).  part.rst is selected but
+    excluded from the Sphinx project, so it is a Phase-0/1 input and no build
+    target.  Its joined includer main.rst is a Sphinx document, so Phase 2
+    still builds the environment and checks main.rst's effective structure,
+    though no selected file is a build target."""
+    _sphinx_includer(rst_repo, 'project = "p"\nexclude_patterns = ["part.rst"]\n')
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(
+        monkeypatch, capsys, "--sphinx-src", "docs", "--build-dir", str(rst_repo / "_build"), "check", "docs/part.rst"
+    )
+
+    assert code == 1, out
+    assert "not part of the --sphinx-src environment" not in out
+    assert "docs/part.rst: not a Sphinx document — Phase 0/1 only" in out
+    assert "second effective top-level title 'Shared' follows 'Main'" in out
