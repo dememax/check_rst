@@ -186,6 +186,7 @@ def test_outline_tells_how_to_show_hidden_errors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     doc = _rst(tmp_path, "####\nTitle\n####\n\nText.\n")
+    monkeypatch.chdir(tmp_path)
     code, out = _run(monkeypatch, capsys, "--no-config", "outline", str(doc))
     lines = out.splitlines()
     assert code == 1

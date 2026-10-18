@@ -599,6 +599,84 @@ class ContextStage:
             key=lambda finding: finding.lineno,
         )
 
+    def reader_result(self) -> tuple[dict[int, int], Finding | None]:
+        """Return agreed physical-title depths, or a reader refusal.
+
+        P6's reader commands may print one result only when every context
+        gives each physical title the same effective depth.  The source style
+        itself is already one physical fact; the surrounding documents decide
+        its rank.  A repeated inclusion at two depths is therefore a conflict
+        even inside one root document.
+        """
+        outcomes: list[tuple[str, dict[int, frozenset[int]]]] = []
+        own_text = self.composer.disk_text(self.own)
+        if own_text is None:
+            return {}, self._finding(1, "outline cannot report one structure: this file cannot be read")
+        for root, label in self.roots:
+            root_text = own_text if root.resolve() == self.own else self.composer.disk_text(root)
+            if root_text is None:
+                return {}, self._finding(
+                    1,
+                    f"outline cannot report one structure: the context {label} cannot be read",
+                )
+            try:
+                sections = _docutils_sections(
+                    root,
+                    root_text,
+                    self.own,
+                    own_text,
+                    self.composer.universe.sphinx_src,
+                )
+            except Exception:  # a reader must fail closed when the parse proves no tree
+                return {}, self._finding(
+                    1,
+                    f"outline cannot report one structure: the context {label} cannot be parsed",
+                )
+            depths: dict[int, set[int]] = {}
+            for source, underline, depth in sections:
+                if source == self.own and isinstance(underline, int) and underline > 0:
+                    # Docutils reports the underline's 1-based source line;
+                    # OutlineEntry reports the title line immediately above.
+                    depths.setdefault(underline - 1, set()).add(depth)
+            outcomes.append((label, {line: frozenset(values) for line, values in depths.items()}))
+
+        if not outcomes:
+            return {}, None
+        first_label, first = outcomes[0]
+        for other_label, other in outcomes[1:]:
+            if other == first:
+                continue
+            line = min(key for key in first.keys() | other.keys() if first.get(key) != other.get(key))
+
+            def verdict(label: str, values: frozenset[int] | None) -> str:
+                if not values:
+                    return f"{label} does not include this title"
+                if len(values) == 1:
+                    return f"{label} reports depth {next(iter(values))}"
+                shown = ", ".join(str(value) for value in sorted(values))
+                return f"{label} reports depths {shown}"
+
+            return (
+                {},
+                self._finding(
+                    line,
+                    "outline cannot report one structure: "
+                    f"{verdict(first_label, first.get(line))} and {verdict(other_label, other.get(line))}",
+                ),
+            )
+        for label, context_depths in outcomes:
+            repeated = next((line for line, values in context_depths.items() if len(values) > 1), None)
+            if repeated is not None:
+                values = ", ".join(str(value) for value in sorted(context_depths[repeated]))
+                return (
+                    {},
+                    self._finding(
+                        repeated,
+                        f"outline cannot report one structure: {label} includes this title at depths {values}",
+                    ),
+                )
+        return {line: next(iter(values)) for line, values in first.items()}, None
+
     @staticmethod
     def _named(finding: Finding, documents: list[str], itself: bool) -> Finding:
         """Word *finding* with the contexts that prove it.  The file's own

@@ -121,6 +121,7 @@ class _PipelineState:
     suppressed_restatements: int = 0
     # Resolved physical file -> Sphinx title diagnostics fix provably removes.
     title_restatements: dict[pathlib.Path, ResolvedTitleDiagnostics] = dataclasses.field(default_factory=dict)
+
     # Retained-WARNING sidecar state: the loaded decisions, how many WARNINGs
     # they hid, which sources a whole-file check judged for staleness, cached
     # owning-source lines for included findings, and the stale entries.
@@ -131,6 +132,43 @@ class _PipelineState:
     stale_retentions: list[Retention] = dataclasses.field(default_factory=list)
     sphinx_findings_json: list[dict[str, Any]] | None = None
     fix_plans: dict[pathlib.Path, FixPlan] = dataclasses.field(default_factory=dict)
+
+
+def _outline_in_include_context(
+    args: argparse.Namespace,
+    path: pathlib.Path,
+    entries: list[OutlineEntry],
+) -> list[OutlineEntry]:
+    """Project agreed include-context depths onto *path*'s own headings.
+
+    The fragment remains the display coordinate space: its lines, styles,
+    ranges, labels and blocks do not come from an includer.  Only effective
+    nesting depth belongs to the surrounding document.  Entries contributed
+    by a nested include keep their own provenance and are not mistaken for a
+    same-numbered physical line in the selected fragment.
+    """
+    contextual: dict[pathlib.Path, dict[int, int]] = getattr(args, "contextual_outline_depths", {})
+    depths = contextual.get(pathlib.Path(os.path.abspath(path)))
+    if depths is None:
+        return entries
+    own = path.resolve()
+
+    def belongs_to_selected(entry: OutlineEntry) -> bool:
+        provenance = entry.provenance
+        if provenance is None:
+            return True
+        return not provenance.source.startswith("<") and pathlib.Path(provenance.source).resolve() == own
+
+    projected: list[OutlineEntry] = []
+    for entry in entries:
+        if not belongs_to_selected(entry):
+            projected.append(entry)
+        elif entry.lineno in depths:
+            projected.append(dataclasses.replace(entry, depth=depths[entry.lineno]))
+        # A standalone title absent from the context's Docutils tree is not a
+        # section there (for example after an illegal level skip), so it must
+        # not survive as a fallback entry in the contextual outline.
+    return projected
 
 
 # CR-43: refusals a plan carries because of its include contexts.  The
@@ -789,8 +827,9 @@ def _run_sphinx_phases(
                         else:
                             state.total_warnings += 1
                 if args.outline and not args.json:
+                    contextual_outline = _outline_in_include_context(args, path, phase2_doc.outline)
                     heuristic_entries: list[LocalEntry] = [
-                        *phase2_doc.outline,
+                        *contextual_outline,
                         *include_entries,
                         *code_blocks,
                         *phase2_doc.block_quotes,
@@ -950,6 +989,8 @@ def _run_sphinx_phases(
                         if docname is not None
                         else phase2_doc.outline
                     )
+                    if args.outline and not args.json:
+                        verified_outline = _outline_in_include_context(args, path, verified_outline)
                     toctree_clusters = (
                         find_toctrees(
                             env,

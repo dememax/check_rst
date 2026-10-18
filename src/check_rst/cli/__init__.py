@@ -1772,9 +1772,28 @@ def _main() -> None:
     # contexts, and check also judges a selected fragment's includers.
     args.include_planning, joined = (
         _full_include_planning(args, loaded_config, files)
-        if args.command in {"check", "fix", "diff"} and not (args.fix_only or args.diff_only) and not args.no_adornments
+        if args.command in {"check", "fix", "diff", "outline"}
+        and not (args.fix_only or args.diff_only)
+        and not args.no_adornments
         else ({}, [])
     )
+    args.contextual_outline_depths = {}
+    if args.command == "outline":
+        for path in files:
+            planning = args.include_planning.get(pathlib.Path(os.path.abspath(path)))
+            if planning is None:
+                continue
+            depths, refusal = planning.stage.reader_result() if planning.stage is not None else ({}, None)
+            if planning.guard_text is not None:
+                line = planning.anchor or 1
+                text = f"outline cannot report one structure: {planning.guard_text}"
+            elif refusal is not None:
+                line, text = refusal.lineno, refusal.text
+            else:
+                args.contextual_outline_depths[pathlib.Path(os.path.abspath(path))] = depths
+                continue
+            _emit_report_line(f"{path}:{line}: ERROR: {text}", "ERROR")
+            raise SystemExit(1)
     args.whole_file_paths = frozenset(pathlib.Path(os.path.abspath(includer)) for includer, _fragment in joined)
     for includer, fragment in joined:
         files.append(includer)

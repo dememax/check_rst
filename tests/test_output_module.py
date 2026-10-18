@@ -240,6 +240,7 @@ def test_cli_max_output_lines_applies_after_outline_filters_and_classifies(
         "#######\nTitle\n#######\n\n*******\nChild\n*******\n",
         encoding="utf-8",
     )
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "sys.argv",
         [
