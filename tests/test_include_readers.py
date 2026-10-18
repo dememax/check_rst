@@ -136,3 +136,100 @@ Back to 3
     assert code == 1, out
     assert "Outline: part.rst" in out
     assert ":*u Shared" not in out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("clip_option", "part", "shared_line"),
+    [
+        (":start-line: 3", "Alpha\n=====\n\nShared\n------\n\nBody.\n", 4),
+        (":start-after: .. cut", "Alpha\n=====\n\n.. cut\nShared\n------\n\nBody.\n", 5),
+    ],
+)
+@pytest.mark.parametrize("verified", [False, True], ids=["docutils", "sphinx"])
+def test_outline_maps_a_clipped_title_back_to_its_physical_line(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    clip_option: str,
+    part: str,
+    shared_line: int,
+    verified: bool,
+) -> None:
+    """Docutils numbers a clipped include from one; outline must translate
+    that coordinate through the composition rather than attach the depth to
+    an earlier physical title with the same reported line."""
+    main = _MAIN.replace(".. include:: part.rst", f".. include:: part.rst\n   {clip_option}")
+    (rst_repo / "main.rst").write_text(main, encoding="utf-8")
+    (rst_repo / "part.rst").write_text(part, encoding="utf-8")
+    if verified:
+        (rst_repo / "conf.py").write_text(
+            "project = 'clip'\nmaster_doc = 'main'\nexclude_patterns = ['part.rst']\n",
+            encoding="utf-8",
+        )
+        _commit(rst_repo, "main.rst", "part.rst", "conf.py")
+    else:
+        _commit(rst_repo, "main.rst", "part.rst")
+    monkeypatch.chdir(rst_repo)
+
+    prefix = ("--sphinx-src", ".") if verified else ()
+    code, out = _run(monkeypatch, capsys, *prefix, "outline", "part.rst")
+
+    assert code == 1, out
+    assert "Outline: part.rst" in out
+    assert f"\n          {shared_line}-" in out
+    assert ":-u Shared\n" in out
+    assert ":=u Alpha\n" not in out
+
+
+@pytest.mark.integration
+def test_outline_projects_nested_included_titles_into_the_outer_context(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every section contributed by the selected fragment is contextual,
+    including a section whose physical source is a nested include target."""
+    part = "Shared\n------\n\n.. include:: sub.rst\n"
+    sub = "Deep\n~~~~\n\nBody.\n"
+    (rst_repo / "main.rst").write_text(_MAIN, encoding="utf-8")
+    (rst_repo / "part.rst").write_text(part, encoding="utf-8")
+    (rst_repo / "sub.rst").write_text(sub, encoding="utf-8")
+    _commit(rst_repo, "main.rst", "part.rst", "sub.rst")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "outline", "part.rst")
+
+    assert code == 1, out
+    assert "levels: 3 '-u' (1), 4 '~u' (1)" in out
+    assert "\n          1-4:-u Shared" in out
+    assert "\n              sub.rst:1-4:~u Deep" in out
+
+
+@pytest.mark.integration
+def test_one_outline_refusal_does_not_hide_other_files_or_the_summary(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Reader refusal belongs to one selected file.  Other files still get
+    their outlines, and the command reports its complete multi-file result."""
+    (rst_repo / "main.rst").write_text(_MAIN, encoding="utf-8")
+    (rst_repo / "part.rst").write_text(_PART, encoding="utf-8")
+    (rst_repo / "shallow.rst").write_text(
+        "#######\nShallow\n#######\n\n.. include:: bad.rst\n",
+        encoding="utf-8",
+    )
+    (rst_repo / "deep.rst").write_text(
+        "####\nDeep\n####\n\n*****\nChild\n*****\n\n.. include:: bad.rst\n",
+        encoding="utf-8",
+    )
+    (rst_repo / "bad.rst").write_text("Bad\n---\n", encoding="utf-8")
+    _commit(rst_repo, "main.rst", "part.rst", "shallow.rst", "deep.rst", "bad.rst")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "outline", "part.rst", "bad.rst")
+
+    assert code == 1, out
+    assert "Outline: part.rst" in out
+    assert "Outline: bad.rst" not in out
+    assert "outline cannot report one structure" in out
+    assert "shallow.rst reports depth 2" in out
+    assert "deep.rst reports depth 3" in out
+    assert "check_rst: 2 file(s) checked" in out
