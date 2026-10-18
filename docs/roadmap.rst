@@ -279,6 +279,16 @@ findings, and reference context without raw-markup grep.  This composes stages
 1 and 2 and closes the gap where ``--sections-only`` hides leaf structure while
 a complete outline is too large for a targeted query.
 
+Extended 2026-10-18 as the reader side of include-context planning: when the
+selected file is a fragment, ``context`` now uses every composing root rather
+than its unrelated standalone hierarchy.  Agreed title depths are projected
+through heterogeneous section subtrees, and title-free content carries the
+effective outer depth of each distinct inclusion occurrence.  A title
+Docutils drops is omitted; conflicting, unpairable, or unavailable contexts
+fail closed.  Clipped and nested locations stay in physical source
+coordinates, and nested refusals are anchored on the selected file's include
+line.
+
 Extended 2026-08-24 after a cold-reader session used raw ``grep`` despite
 knowing the exact heading: the guide now chooses ``context`` precisely for a
 known entry and ``outline`` for unknown structure, then permits a targeted read

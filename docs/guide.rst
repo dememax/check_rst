@@ -1520,6 +1520,18 @@ container or empty block remains addressable through its generated selector.
 An exact known heading is the strongest reason to start here: remembering its
 text does not prove its range, uniqueness, parent, depth, or physical owner.
 
+When the selected file is a fragment in a structural include graph, full
+``context`` reports the entry in that include context, under the same
+agreement rule as ``outline``.  Physical ranges and source owners stay those
+of the fragment (including a nested fragment), while section and leaf depths
+reflect their effective nesting in the composing document.  Every available
+includer, repeated occurrence, and declared standalone use must prove one
+structure.  If their depths disagree, an occurrence cannot be paired, or an
+include context is unavailable, the command exits 1 without presenting the
+standalone briefing as authoritative.  A refusal about nested content is
+anchored on the selected file's include line and names the nested physical
+location.
+
 A unique match reports its selector, kind, exact physical range and depth.  It
 reports the title line separately when an overline makes it differ from the
 range start, then the full enclosing section/container path; its parent,

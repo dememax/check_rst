@@ -1772,26 +1772,30 @@ def _main() -> None:
     # contexts, and check also judges a selected fragment's includers.
     args.include_planning, joined = (
         _full_include_planning(args, loaded_config, files)
-        if args.command in {"check", "fix", "diff", "outline"}
+        if args.command in {"check", "fix", "diff", "outline", "context"}
         and not (args.fix_only or args.diff_only)
         and not args.no_adornments
         else ({}, [])
     )
     args.contextual_outline_depths = {}
+    args.contextual_content_depths = {}
     args.outline_refusals = {}
-    if args.command == "outline":
+    if args.command in {"outline", "context"}:
         for path in files:
             planning = args.include_planning.get(pathlib.Path(os.path.abspath(path)))
             if planning is None:
                 continue
-            depths, refusal = planning.stage.reader_result() if planning.stage is not None else ({}, None)
+            depths, content_depth, refusal = (
+                planning.stage.reader_result(args.command) if planning.stage is not None else ({}, None, None)
+            )
             if planning.guard_text is not None:
                 line = planning.anchor or 1
-                text = f"outline cannot report one structure: {planning.guard_text}"
+                text = f"{args.command} cannot report one structure: {planning.guard_text}"
             elif refusal is not None:
                 line, text = refusal.lineno, refusal.text
             else:
                 args.contextual_outline_depths[pathlib.Path(os.path.abspath(path))] = depths
+                args.contextual_content_depths[pathlib.Path(os.path.abspath(path))] = content_depth
                 continue
             args.outline_refusals[pathlib.Path(os.path.abspath(path))] = (line, text)
     args.whole_file_paths = frozenset(pathlib.Path(os.path.abspath(includer)) for includer, _fragment in joined)
@@ -1821,6 +1825,7 @@ def _main() -> None:
         )
 
     if args.context is not None:
+        context_path = pathlib.Path(os.path.abspath(files[0]))
         context_sphinx_src = args.sphinx_src
         if context_sphinx_src is not None and not files[0].resolve().is_relative_to(context_sphinx_src.resolve()):
             context_sphinx_src = None
@@ -1834,6 +1839,9 @@ def _main() -> None:
                     context_sphinx_src,
                     args.build_dir if context_sphinx_src is not None else None,
                     args.no_toctree,
+                    args.contextual_outline_depths.get(context_path),
+                    args.contextual_content_depths.get(context_path),
+                    args.outline_refusals.get(context_path),
                 )
             )
 

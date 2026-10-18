@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     import sphinx.environment
 
 
-from . import _helpers
+from . import _contexts, _helpers
 from ._composition import CompositionIndex
 from ._document import Document, build_outline
 from ._formatting import (
@@ -653,6 +653,63 @@ def _context_relationships(
     return parent, previous, following, direct_children, path
 
 
+def _project_context_entry_depths(
+    path: pathlib.Path,
+    entries: list[LocalEntry],
+    sections: list[OutlineEntry],
+    source_root: pathlib.Path,
+    contextual_depths: dict[tuple[pathlib.Path, int], int] | None,
+    contextual_content_depth: int | None,
+) -> list[LocalEntry]:
+    """Carry contextual section depths through their heterogeneous subtrees.
+
+    ``ContextStage.reader_result`` proves title depths. Every other local
+    entry's depth is relative to its containing section, so keeping its
+    standalone number after that section moves would detach it from the
+    parent/path graph. Project the section's depth delta onto the entry and
+    omit an entry whose containing standalone section was dropped by the
+    contextual parse.
+    """
+    if contextual_depths is None:
+        return entries
+    own = path.resolve()
+
+    def physical(entry: LocalEntry) -> pathlib.Path | None:
+        provenance = entry.provenance
+        if provenance is None:
+            return own
+        if provenance.source.startswith("<"):
+            return None
+        source = pathlib.Path(provenance.source)
+        return (source if source.is_absolute() else source_root / source).resolve()
+
+    physical_sections = [(section, physical(section)) for section in sections]
+    projected: list[LocalEntry] = []
+    for entry in entries:
+        if isinstance(entry, OutlineEntry):
+            continue
+        source = physical(entry)
+        if source is None:
+            projected.append(entry)
+            continue
+        line = _entry_lineno(entry)
+        containing = [
+            section
+            for section, section_source in physical_sections
+            if section_source == source and _entry_source_start(section) <= line <= _entry_end(section)
+        ]
+        if not containing:
+            shift = contextual_content_depth - 1 if contextual_content_depth is not None else 0
+            projected.append(dataclasses.replace(entry, depth=entry.depth + shift))
+            continue
+        section = max(containing, key=lambda candidate: candidate.depth)
+        contextual = contextual_depths.get((source, section.lineno))
+        if contextual is None:
+            continue
+        projected.append(dataclasses.replace(entry, depth=entry.depth + contextual - section.depth))
+    return projected
+
+
 def _context_entry_label(candidate: ContextMatch) -> str:
     entry = candidate.entry
     if isinstance(entry, OutlineEntry):
@@ -881,8 +938,15 @@ def _run_context_query(
     sphinx_src: pathlib.Path | None,
     build_dir: pathlib.Path | None,
     no_toctree: bool,
+    contextual_depths: dict[tuple[pathlib.Path, int], int] | None = None,
+    contextual_content_depth: int | None = None,
+    reader_refusal: tuple[int, str] | None = None,
 ) -> int:
     """Run the self-contained, read-only context query."""
+    if reader_refusal is not None:
+        line, text = reader_refusal
+        print(f"{path}:{line}: ERROR: {text}")
+        return 1
     try:
         document = Document(path, project_root)
         _ = document.doctree
@@ -913,79 +977,107 @@ def _run_context_query(
             env, warning_text = _build_sphinx_env_checked(sphinx_src, actual_build_dir, files=[path])
             local = _docname_for(env, path)
             if local is None:
-                print(f"check_rst: {path}: not part of the --sphinx-src project")
-                return 1
-            local_docname = local
-            verified_tree = env.get_doctree(local_docname)
-            verified_composition = CompositionIndex(
-                verified_tree,
-                path,
-                sphinx_src,
-                root_transformed=_source_was_transformed(env, local_docname),
-            )
-            code_blocks = find_code_blocks(
-                env,
-                local_docname,
-                document.lines,
-                document,
-                doctree=verified_tree,
-                composition=verified_composition,
-            )
-            outline = build_outline(
-                path,
-                doc=document,
-                doctree=verified_tree,
-                source_root=sphinx_src,
-                root_transformed=_source_was_transformed(env, local_docname),
-                composition=verified_composition,
-            )
-            clusters = (
-                []
-                if no_toctree
-                else find_toctrees(
+                if contextual_depths is None:
+                    print(f"check_rst: {path}: not part of the --sphinx-src project")
+                    return 1
+                # An excluded fragment is not a Sphinx document of its own,
+                # but its verified include graph supplied the agreed depths.
+                # Keep its physical standalone model, as verified outline does.
+                env = None
+                local_docname = _docname_id(path, project_root)
+                code_blocks = document.code_blocks_heuristic
+                outline = document.outline
+                clusters = []
+                include_entries = document.includes
+                conditional_entries = []
+                title_findings = check_single_top_level(path, doc=document)
+            else:
+                local_docname = local
+                verified_tree = env.get_doctree(local_docname)
+                verified_composition = CompositionIndex(
+                    verified_tree,
+                    path,
+                    sphinx_src,
+                    root_transformed=_source_was_transformed(env, local_docname),
+                )
+                code_blocks = find_code_blocks(
+                    env,
+                    local_docname,
+                    document.lines,
+                    document,
+                    doctree=verified_tree,
+                    composition=verified_composition,
+                )
+                outline = build_outline(
+                    path,
+                    doc=document,
+                    doctree=verified_tree,
+                    source_root=sphinx_src,
+                    root_transformed=_source_was_transformed(env, local_docname),
+                    composition=verified_composition,
+                )
+                clusters = (
+                    []
+                    if no_toctree
+                    else find_toctrees(
+                        env,
+                        local_docname,
+                        document,
+                        doctree=verified_tree,
+                        composition=verified_composition,
+                    )
+                )
+                include_entries = find_includes(
                     env,
                     local_docname,
                     document,
                     doctree=verified_tree,
                     composition=verified_composition,
                 )
-            )
-            include_entries = find_includes(
-                env,
-                local_docname,
-                document,
-                doctree=verified_tree,
-                composition=verified_composition,
-            )
-            conditional_entries = find_conditionals(
-                env,
-                local_docname,
-                document,
-                doctree=verified_tree,
-                composition=verified_composition,
-            )
-            title_findings = check_single_top_level(
-                path,
-                doc=document,
-                doctree=resolve_html_structure(env, local_docname),
-                source_root=sphinx_src,
-                root_transformed=_source_was_transformed(env, local_docname),
-            )
-            sphinx_findings.extend(_findings_from_sphinx_output(warning_text, [path], project_root))
-            sphinx_findings.extend(check_bare_filenames(env, local_docname, document))
-            sphinx_findings.extend(check_multiple_toctree_parents(env, [path]))
+                conditional_entries = find_conditionals(
+                    env,
+                    local_docname,
+                    document,
+                    doctree=verified_tree,
+                    composition=verified_composition,
+                )
+                title_findings = check_single_top_level(
+                    path,
+                    doc=document,
+                    doctree=resolve_html_structure(env, local_docname),
+                    source_root=sphinx_src,
+                    root_transformed=_source_was_transformed(env, local_docname),
+                )
+                sphinx_findings.extend(_findings_from_sphinx_output(warning_text, [path], project_root))
+                sphinx_findings.extend(check_bare_filenames(env, local_docname, document))
+                sphinx_findings.extend(check_multiple_toctree_parents(env, [path]))
 
-        composed_entries: list[LocalEntry] = [
-            *outline,
-            *include_entries,
-            *conditional_entries,
-            *code_blocks,
-            *document.block_quotes,
-            *document.tables,
-            *document.admonitions,
-            *document.comments,
-            *document.lists,
-        ]
+        standalone_outline = outline
+        outline = _contexts.project_reader_outline(
+            path,
+            outline,
+            sphinx_src or project_root,
+            contextual_depths,
+        )
+
+        composed_entries = _project_context_entry_depths(
+            path,
+            [
+                *include_entries,
+                *conditional_entries,
+                *code_blocks,
+                *document.block_quotes,
+                *document.tables,
+                *document.admonitions,
+                *document.comments,
+                *document.lists,
+            ],
+            standalone_outline,
+            sphinx_src or project_root,
+            contextual_depths,
+            contextual_content_depth,
+        )
+        composed_entries.extend(outline)
         local_entries, include_clusters = partition_composed_entries(composed_entries)
         nested_includes, root_toctrees = nest_composed_clusters(include_clusters, clusters)
         structural_clusters = [*nested_includes, *root_toctrees]

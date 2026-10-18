@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from ._contexts import ContextStage
 
 
-from . import _reports, _sphinx
+from . import _contexts, _reports, _sphinx
 from ._composition import CompositionIndex
 from ._document import Document, build_outline
 from ._formatting import (
@@ -141,39 +141,10 @@ def _outline_in_include_context(
     entries: list[OutlineEntry],
     source_root: pathlib.Path,
 ) -> list[OutlineEntry]:
-    """Project agreed include-context depths onto *path*'s own headings.
-
-    The fragment remains the display coordinate space: its lines, styles,
-    ranges, labels and blocks do not come from an includer.  Only effective
-    nesting depth belongs to the surrounding document.  Entries contributed
-    by a nested include keep their own provenance and are not mistaken for a
-    same-numbered physical line in the selected fragment.
-    """
+    """Project the reader result stored on *args* onto one outline."""
     contextual: dict[pathlib.Path, dict[tuple[pathlib.Path, int], int]] = getattr(args, "contextual_outline_depths", {})
     depths = contextual.get(pathlib.Path(os.path.abspath(path)))
-    if depths is None:
-        return entries
-    own = path.resolve()
-
-    def identity(entry: OutlineEntry) -> tuple[pathlib.Path, int] | None:
-        provenance = entry.provenance
-        if provenance is None:
-            return own, entry.lineno
-        if provenance.source.startswith("<"):
-            return None
-        source = pathlib.Path(provenance.source)
-        physical = source if source.is_absolute() else source_root / source
-        return physical.resolve(), entry.lineno
-
-    projected: list[OutlineEntry] = []
-    for entry in entries:
-        key = identity(entry)
-        if key in depths:
-            projected.append(dataclasses.replace(entry, depth=depths[key]))
-        # A standalone title absent from the context's Docutils tree is not a
-        # section there (for example after an illegal level skip), so it must
-        # not survive as a fallback entry in the contextual outline.
-    return projected
+    return _contexts.project_reader_outline(path, entries, source_root, depths)
 
 
 def _outline_reader_refusal(args: argparse.Namespace, path: pathlib.Path) -> tuple[int, str] | None:

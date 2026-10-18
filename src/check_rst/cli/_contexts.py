@@ -65,7 +65,7 @@ from ._includes import (
     lexical_includes,
     tab_width,
 )
-from ._types import Finding, FindingCode, Severity
+from ._types import Finding, FindingCode, OutlineEntry, Severity
 
 if TYPE_CHECKING:
     import os
@@ -101,6 +101,10 @@ class _Origin:
     # include reached through it.  P6 projects the whole contributed subtree,
     # not only lines whose immediate physical source is the selected file.
     selected: bool = False
+    # Distinguish repeated contributions even when they enter through the
+    # same outer include.  Context must compare their leaf depths as well as
+    # their title depths.
+    occurrence: int | None = None
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -434,6 +438,7 @@ class Composer:
         lines: list[str] = []
         origins: list[_Origin | None] = []
         vias: list[int | None] = []
+        next_occurrence = 0
 
         def text_of(path: pathlib.Path) -> str | None:
             """The text Docutils reads; the planned file's own lines are
@@ -449,7 +454,9 @@ class Composer:
             stack: tuple[tuple[object, ...], ...],
             via: int | None,
             selected: bool,
+            occurrence: int | None,
         ) -> None:
+            nonlocal next_occurrence
             real = path.resolve()
             physical = physical_of(path)
             # The lines Docutils parses, from effective_input: clipped,
@@ -472,7 +479,7 @@ class Composer:
                     vias.append(via)
                     # Docutils numbers an inserted text from its own first line.
                     expanded = index < len(physical) and "\t" in physical[index]
-                    origins.append(_Origin(real, index, cut, offset + 1, expanded, selected))
+                    origins.append(_Origin(real, index, cut, offset + 1, expanded, selected, occurrence))
                     offset += 1
                     continue
                 relative, verdict = found
@@ -495,7 +502,11 @@ class Composer:
                     raise _UncomposableError(site, "it is part of an include cycle")
                 through = via if via is not None else site.line
                 target_selected = selected or site.canonical_target == own
-                expand(site.target, clipped, (*stack, identity), through, target_selected)
+                target_occurrence = occurrence
+                if not selected and site.canonical_target == own:
+                    target_occurrence = next_occurrence
+                    next_occurrence += 1
+                expand(site.target, clipped, (*stack, identity), through, target_selected, target_occurrence)
                 lines.extend(["", f'.. end of inclusion from "{site.argument}"'])
                 origins.extend([None, None])
                 vias.extend([through, through])
@@ -503,12 +514,16 @@ class Composer:
 
         # The root is read whole at Docutils' default tab_width setting, 8.
         empty: Variant = ()
+        root_selected = root.resolve() == own
+        root_occurrence = 0 if root_selected else None
+        next_occurrence = int(root_selected)
         expand(
             root,
             effective_input(text_of(root) or "", empty) or [],
             ((root.resolve(), None, None, None, None),),
             None,
-            root.resolve() == own,
+            root_selected,
+            root_occurrence,
         )
         return _Composition(root, tuple(lines), tuple(origins), tuple(vias))
 
@@ -538,6 +553,40 @@ class _Outcome:
     label: str
     lines: tuple[str, ...] = ()
     refusal: Finding | None = None
+
+
+def project_reader_outline(
+    path: pathlib.Path,
+    entries: list[OutlineEntry],
+    source_root: pathlib.Path,
+    depths: dict[tuple[pathlib.Path, int], int] | None,
+) -> list[OutlineEntry]:
+    """Project agreed include-context depths onto *path*'s physical titles.
+
+    The selected file remains the coordinate space.  Only the effective depth
+    comes from its surrounding documents; a standalone title absent from their
+    Docutils trees is omitted.  Nested titles retain their physical provenance.
+    """
+    if depths is None:
+        return entries
+    own = path.resolve()
+
+    def identity(entry: OutlineEntry) -> tuple[pathlib.Path, int] | None:
+        provenance = entry.provenance
+        if provenance is None:
+            return own, entry.lineno
+        if provenance.source.startswith("<"):
+            return None
+        source = pathlib.Path(provenance.source)
+        physical = source if source.is_absolute() else source_root / source
+        return physical.resolve(), entry.lineno
+
+    projected: list[OutlineEntry] = []
+    for entry in entries:
+        key = identity(entry)
+        if key in depths:
+            projected.append(dataclasses.replace(entry, depth=depths[key]))
+    return projected
 
 
 class ContextStage:
@@ -613,8 +662,10 @@ class ContextStage:
             key=lambda finding: finding.lineno,
         )
 
-    def reader_result(self) -> tuple[dict[tuple[pathlib.Path, int], int], Finding | None]:
-        """Return agreed physical-title depths, or a reader refusal.
+    def reader_result(
+        self, command: str = "outline"
+    ) -> tuple[dict[tuple[pathlib.Path, int], int], int | None, Finding | None]:
+        """Return agreed physical-title and content depths, or a refusal.
 
         P6's reader commands may print one result only when every context
         gives each physical title the same effective depth.  The source style
@@ -622,11 +673,12 @@ class ContextStage:
         its rank.  A repeated inclusion at two depths is therefore a conflict
         even inside one root document.
         """
-        outcomes: list[tuple[str, dict[tuple[pathlib.Path, int], frozenset[int]]]] = []
+        refusal_prefix = f"{command} cannot report one structure"
+        outcomes: list[tuple[str, dict[tuple[pathlib.Path, int], frozenset[int]], frozenset[int]]] = []
         own_text = self.composer.disk_text(self.own)
         own_lines = self.composer.disk_lines(self.own)
         if own_text is None or own_lines is None:
-            return {}, self._finding(1, "outline cannot report one structure: this file cannot be read")
+            return {}, None, self._finding(1, f"{refusal_prefix}: this file cannot be read")
         selected_anchors: dict[tuple[pathlib.Path, int], int] = {}
         selected_source_anchors: dict[pathlib.Path, int] = {}
         try:
@@ -662,9 +714,13 @@ class ContextStage:
         for root, label in self.roots:
             root_text = own_text if root.resolve() == self.own else self.composer.disk_text(root)
             if root_text is None:
-                return {}, self._finding(
-                    1,
-                    f"outline cannot report one structure: the context {label} cannot be read",
+                return (
+                    {},
+                    None,
+                    self._finding(
+                        1,
+                        f"{refusal_prefix}: the context {label} cannot be read",
+                    ),
                 )
             try:
                 composition = self.composer.compose(root, self.own, own_lines)
@@ -676,11 +732,15 @@ class ContextStage:
                     self.composer.universe.sphinx_src,
                 )
             except Exception:  # a reader must fail closed when the parse proves no tree
-                return {}, self._finding(
-                    1,
-                    f"outline cannot report one structure: the context {label} cannot be parsed",
+                return (
+                    {},
+                    None,
+                    self._finding(
+                        1,
+                        f"{refusal_prefix}: the context {label} cannot be parsed",
+                    ),
                 )
-            origins: dict[tuple[pathlib.Path, int], collections.deque[_Origin]] = collections.defaultdict(
+            origins: dict[tuple[pathlib.Path, int], collections.deque[tuple[_Origin, int]]] = collections.defaultdict(
                 collections.deque
             )
             reported_origins: dict[tuple[pathlib.Path, int], list[_Origin]] = collections.defaultdict(list)
@@ -690,7 +750,7 @@ class ContextStage:
             for index, _style in _title_style_events(list(composition.lines)):
                 origin = composition.origins[index + 1] if index + 1 < len(composition.origins) else None
                 if origin is not None:
-                    origins[origin.path, origin.reported].append(origin)
+                    origins[origin.path, origin.reported].append((origin, index + 1))
             selected_sources = {origin.path for origin in composition.origins if origin is not None and origin.selected}
             parsed_counts = collections.Counter(
                 (source, underline)
@@ -700,19 +760,21 @@ class ContextStage:
             for key, planned_occurrences in origins.items():
                 parsed = parsed_counts[key]
                 if not (
-                    0 < parsed < len(planned_occurrences) and any(origin.selected for origin in planned_occurrences)
+                    0 < parsed < len(planned_occurrences)
+                    and any(origin.selected for origin, _position in planned_occurrences)
                 ):
                     continue
-                selected = next(origin for origin in planned_occurrences if origin.selected)
+                selected = next(origin for origin, _position in planned_occurrences if origin.selected)
                 physical = selected.path, selected.index
                 text = located(
-                    f"outline cannot report one structure: the context {label} has {parsed} parsed section(s) "
+                    f"{refusal_prefix}: the context {label} has {parsed} parsed section(s) "
                     f"for {len(planned_occurrences)} indistinguishable source occurrences, so the section cannot "
                     "be paired with its occurrence",
                     physical,
                 )
-                return {}, self._finding(refusal_anchor(physical), text)
+                return {}, None, self._finding(refusal_anchor(physical), text)
             depths: dict[tuple[pathlib.Path, int], set[int]] = {}
+            parsed_events: list[tuple[int, int]] = []
             for source, underline, depth in sections:
                 if source is None or not isinstance(underline, int) or underline <= 0:
                     continue
@@ -729,24 +791,41 @@ class ContextStage:
                             else selected_source_anchors.get(source, 1)
                         )
                         text = (
-                            f"outline cannot report one structure: the context {label} has a section whose "
+                            f"{refusal_prefix}: the context {label} has a section whose "
                             "physical source line cannot be proven"
                         )
                         if mapped_physical is not None:
                             text = located(text, mapped_physical)
-                        return {}, self._finding(anchor, text)
+                        return {}, None, self._finding(anchor, text)
                     continue
-                origin = candidates.popleft()
+                origin, position = candidates.popleft()
+                parsed_events.append((position, depth))
                 if origin.selected:
                     # Origin.index is the underline's physical 0-based line;
                     # OutlineEntry uses the title's equal 1-based line.
                     depths.setdefault((origin.path, origin.index), set()).add(depth)
-            outcomes.append((label, {line: frozenset(values) for line, values in depths.items()}))
+            content_depths: set[int] = set()
+            if command == "context":
+                starts: dict[int, int] = {}
+                for position, origin in enumerate(composition.origins):
+                    if origin is not None and origin.occurrence is not None:
+                        starts.setdefault(origin.occurrence, position)
+                parsed_events.sort()
+                for start in starts.values():
+                    enclosing = 0
+                    for position, depth in parsed_events:
+                        if position >= start:
+                            break
+                        enclosing = depth
+                    content_depths.add(enclosing + 1)
+            outcomes.append(
+                (label, {line: frozenset(values) for line, values in depths.items()}, frozenset(content_depths))
+            )
 
         if not outcomes:
-            return {}, None
-        first_label, first = outcomes[0]
-        for other_label, other in outcomes[1:]:
+            return {}, None, None
+        first_label, first, first_content = outcomes[0]
+        for other_label, other, _other_content in outcomes[1:]:
             if other == first:
                 continue
             key = min(
@@ -764,30 +843,62 @@ class ContextStage:
 
             return (
                 {},
+                None,
                 self._finding(
                     refusal_anchor(key),
                     located(
-                        "outline cannot report one structure: "
+                        f"{refusal_prefix}: "
                         f"{verdict(first_label, first.get(key))} and {verdict(other_label, other.get(key))}",
                         key,
                     ),
                 ),
             )
-        for label, context_depths in outcomes:
+        for label, context_depths, _content_depths in outcomes:
             repeated = next((key for key, values in context_depths.items() if len(values) > 1), None)
             if repeated is not None:
                 values = ", ".join(str(value) for value in sorted(context_depths[repeated]))
                 return (
                     {},
+                    None,
                     self._finding(
                         refusal_anchor(repeated),
                         located(
-                            f"outline cannot report one structure: {label} includes this title at depths {values}",
+                            f"{refusal_prefix}: {label} includes this title at depths {values}",
                             repeated,
                         ),
                     ),
                 )
-        return {key: next(iter(values)) for key, values in first.items()}, None
+        if command == "context":
+
+            def content_verdict(label: str, values: frozenset[int]) -> str:
+                if not values:
+                    return f"{label} does not include this content"
+                if len(values) == 1:
+                    return f"{label} reports depth {next(iter(values))}"
+                shown = ", ".join(str(value) for value in sorted(values))
+                return f"{label} reports depths {shown}"
+
+            if any(content != first_content for _label, _depths, content in outcomes[1:]):
+                other_label, _other, other_content = next(
+                    outcome for outcome in outcomes[1:] if outcome[2] != first_content
+                )
+                return (
+                    {},
+                    None,
+                    self._finding(
+                        1,
+                        f"{refusal_prefix}: {content_verdict(first_label, first_content)} and "
+                        f"{content_verdict(other_label, other_content)}",
+                    ),
+                )
+            if len(first_content) != 1:
+                return (
+                    {},
+                    None,
+                    self._finding(1, f"{refusal_prefix}: {content_verdict(first_label, first_content)}"),
+                )
+        content_depth = next(iter(first_content)) if first_content else None
+        return {key: next(iter(values)) for key, values in first.items()}, content_depth, None
 
     @staticmethod
     def _named(finding: Finding, documents: list[str], itself: bool) -> Finding:

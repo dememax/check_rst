@@ -116,6 +116,7 @@ def test_context_errors_name_the_context_command(
     doc = _rst(tmp_path, "#####\nTitle\n#####\n\n*\nA\n*\n\n*\nA\n*\n")
     other = tmp_path / "notes.txt"
     other.write_text("x\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
 
     _code, empty = _run(monkeypatch, capsys, "context", "  ", str(doc))
     _code, wrong_suffix = _run(monkeypatch, capsys, "context", "Title", str(other))
