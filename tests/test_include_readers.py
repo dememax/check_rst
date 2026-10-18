@@ -77,6 +77,25 @@ def test_outline_refuses_contexts_with_different_effective_depths(
 
 
 @pytest.mark.integration
+def test_outline_hidden_error_hint_excludes_the_printed_reader_refusal(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The not-shown count covers only findings the outline filter hid."""
+    (rst_repo / "main.rst").write_text(_MAIN, encoding="utf-8")
+    (rst_repo / "other.rst").write_text("#####\nOther\n#####\n\n.. include:: part.rst\n", encoding="utf-8")
+    (rst_repo / "part.rst").write_text("Shared\n-----\n\nBody.\n", encoding="utf-8")
+    _commit(rst_repo, "main.rst", "other.rst", "part.rst")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "outline", "part.rst")
+
+    assert code == 1, out
+    assert "outline cannot report one structure" in out
+    assert "  (1 error(s) not shown — rerun with --with-findings to see them)" in out
+    assert "check_rst: 1 file(s) checked, 2 error(s)" in out
+
+
+@pytest.mark.integration
 def test_outline_reports_the_effective_depth_from_one_include_context(
     rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -136,6 +155,68 @@ Back to 3
     assert code == 1, out
     assert "Outline: part.rst" in out
     assert ":*u Shared" not in out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("nested", [True, False], ids=["nested-alias", "repeated-fragment"])
+def test_outline_refuses_when_only_one_of_two_same_source_occurrences_parses(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    nested: bool,
+) -> None:
+    """A surviving duplicate cannot be paired with a dropped occurrence.
+
+    Docutils identifies both occurrences by the same physical source and line.
+    The first occurs after an illegal level skip and is dropped; the second is
+    a valid depth-5 section.  Whether the first arrives through a selected
+    fragment or is another occurrence of that fragment, outline cannot prove
+    which planned occurrence the one parsed section represents.
+    """
+    main = """######
+Main
+######
+
+**********
+Two
+**********
+
+=====
+Three
+=====
+
+----
+Four
+----
+
+=====
+Back3
+=====
+
+.. include:: part.rst
+
+-----
+Four2
+-----
+
+.. include:: {last_include}
+""".format(last_include="sub.rst" if nested else "part.rst")
+    part = "Lead text.\n\n.. include:: sub.rst\n" if nested else "Deep\n~~~~\n"
+    (rst_repo / "main.rst").write_text(main, encoding="utf-8")
+    (rst_repo / "part.rst").write_text(part, encoding="utf-8")
+    if nested:
+        (rst_repo / "sub.rst").write_text("Deep\n~~~~\n", encoding="utf-8")
+        _commit(rst_repo, "main.rst", "part.rst", "sub.rst")
+    else:
+        _commit(rst_repo, "main.rst", "part.rst")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "outline", "part.rst")
+
+    assert code == 1, out
+    assert "Outline: part.rst" not in out
+    assert "outline cannot report one structure" in out
+    assert "cannot be paired with its occurrence" in out
 
 
 @pytest.mark.integration
