@@ -159,11 +159,13 @@ Back to 3
 
 @pytest.mark.integration
 @pytest.mark.parametrize("nested", [True, False], ids=["nested-alias", "repeated-fragment"])
-def test_outline_refuses_when_only_one_of_two_same_source_occurrences_parses(
+@pytest.mark.parametrize("command", ["outline", "context"])
+def test_readers_refuse_when_only_one_of_two_same_source_occurrences_parses(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     nested: bool,
+    command: str,
 ) -> None:
     """A surviving duplicate cannot be paired with a dropped occurrence.
 
@@ -211,11 +213,12 @@ Four2
         _commit(rst_repo, "main.rst", "part.rst")
     monkeypatch.chdir(rst_repo)
 
-    code, out = _run(monkeypatch, capsys, "outline", "part.rst")
+    argv = (command, "sub:Deep", "part.rst") if command == "context" else (command, "part.rst")
+    code, out = _run(monkeypatch, capsys, *argv)
 
     assert code == 1, out
-    assert "Outline: part.rst" not in out
-    assert "outline cannot report one structure" in out
+    assert f"{command.capitalize()}: part.rst" not in out
+    assert f"{command} cannot report one structure" in out
     assert "cannot be paired with its occurrence" in out
     if nested:
         assert "part.rst:3: ERROR:" in out
@@ -326,6 +329,200 @@ def test_outline_projects_nested_included_titles_into_the_outer_context(
     assert "levels: 3 '-u' (1), 4 '~u' (1)" in out
     assert "\n          1-4:-u Shared" in out
     assert "\n              sub.rst:1-4:~u Deep" in out
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("verified", [False, True], ids=["docutils", "sphinx"])
+def test_context_reports_a_fragment_title_at_its_effective_depth(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    verified: bool,
+) -> None:
+    """Context and outline must agree on a fragment title's surrounding rank."""
+    (rst_repo / "main.rst").write_text(_MAIN, encoding="utf-8")
+    (rst_repo / "part.rst").write_text(_PART, encoding="utf-8")
+    names = ["main.rst", "part.rst"]
+    if verified:
+        (rst_repo / "conf.py").write_text(
+            "project = 'context'\nmaster_doc = 'main'\nexclude_patterns = ['part.rst']\n",
+            encoding="utf-8",
+        )
+        names.append("conf.py")
+    _commit(rst_repo, *names)
+    monkeypatch.chdir(rst_repo)
+
+    prefix = ("--sphinx-src", ".") if verified else ()
+    code, out = _run(monkeypatch, capsys, *prefix, "context", "part:Shared", "part.rst")
+
+    assert code == 0, out
+    assert "selector: part:Shared" in out
+    assert "depth: 3" in out
+
+
+@pytest.mark.integration
+def test_context_maps_clipped_and_nested_titles_to_physical_sources(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Contextual depths key physical lines through clips and nested includes."""
+    main = _MAIN.replace(".. include:: part.rst", ".. include:: part.rst\n   :start-line: 3")
+    part = "Alpha\n=====\n\nShared\n------\n\n.. include:: sub.rst\n"
+    (rst_repo / "main.rst").write_text(main, encoding="utf-8")
+    (rst_repo / "part.rst").write_text(part, encoding="utf-8")
+    (rst_repo / "sub.rst").write_text("Deep\n~~~~\n", encoding="utf-8")
+    _commit(rst_repo, "main.rst", "part.rst", "sub.rst")
+    monkeypatch.chdir(rst_repo)
+
+    shared_code, shared = _run(monkeypatch, capsys, "context", "part:Shared", "part.rst")
+    deep_code, deep = _run(monkeypatch, capsys, "context", "sub:Deep", "part.rst")
+
+    assert shared_code == 0, shared
+    assert "range: 4-7" in shared
+    assert "depth: 3" in shared
+    assert deep_code == 0, deep
+    assert f"Context: {rst_repo / 'sub.rst'}" in deep
+    assert "range: 1-2" in deep
+    assert "depth: 4" in deep
+
+
+@pytest.mark.integration
+def test_context_keeps_a_leaf_under_its_contextually_deepened_section(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Changing a section's depth must carry its heterogeneous subtree."""
+    (rst_repo / "main.rst").write_text(_MAIN, encoding="utf-8")
+    (rst_repo / "part.rst").write_text("Shared\n------\n\n* Target item.\n", encoding="utf-8")
+    _commit(rst_repo, "main.rst", "part.rst")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "context", "Target item.", "part.rst")
+
+    assert code == 0, out
+    assert "depth: 5" in out
+    assert 'part:Shared — section "Shared"' in out
+    assert "parent: part:bullet-list@4" in out
+
+
+@pytest.mark.integration
+def test_context_deepens_a_titleless_fragment_leaf(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A title is not required to prove a fragment's surrounding depth."""
+    (rst_repo / "main.rst").write_text(_MAIN, encoding="utf-8")
+    (rst_repo / "part.rst").write_text("* Target item.\n", encoding="utf-8")
+    _commit(rst_repo, "main.rst", "part.rst")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "context", "Target item.", "part.rst")
+
+    assert code == 0, out
+    assert "depth: 4" in out
+    assert "parent: part:bullet-list@1" in out
+
+
+@pytest.mark.integration
+def test_context_refuses_titleless_leaf_depths_that_disagree_between_includers(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Agreement covers leaf structure even when no title can expose it."""
+    (rst_repo / "main.rst").write_text(_MAIN, encoding="utf-8")
+    (rst_repo / "other.rst").write_text("#####\nOther\n#####\n\n.. include:: part.rst\n", encoding="utf-8")
+    (rst_repo / "part.rst").write_text("* Target item.\n", encoding="utf-8")
+    _commit(rst_repo, "main.rst", "other.rst", "part.rst")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "context", "Target item.", "part.rst")
+
+    assert code == 1, out
+    assert "Context:" not in out
+    assert "part.rst:1: ERROR: context cannot report one structure" in out
+    assert "main.rst reports depth 3" in out
+    assert "other.rst reports depth 2" in out
+
+
+@pytest.mark.integration
+def test_context_omits_a_title_dropped_by_its_include_context(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A standalone section absent from the contextual tree is not resolvable."""
+    main = """##########
+Main
+##########
+
+**********
+Level 2
+**********
+
+==========
+Level 3
+==========
+
+----------
+Level 4
+----------
+
+==========
+Back to 3
+==========
+
+.. include:: part.rst
+"""
+    (rst_repo / "main.rst").write_text(main, encoding="utf-8")
+    (rst_repo / "part.rst").write_text("Shared\n*****\n\nBody.\n", encoding="utf-8")
+    _commit(rst_repo, "main.rst", "part.rst")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "context", "part:Shared", "part.rst")
+
+    assert code == 1, out
+    assert "no exact entry match" in out
+    assert "selector: part:Shared" not in out
+
+
+@pytest.mark.integration
+def test_context_refuses_nested_depths_that_disagree_between_includers(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A query must not select one standalone reading after contexts disagree."""
+    (rst_repo / "main.rst").write_text(_MAIN, encoding="utf-8")
+    (rst_repo / "other.rst").write_text("#####\nOther\n#####\n\n.. include:: part.rst\n", encoding="utf-8")
+    (rst_repo / "part.rst").write_text("Lead text.\n\n.. include:: sub.rst\n", encoding="utf-8")
+    (rst_repo / "sub.rst").write_text("a\n\nb\n\nc\n\nDeep\n~~~~\n", encoding="utf-8")
+    _commit(rst_repo, "main.rst", "other.rst", "part.rst", "sub.rst")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "context", "sub:Deep", "part.rst")
+
+    assert code == 1, out
+    assert "Context:" not in out
+    assert "part.rst:3: ERROR: context cannot report one structure" in out
+    assert "main.rst reports depth 3" in out
+    assert "other.rst reports depth 2" in out
+    assert "title at sub.rst:7" in out
+
+
+@pytest.mark.integration
+def test_context_refuses_an_unavailable_fragment_context(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A declaration without a visible includer cannot yield one authority."""
+    (rst_repo / "part.rst").write_text(_PART, encoding="utf-8")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(
+        monkeypatch,
+        capsys,
+        "--fragment",
+        "part.rst",
+        "context",
+        "part:Shared",
+        "part.rst",
+    )
+
+    assert code == 1, out
+    assert "Context:" not in out
+    assert "part.rst:1: ERROR: context cannot report one structure" in out
+    assert "this file is declared a fragment (--fragment 'part.rst')" in out
 
 
 @pytest.mark.integration
