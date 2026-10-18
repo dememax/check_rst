@@ -627,6 +627,38 @@ class ContextStage:
         own_lines = self.composer.disk_lines(self.own)
         if own_text is None or own_lines is None:
             return {}, self._finding(1, "outline cannot report one structure: this file cannot be read")
+        selected_anchors: dict[tuple[pathlib.Path, int], int] = {}
+        selected_source_anchors: dict[pathlib.Path, int] = {}
+        try:
+            selected_composition = self.composer.compose(self.own, self.own, own_lines)
+        except Exception:
+            # The root-context parse below remains authoritative.  This extra
+            # composition only improves a refusal's source coordinate, so an
+            # unavailable local view falls back to line 1 rather than replacing
+            # the real reader verdict.
+            selected_composition = None
+        if selected_composition is not None:
+            for index, origin in enumerate(selected_composition.origins):
+                via = selected_composition.vias[index]
+                if origin is None or origin.path == self.own or via is None:
+                    continue
+                selected_anchors.setdefault((origin.path, origin.index), via)
+                selected_source_anchors.setdefault(origin.path, via)
+
+        def refusal_anchor(key: tuple[pathlib.Path, int]) -> int:
+            """Anchor a physical title on the selected file's own source."""
+            source, line = key
+            if source == self.own:
+                return line
+            return selected_anchors.get(key, selected_source_anchors.get(source, 1))
+
+        def located(text: str, key: tuple[pathlib.Path, int]) -> str:
+            """Name a nested title whose line cannot anchor the selected file."""
+            source, line = key
+            if source == self.own:
+                return text
+            return f"{text} (title at {self._shown(source)}:{line})"
+
         for root, label in self.roots:
             root_text = own_text if root.resolve() == self.own else self.composer.disk_text(root)
             if root_text is None:
@@ -651,6 +683,10 @@ class ContextStage:
             origins: dict[tuple[pathlib.Path, int], collections.deque[_Origin]] = collections.defaultdict(
                 collections.deque
             )
+            reported_origins: dict[tuple[pathlib.Path, int], list[_Origin]] = collections.defaultdict(list)
+            for origin in composition.origins:
+                if origin is not None:
+                    reported_origins[origin.path, origin.reported].append(origin)
             for index, _style in _title_style_events(list(composition.lines)):
                 origin = composition.origins[index + 1] if index + 1 < len(composition.origins) else None
                 if origin is not None:
@@ -668,12 +704,14 @@ class ContextStage:
                 ):
                     continue
                 selected = next(origin for origin in planned_occurrences if origin.selected)
-                return {}, self._finding(
-                    selected.index,
+                physical = selected.path, selected.index
+                text = located(
                     f"outline cannot report one structure: the context {label} has {parsed} parsed section(s) "
                     f"for {len(planned_occurrences)} indistinguishable source occurrences, so the section cannot "
                     "be paired with its occurrence",
+                    physical,
                 )
+                return {}, self._finding(refusal_anchor(physical), text)
             depths: dict[tuple[pathlib.Path, int], set[int]] = {}
             for source, underline, depth in sections:
                 if source is None or not isinstance(underline, int) or underline <= 0:
@@ -681,11 +719,22 @@ class ContextStage:
                 candidates = origins.get((source, underline))
                 if not candidates:
                     if source in selected_sources:
-                        return {}, self._finding(
-                            max(1, underline - 1),
-                            f"outline cannot report one structure: the context {label} has a section whose "
-                            "physical source line cannot be proven",
+                        mapped_lines = {
+                            origin.index for origin in reported_origins.get((source, underline), ()) if origin.selected
+                        }
+                        mapped_physical = (source, next(iter(mapped_lines))) if len(mapped_lines) == 1 else None
+                        anchor = (
+                            refusal_anchor(mapped_physical)
+                            if mapped_physical is not None
+                            else selected_source_anchors.get(source, 1)
                         )
+                        text = (
+                            f"outline cannot report one structure: the context {label} has a section whose "
+                            "physical source line cannot be proven"
+                        )
+                        if mapped_physical is not None:
+                            text = located(text, mapped_physical)
+                        return {}, self._finding(anchor, text)
                     continue
                 origin = candidates.popleft()
                 if origin.selected:
@@ -704,7 +753,6 @@ class ContextStage:
                 (key for key in first.keys() | other.keys() if first.get(key) != other.get(key)),
                 key=lambda item: (str(item[0]), item[1]),
             )
-            line = key[1]
 
             def verdict(label: str, values: frozenset[int] | None) -> str:
                 if not values:
@@ -717,9 +765,12 @@ class ContextStage:
             return (
                 {},
                 self._finding(
-                    line,
-                    "outline cannot report one structure: "
-                    f"{verdict(first_label, first.get(key))} and {verdict(other_label, other.get(key))}",
+                    refusal_anchor(key),
+                    located(
+                        "outline cannot report one structure: "
+                        f"{verdict(first_label, first.get(key))} and {verdict(other_label, other.get(key))}",
+                        key,
+                    ),
                 ),
             )
         for label, context_depths in outcomes:
@@ -729,8 +780,11 @@ class ContextStage:
                 return (
                     {},
                     self._finding(
-                        repeated[1],
-                        f"outline cannot report one structure: {label} includes this title at depths {values}",
+                        refusal_anchor(repeated),
+                        located(
+                            f"outline cannot report one structure: {label} includes this title at depths {values}",
+                            repeated,
+                        ),
                     ),
                 )
         return {key: next(iter(values)) for key, values in first.items()}, None
