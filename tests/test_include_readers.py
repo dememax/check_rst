@@ -205,7 +205,7 @@ Four2
     (rst_repo / "main.rst").write_text(main, encoding="utf-8")
     (rst_repo / "part.rst").write_text(part, encoding="utf-8")
     if nested:
-        (rst_repo / "sub.rst").write_text("Deep\n~~~~\n", encoding="utf-8")
+        (rst_repo / "sub.rst").write_text("a\n\nb\n\nc\n\nDeep\n~~~~\n", encoding="utf-8")
         _commit(rst_repo, "main.rst", "part.rst", "sub.rst")
     else:
         _commit(rst_repo, "main.rst", "part.rst")
@@ -217,6 +217,49 @@ Four2
     assert "Outline: part.rst" not in out
     assert "outline cannot report one structure" in out
     assert "cannot be paired with its occurrence" in out
+    if nested:
+        assert "part.rst:3: ERROR:" in out
+        assert "sub.rst:7" in out
+
+
+@pytest.mark.integration
+def test_outline_anchors_a_nested_context_disagreement_on_its_include(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A nested title's physical line must not become a line in its parent."""
+    (rst_repo / "main.rst").write_text(_MAIN, encoding="utf-8")
+    (rst_repo / "other.rst").write_text("#####\nOther\n#####\n\n.. include:: part.rst\n", encoding="utf-8")
+    (rst_repo / "part.rst").write_text("Lead text.\n\n.. include:: sub.rst\n", encoding="utf-8")
+    (rst_repo / "sub.rst").write_text("a\n\nb\n\nc\n\nDeep\n~~~~\n", encoding="utf-8")
+    _commit(rst_repo, "main.rst", "other.rst", "part.rst", "sub.rst")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "outline", "part.rst")
+
+    assert code == 1, out
+    assert "part.rst:3: ERROR:" in out
+    assert "sub.rst:7" in out
+    assert "main.rst reports depth 3" in out
+    assert "other.rst reports depth 2" in out
+
+
+@pytest.mark.integration
+def test_outline_maps_an_unproven_clipped_section_to_its_physical_line(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Even a fail-closed section uses a physical, not clip-relative, anchor."""
+    main = _MAIN.replace(".. include:: part.rst", ".. include:: part.rst\n   :start-line: 3")
+    (rst_repo / "main.rst").write_text(main, encoding="utf-8")
+    (rst_repo / "part.rst").write_text("Alpha\n=====\n\nShared\n------\n", encoding="utf-8")
+    _commit(rst_repo, "main.rst", "part.rst")
+    monkeypatch.chdir(rst_repo)
+    monkeypatch.setattr("check_rst.cli._contexts._title_style_events", lambda _lines: [])
+
+    code, out = _run(monkeypatch, capsys, "outline", "part.rst")
+
+    assert code == 1, out
+    assert "part.rst:4: ERROR:" in out
+    assert "physical source line cannot be proven" in out
 
 
 @pytest.mark.integration
