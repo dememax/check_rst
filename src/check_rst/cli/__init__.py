@@ -1778,6 +1778,7 @@ def _main() -> None:
         else ({}, [])
     )
     args.contextual_outline_depths = {}
+    args.outline_refusals = {}
     if args.command == "outline":
         for path in files:
             planning = args.include_planning.get(pathlib.Path(os.path.abspath(path)))
@@ -1792,8 +1793,7 @@ def _main() -> None:
             else:
                 args.contextual_outline_depths[pathlib.Path(os.path.abspath(path))] = depths
                 continue
-            _emit_report_line(f"{path}:{line}: ERROR: {text}", "ERROR")
-            raise SystemExit(1)
+            args.outline_refusals[pathlib.Path(os.path.abspath(path))] = (line, text)
     args.whole_file_paths = frozenset(pathlib.Path(os.path.abspath(includer)) for includer, _fragment in joined)
     for includer, fragment in joined:
         files.append(includer)

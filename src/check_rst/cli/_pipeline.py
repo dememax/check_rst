@@ -138,6 +138,7 @@ def _outline_in_include_context(
     args: argparse.Namespace,
     path: pathlib.Path,
     entries: list[OutlineEntry],
+    source_root: pathlib.Path,
 ) -> list[OutlineEntry]:
     """Project agreed include-context depths onto *path*'s own headings.
 
@@ -147,28 +148,36 @@ def _outline_in_include_context(
     by a nested include keep their own provenance and are not mistaken for a
     same-numbered physical line in the selected fragment.
     """
-    contextual: dict[pathlib.Path, dict[int, int]] = getattr(args, "contextual_outline_depths", {})
+    contextual: dict[pathlib.Path, dict[tuple[pathlib.Path, int], int]] = getattr(args, "contextual_outline_depths", {})
     depths = contextual.get(pathlib.Path(os.path.abspath(path)))
     if depths is None:
         return entries
     own = path.resolve()
 
-    def belongs_to_selected(entry: OutlineEntry) -> bool:
+    def identity(entry: OutlineEntry) -> tuple[pathlib.Path, int] | None:
         provenance = entry.provenance
         if provenance is None:
-            return True
-        return not provenance.source.startswith("<") and pathlib.Path(provenance.source).resolve() == own
+            return own, entry.lineno
+        if provenance.source.startswith("<"):
+            return None
+        source = pathlib.Path(provenance.source)
+        physical = source if source.is_absolute() else source_root / source
+        return physical.resolve(), entry.lineno
 
     projected: list[OutlineEntry] = []
     for entry in entries:
-        if not belongs_to_selected(entry):
-            projected.append(entry)
-        elif entry.lineno in depths:
-            projected.append(dataclasses.replace(entry, depth=depths[entry.lineno]))
+        key = identity(entry)
+        if key in depths:
+            projected.append(dataclasses.replace(entry, depth=depths[key]))
         # A standalone title absent from the context's Docutils tree is not a
         # section there (for example after an illegal level skip), so it must
         # not survive as a fallback entry in the contextual outline.
     return projected
+
+
+def _outline_reader_refusal(args: argparse.Namespace, path: pathlib.Path) -> tuple[int, str] | None:
+    refusals: dict[pathlib.Path, tuple[int, str]] = getattr(args, "outline_refusals", {})
+    return refusals.get(pathlib.Path(os.path.abspath(path)))
 
 
 # CR-43: refusals a plan carries because of its include contexts.  The
@@ -516,6 +525,11 @@ def _run_phase1(
             inside = path.resolve().is_relative_to(args.sphinx_src.resolve())
             print(f"{pstr}: {'not a Sphinx document' if inside else 'outside sphinx-src'} — Phase 0/1 only")
         state.files_checked += 1
+        outline_refusal = _outline_reader_refusal(args, path)
+        if outline_refusal is not None:
+            refusal_line, text = outline_refusal
+            _emit_report_line(f"{pstr}:{refusal_line}: ERROR: {text}", "ERROR")
+            state.total_errors += 1
 
         # Phase 0 — byte hygiene, before anything parses the file.  Always
         # whole-file (a line-ending policy can't be diff-scoped), independent
@@ -799,6 +813,8 @@ def _run_sphinx_phases(
         outside_sphinx = args.sphinx_src is not None and not verified_files
         if args.outline or args.json:
             for path in files:
+                if args.outline and _outline_reader_refusal(args, path) is not None:
+                    continue
                 # phase2_doc, not document: a fresh, independently-typed
                 # local (Document | None, narrowed below) — reusing
                 # "document" here shadows Phase 1's Document-typed local
@@ -827,7 +843,7 @@ def _run_sphinx_phases(
                         else:
                             state.total_warnings += 1
                 if args.outline and not args.json:
-                    contextual_outline = _outline_in_include_context(args, path, phase2_doc.outline)
+                    contextual_outline = _outline_in_include_context(args, path, phase2_doc.outline, project_root)
                     heuristic_entries: list[LocalEntry] = [
                         *contextual_outline,
                         *include_entries,
@@ -947,6 +963,8 @@ def _run_sphinx_phases(
                 _report_retained(args, path, verified_retained_v, project_root)
             if args.outline or args.json:
                 for path in files:
+                    if args.outline and _outline_reader_refusal(args, path) is not None:
+                        continue
                     # phase2_doc: see the sibling heuristic loop above for
                     # why this isn't named "document".
                     phase2_doc = state.documents.get(path)
@@ -990,7 +1008,12 @@ def _run_sphinx_phases(
                         else phase2_doc.outline
                     )
                     if args.outline and not args.json:
-                        verified_outline = _outline_in_include_context(args, path, verified_outline)
+                        verified_outline = _outline_in_include_context(
+                            args,
+                            path,
+                            verified_outline,
+                            args.sphinx_src,
+                        )
                     toctree_clusters = (
                         find_toctrees(
                             env,

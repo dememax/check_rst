@@ -37,6 +37,7 @@ planner expects (contract rule 5, P4d).
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import dataclasses
 import difflib
@@ -96,6 +97,10 @@ class _Origin:
     partial: bool = False
     reported: int = 0
     expanded: bool = False
+    # True for the selected file's contribution, including every nested
+    # include reached through it.  P6 projects the whole contributed subtree,
+    # not only lines whose immediate physical source is the selected file.
+    selected: bool = False
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -439,7 +444,11 @@ class Composer:
             return own_lines if path.resolve() == own else (self.disk_lines(path) or [])
 
         def expand(
-            path: pathlib.Path, selection: Selection, stack: tuple[tuple[object, ...], ...], via: int | None
+            path: pathlib.Path,
+            selection: Selection,
+            stack: tuple[tuple[object, ...], ...],
+            via: int | None,
+            selected: bool,
         ) -> None:
             real = path.resolve()
             physical = physical_of(path)
@@ -463,7 +472,7 @@ class Composer:
                     vias.append(via)
                     # Docutils numbers an inserted text from its own first line.
                     expanded = index < len(physical) and "\t" in physical[index]
-                    origins.append(_Origin(real, index, cut, offset + 1, expanded))
+                    origins.append(_Origin(real, index, cut, offset + 1, expanded, selected))
                     offset += 1
                     continue
                 relative, verdict = found
@@ -485,7 +494,8 @@ class Composer:
                 if identity in stack:
                     raise _UncomposableError(site, "it is part of an include cycle")
                 through = via if via is not None else site.line
-                expand(site.target, clipped, (*stack, identity), through)
+                target_selected = selected or site.canonical_target == own
+                expand(site.target, clipped, (*stack, identity), through, target_selected)
                 lines.extend(["", f'.. end of inclusion from "{site.argument}"'])
                 origins.extend([None, None])
                 vias.extend([through, through])
@@ -494,7 +504,11 @@ class Composer:
         # The root is read whole at Docutils' default tab_width setting, 8.
         empty: Variant = ()
         expand(
-            root, effective_input(text_of(root) or "", empty) or [], ((root.resolve(), None, None, None, None),), None
+            root,
+            effective_input(text_of(root) or "", empty) or [],
+            ((root.resolve(), None, None, None, None),),
+            None,
+            root.resolve() == own,
         )
         return _Composition(root, tuple(lines), tuple(origins), tuple(vias))
 
@@ -599,7 +613,7 @@ class ContextStage:
             key=lambda finding: finding.lineno,
         )
 
-    def reader_result(self) -> tuple[dict[int, int], Finding | None]:
+    def reader_result(self) -> tuple[dict[tuple[pathlib.Path, int], int], Finding | None]:
         """Return agreed physical-title depths, or a reader refusal.
 
         P6's reader commands may print one result only when every context
@@ -608,9 +622,10 @@ class ContextStage:
         its rank.  A repeated inclusion at two depths is therefore a conflict
         even inside one root document.
         """
-        outcomes: list[tuple[str, dict[int, frozenset[int]]]] = []
+        outcomes: list[tuple[str, dict[tuple[pathlib.Path, int], frozenset[int]]]] = []
         own_text = self.composer.disk_text(self.own)
-        if own_text is None:
+        own_lines = self.composer.disk_lines(self.own)
+        if own_text is None or own_lines is None:
             return {}, self._finding(1, "outline cannot report one structure: this file cannot be read")
         for root, label in self.roots:
             root_text = own_text if root.resolve() == self.own else self.composer.disk_text(root)
@@ -620,6 +635,7 @@ class ContextStage:
                     f"outline cannot report one structure: the context {label} cannot be read",
                 )
             try:
+                composition = self.composer.compose(root, self.own, own_lines)
                 sections = _docutils_sections(
                     root,
                     root_text,
@@ -632,12 +648,32 @@ class ContextStage:
                     1,
                     f"outline cannot report one structure: the context {label} cannot be parsed",
                 )
-            depths: dict[int, set[int]] = {}
+            origins: dict[tuple[pathlib.Path, int], collections.deque[_Origin]] = collections.defaultdict(
+                collections.deque
+            )
+            for index, _style in _title_style_events(list(composition.lines)):
+                origin = composition.origins[index + 1] if index + 1 < len(composition.origins) else None
+                if origin is not None:
+                    origins[origin.path, origin.reported].append(origin)
+            selected_sources = {origin.path for origin in composition.origins if origin is not None and origin.selected}
+            depths: dict[tuple[pathlib.Path, int], set[int]] = {}
             for source, underline, depth in sections:
-                if source == self.own and isinstance(underline, int) and underline > 0:
-                    # Docutils reports the underline's 1-based source line;
-                    # OutlineEntry reports the title line immediately above.
-                    depths.setdefault(underline - 1, set()).add(depth)
+                if source is None or not isinstance(underline, int) or underline <= 0:
+                    continue
+                candidates = origins.get((source, underline))
+                if not candidates:
+                    if source in selected_sources:
+                        return {}, self._finding(
+                            max(1, underline - 1),
+                            f"outline cannot report one structure: the context {label} has a section whose "
+                            "physical source line cannot be proven",
+                        )
+                    continue
+                origin = candidates.popleft()
+                if origin.selected:
+                    # Origin.index is the underline's physical 0-based line;
+                    # OutlineEntry uses the title's equal 1-based line.
+                    depths.setdefault((origin.path, origin.index), set()).add(depth)
             outcomes.append((label, {line: frozenset(values) for line, values in depths.items()}))
 
         if not outcomes:
@@ -646,7 +682,11 @@ class ContextStage:
         for other_label, other in outcomes[1:]:
             if other == first:
                 continue
-            line = min(key for key in first.keys() | other.keys() if first.get(key) != other.get(key))
+            key = min(
+                (key for key in first.keys() | other.keys() if first.get(key) != other.get(key)),
+                key=lambda item: (str(item[0]), item[1]),
+            )
+            line = key[1]
 
             def verdict(label: str, values: frozenset[int] | None) -> str:
                 if not values:
@@ -661,21 +701,21 @@ class ContextStage:
                 self._finding(
                     line,
                     "outline cannot report one structure: "
-                    f"{verdict(first_label, first.get(line))} and {verdict(other_label, other.get(line))}",
+                    f"{verdict(first_label, first.get(key))} and {verdict(other_label, other.get(key))}",
                 ),
             )
         for label, context_depths in outcomes:
-            repeated = next((line for line, values in context_depths.items() if len(values) > 1), None)
+            repeated = next((key for key, values in context_depths.items() if len(values) > 1), None)
             if repeated is not None:
                 values = ", ".join(str(value) for value in sorted(context_depths[repeated]))
                 return (
                     {},
                     self._finding(
-                        repeated,
+                        repeated[1],
                         f"outline cannot report one structure: {label} includes this title at depths {values}",
                     ),
                 )
-        return {line: next(iter(values)) for line, values in first.items()}, None
+        return {key: next(iter(values)) for key, values in first.items()}, None
 
     @staticmethod
     def _named(finding: Finding, documents: list[str], itself: bool) -> Finding:
