@@ -91,6 +91,7 @@ class _PipelineState:
     """
 
     total_errors: int = 0
+    hidden_errors: int = 0
     whole_file: bool = True
     total_warnings: int = 0
     files_checked: int = 0
@@ -604,6 +605,7 @@ def _run_phase1(
                     state.json_records[path]["findings"].extend(hygiene_v)
                 e, w = _print_findings(hygiene_v, pstr, args.no_warnings, suppress_findings)
                 state.total_errors += e
+                state.hidden_errors += e if suppress_findings else 0
                 state.total_warnings += w
 
         if args.diff:
@@ -707,6 +709,7 @@ def _run_phase1(
             state.json_records[path]["findings"].extend(phase1_v)
         e, w = _print_findings(open_v, pstr, args.no_warnings, suppress_findings)
         state.total_errors += e
+        state.hidden_errors += e if suppress_findings else 0
         state.total_warnings += w
         state.suppressed_warnings += _hidden_warnings(args, open_v)
         state.retained_count += len(retained_v)
@@ -957,6 +960,7 @@ def _run_sphinx_phases(
                     state.json_records[path]["findings"].extend(verified_v)
                 e, w = _print_findings(verified_open_v, str(path), args.no_warnings, suppress_findings)
                 state.total_errors += e
+                state.hidden_errors += e if suppress_findings else 0
                 state.total_warnings += w
                 state.suppressed_warnings += _hidden_warnings(args, verified_open_v)
                 state.retained_count += len(verified_retained_v)
@@ -1185,6 +1189,7 @@ def _run_sphinx_phases(
                 if not sphinx_v and not restatements:
                     print("✓ Sphinx: no warnings or errors in the checked files")
             state.total_errors += e
+            state.hidden_errors += e if suppress_findings else 0
             state.total_warnings += w
         finally:
             if not keep_build:
@@ -1347,10 +1352,10 @@ def _emit_text_summary(
     if not args.quiet:
         print()
 
-    if suppress_findings and state.total_errors:
+    if suppress_findings and state.hidden_errors:
         # A structure-only outline hides findings while its exit status
         # still reflects ERRORs: name the one option that shows them.
-        print(f"  ({state.total_errors} error(s) not shown — rerun with --with-findings to see them)")
+        print(f"  ({state.hidden_errors} error(s) not shown — rerun with --with-findings to see them)")
 
     # Line 1 — run facts and character totals.  Symbols (code points) vs
     # bytes: two numbers when they differ (non-ASCII content), one with a

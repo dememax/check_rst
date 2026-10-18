@@ -656,6 +656,24 @@ class ContextStage:
                 if origin is not None:
                     origins[origin.path, origin.reported].append(origin)
             selected_sources = {origin.path for origin in composition.origins if origin is not None and origin.selected}
+            parsed_counts = collections.Counter(
+                (source, underline)
+                for source, underline, _depth in sections
+                if source is not None and isinstance(underline, int) and underline > 0
+            )
+            for key, planned_occurrences in origins.items():
+                parsed = parsed_counts[key]
+                if not (
+                    0 < parsed < len(planned_occurrences) and any(origin.selected for origin in planned_occurrences)
+                ):
+                    continue
+                selected = next(origin for origin in planned_occurrences if origin.selected)
+                return {}, self._finding(
+                    selected.index,
+                    f"outline cannot report one structure: the context {label} has {parsed} parsed section(s) "
+                    f"for {len(planned_occurrences)} indistinguishable source occurrences, so the section cannot "
+                    "be paired with its occurrence",
+                )
             depths: dict[tuple[pathlib.Path, int], set[int]] = {}
             for source, underline, depth in sections:
                 if source is None or not isinstance(underline, int) or underline <= 0:
