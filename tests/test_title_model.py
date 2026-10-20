@@ -410,10 +410,10 @@ def test_markup_shaped_line_inside_a_paragraph_is_not_called_markup(
 @pytest.mark.integration
 @pytest.mark.parametrize(
     ("source", "expected_exit", "expected_fix_exit"),
-    (
+    [
         ("1. a\n.. c\n=======\n\nBody.\n", 0, 0),
         ("1. a\n.. c\n=======\nTitle\n=======\n\nBody.\n", 1, 1),
-    ),
+    ],
     ids=("underline-candidate", "title-block"),
 )
 def test_enumerator_does_not_prove_a_fresh_markup_context(

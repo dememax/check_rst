@@ -82,7 +82,7 @@ def fix_hygiene(path: pathlib.Path) -> bool:
 type _TitleStyle = tuple[str, bool]
 
 
-_LIST_ITEM_MARKER_RE = re.compile(r"^[ \t]*(?:[-+*]|(?:\d+|#)[.)])[ \t]+")
+_BULLET_ITEM_MARKER_RE = re.compile(r"^[ \t]*[-+*][ \t]+")
 _PROVEN_NON_TEXT_TRANSITIONS = (
     "bullet",
     "field_marker",
@@ -107,11 +107,12 @@ def _candidate_starts_body(lines: list[str], index: int) -> bool:
     """Whether the parser-free model proves Body state at ``index``.
 
     A blank separator (or the start of the file) is direct proof.  The title
-    model already treats a flush-left line after a list item as a new body
+    model already treats a flush-left line after a bullet item as a new body
     construct: the unindent ends the list, although Docutils may warn that the
-    list itself lacked a blank separator.
+    list itself lacked a blank separator.  An enumerator is not equivalent:
+    with an unindented next line Docutils corrects it to ordinary text.
     """
-    return index == 0 or not lines[index - 1].strip() or _LIST_ITEM_MARKER_RE.match(lines[index - 1]) is not None
+    return index == 0 or not lines[index - 1].strip() or _BULLET_ITEM_MARKER_RE.match(lines[index - 1]) is not None
 
 
 def _is_proven_non_title_construct(lines: list[str], index: int) -> bool:
@@ -176,16 +177,16 @@ def _underline_candidates(
             continue
         if len(underline) < 4 and len(underline) < docutils.utils.column_width(title.strip()):
             continue
-        if underline_index in block_overlines:
-            candidates.append((title_index, "shared"))
-            continue
         if (
             doctree is None
             and title_index > 0
             and lines[title_index - 1].strip()
-            and _LIST_ITEM_MARKER_RE.match(lines[title_index - 1]) is None
+            and _BULLET_ITEM_MARKER_RE.match(lines[title_index - 1]) is None
         ):
             candidates.append((title_index, "unproven"))
+            continue
+        if underline_index in block_overlines:
+            candidates.append((title_index, "shared"))
             continue
         candidates.append((title_index, "title"))
     return candidates
