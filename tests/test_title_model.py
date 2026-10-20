@@ -441,6 +441,57 @@ def test_enumerator_does_not_prove_a_fresh_markup_context(
     assert path.read_text(encoding="utf-8") == source
 
 
+_CR46_NEEDS_FIX = "###\nLong title\n###\n\n"
+_CR46_REMEDY = (
+    "if it is a title, add a blank line before it; if it is text, mark the block as literal or break the "
+    "title-like punctuation"
+)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("source", "checked_reading"),
+    [
+        (
+            _CR46_NEEDS_FIX + "Context line.\n--- old/path\n***************\n\nBody.\n",
+            "Docutils reads them as paragraph text",
+        ),
+        (
+            _CR46_NEEDS_FIX + "Previous sentence.\nWait for the result\n.....\n\nBody.\n",
+            "Docutils reads them as paragraph text",
+        ),
+        (
+            _CR46_NEEDS_FIX + ":field: return value\n};\n```\n\nBody.\n",
+            "Docutils reads '};' as a section title",
+        ),
+    ],
+    ids=("context-diff", "ellipsis", "markdown-fence"),
+)
+def test_unseparated_title_names_the_remedy_when_the_candidate_is_text(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    source: str,
+    checked_reading: str,
+) -> None:
+    """CR-46: all three Journal shapes say how to unblock text as well as
+    how to separate a real title, in parser-free and parser-backed output."""
+    monkeypatch.chdir(rst_repo)
+    path = rst_repo / "doc.rst"
+    path.write_text(source, encoding="utf-8")
+
+    fix_exit, fix_out = _run(monkeypatch, capsys, "fix", "--fast", "doc.rst")
+    check_exit, check_out = _run(monkeypatch, capsys, "check", "doc.rst")
+
+    assert fix_exit == 1
+    assert "fix cannot tell whether it is a section title" in fix_out
+    assert _CR46_REMEDY in fix_out
+    assert check_exit == 1
+    assert checked_reading in check_out
+    assert _CR46_REMEDY in check_out
+    assert path.read_text(encoding="utf-8") == source
+
+
 @pytest.mark.integration
 def test_unseparated_title_is_a_non_fixable_error_even_when_nothing_else_changes(
     rst_repo: Path,

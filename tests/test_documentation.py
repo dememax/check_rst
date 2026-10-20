@@ -217,6 +217,17 @@ def test_documented_finding_hints_match_real_output() -> None:
     assert checked
 
 
+@pytest.mark.unit
+def test_guide_quotes_the_unseparated_title_remedy() -> None:
+    """CR-46: the guide's two remedies stay identical to the compact text
+    carried by parser-free and parser-backed findings."""
+    from check_rst.cli._formatting import _UNSEPARATED_TITLE_REMEDY
+
+    guide = _normalized_text(DOCS_DIR / "guide.rst")
+
+    assert _UNSEPARATED_TITLE_REMEDY in guide
+
+
 def _normalized_text(path: Path) -> str:
     """Return a document's text with line breaks folded into single spaces."""
     return " ".join(path.read_text(encoding="utf-8").split())
