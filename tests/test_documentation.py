@@ -295,8 +295,8 @@ def test_include_context_contract_is_documented_for_each_command() -> None:
 
     assert "``--standalone PATTERN``" in pages["check_rst.rst"]
     assert "``--fragment PATTERN``" in pages["check_rst.rst"]
-    assert "``standalone = [PATTERN, ...]``" in pages["check_rst-config.rst"]
-    assert "``fragments = [PATTERN, ...]``" in pages["check_rst-config.rst"]
+    assert '``standalone = ["PATTERN", ...]``' in pages["check_rst-config.rst"]
+    assert '``fragments = ["PATTERN", ...]``' in pages["check_rst-config.rst"]
     assert "joined read-only and whole-file" in pages["check_rst-check.rst"]
     assert "conservative fast refusal" in pages["check_rst-fix.rst"]
     assert "every available include context" in pages["check_rst-fix.rst"]

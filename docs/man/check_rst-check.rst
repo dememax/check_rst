@@ -28,6 +28,19 @@ Run Phase 0 byte hygiene, Phase 1 RST lint, Phase 2 structure checks, and,
 with ``--sphinx-src``, the Phase 3 Sphinx build.  The command does not modify
 source files.
 
+When a selected file is included structurally, title-model findings are judged
+in its effective documents rather than in a fictitious standalone reading.
+Every transitive includer discovered for that file is joined read-only and
+whole-file, including during a Git-hunk run, so damage visible only in an
+includer still makes the final check fail.  A context-dependent edit is marked
+fixable only when every required context is available and agrees.
+
+Conflicting available contexts produce ``include.context-conflict`` as an
+ERROR.  An unavailable context produces an exactly anchored, retainable
+``include.context-unavailable`` WARNING when the fragment contains structure
+whose level depends on it; a title-free contact block produces none.  A proven
+ERROR in an available context remains an ERROR beside that warning.
+
 *******************
 IMPORTANT OPTIONS
 *******************

@@ -27,7 +27,7 @@ DESCRIPTION
 Print complete physical section ranges and structural entries without
 requiring a linear read.  A section range starts at its overline when present;
 the title line remains a separate anchor.  The structure view is always
-whole-document and never changes the exit status.  In verified Sphinx mode,
+whole-document.  In verified Sphinx mode,
 ``toctree`` children are traversed unless ``--no-toctree`` is given.  Use this
 command when the target structure is unknown; use ``check_rst context`` when
 one exact entry or explicit label is already known.  Explicit labels attached
@@ -69,6 +69,13 @@ nested include path.  Include cycles are reported without traversal; their
 identity is the resolved source plus clipping options, so disjoint fragments
 of one file remain valid.
 
+When the selected file is itself a fragment, each section and leaf is
+projected into every effective include context.  One outline is printed only
+when those contexts agree and none is unavailable; otherwise the command
+refuses rather than display a standalone hierarchy that no consumer uses.
+Content after a title Docutils drops remains under the last surviving parsed
+section, and nested-fragment leaves use their composed positions.
+
 Verified output is parser-effective, not builder-final.  ``only`` and
 ``ifconfig`` containers are marked builder-dependent.  Extension-mutated or
 configured synthetic source remains visible but is marked inexact rather than
@@ -99,9 +106,12 @@ OPTIONS
 EXIT STATUS
 *************
 
-Structure itself never produces status ``1``.  ERROR findings from the
-underlying check pipeline still do, as does an incompatible option
-combination; ``2`` is reserved for an argparse-level syntax error (see
+Return ``1`` when include contexts disagree or one is unavailable, even if
+the underlying validation has no ERROR.  A selected file outside every
+discovery root is one such refusal: run from the intended project root or pass
+``--config FILE`` so includers can be searched.  ERROR findings from the
+underlying check pipeline also produce status ``1``, as does an incompatible
+option combination; ``2`` is reserved for an argparse-level syntax error (see
 :manpage:`check_rst(1)`, EXIT STATUS).  When the structure-only view hides
 ERRORs, the line before the final status says how many and that
 ``--with-findings`` shows them.

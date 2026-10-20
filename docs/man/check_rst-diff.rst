@@ -27,6 +27,11 @@ DESCRIPTION
 Compute the same candidate source as ``check_rst fix`` without writing it,
 then print a unified diff.  Fix options such as ``--fast`` and the opt-in
 parser-verified text policies have the same meaning as for ``fix``.
+It uses the same contextual plan as ``fix``: full mode composes every proven
+include context, while ``--fast`` refuses on lexical uncertainty.  A refusal
+prints no structural patch for that file; the historical prefix remains
+``fix refused —`` because the preview reports why the underlying fix plan is
+unavailable.
 
 On Unix, a filename may contain bytes that are not UTF-8.  When standard
 output would otherwise reject Python's surrogate-escaped representation,

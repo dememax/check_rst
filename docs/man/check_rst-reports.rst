@@ -40,6 +40,14 @@ and source owner.  Ambiguous exact matches are reported rather than guessed.
 Verified mode can follow ``toctree`` entries; ``--no-toctree`` keeps the query
 local.
 
+When ``FILE`` is a fragment, ``context`` resolves and projects the entry in
+every effective include context, retaining its physical source range while
+reporting its composed depth.  It prints one briefing only when all contexts
+agree and none is unavailable.  Context-dependent findings in that briefing
+use the same judgement as ``check``; when a safe local briefing cannot carry
+them, it directs the reader to ``check`` rather than quoting a misleading
+standalone finding.
+
 *********
 TARGETS
 *********
@@ -86,10 +94,13 @@ EXIT STATUS
 *************
 
 Each query returns ``0`` for a successful report, including a ``compare``
-report that describes changes.  Invalid input, an unresolved query, a build
-failure, or a rejected incompatible option combination returns ``1``; ``2``
-is reserved for an argparse-level syntax error (see :manpage:`check_rst(1)`,
-EXIT STATUS).
+report that describes changes.  ``context`` returns ``1`` when include
+contexts disagree or one is unavailable.  A selected file outside every
+discovery root is unavailable: run from the intended project root or pass
+``--config FILE``.  Invalid input, an unresolved query, a build failure, or a
+rejected incompatible option combination also returns ``1``; ``2`` is
+reserved for an argparse-level syntax error (see :manpage:`check_rst(1)`, EXIT
+STATUS).
 
 **********
 SEE ALSO

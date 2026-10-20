@@ -48,7 +48,11 @@ reports.  ``runtime`` records versions that can affect results, including
 ``runtime.check_rst.contract_version`` for the integer CLI contract queried by
 ``check_rst --contract-version``.
 ``config`` records the selected source and applied or inactive values, or is
-null.  ``files`` contains per-document models, ``summary`` contains aggregate
+null.  When role declarations apply, ``config.roles`` has ``standalone`` and
+``fragments`` arrays.  Each record names its ``pattern``, its configuration
+file or command-line ``source``, and every lexical path in ``matches``;
+command-line roles without a configuration use a null config ``source``.
+``files`` contains per-document models, ``summary`` contains aggregate
 counts, and verified reports may include ``sphinx_findings``.  Each finding
 records its ``<domain>.<condition>`` rule ``code`` and ``location_exact``;
 ``summary.suppressed`` counts WARNINGs hidden by

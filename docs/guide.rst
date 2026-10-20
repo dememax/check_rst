@@ -1302,13 +1302,16 @@ commands answer a query.  Their exit statuses therefore mean different things:
      - Exit 0
      - Exit 1
    * - ``outline``
-     - Validation found no ERROR
+     - Validation found no ERROR, and every required include context was
+       available and agreed
      - Validation found an ERROR, even when the structure-only view hides it;
-       the report then names the hidden count and ``--with-findings``
+       include contexts disagree or cannot be judged; or the selected file is
+       outside every discovery root
    * - ``context``
-     - The query resolved to exactly one entry, even when its briefing lists an
-       ERROR
-     - No entry matched, or several did (candidates are printed)
+     - The query resolved to exactly one entry in agreeing, available contexts,
+       even when its briefing lists an ERROR
+     - No entry matched, several did, include contexts disagree or cannot be
+       judged, or the selected file is outside every discovery root
    * - ``targets``
      - The listing was produced, including zero matches
      - ``--exact`` found no target, or verified mode is missing
@@ -1470,8 +1473,96 @@ but builder post-transforms have not yet selected ``only`` or ``ifconfig``
 branches.  Those containers are consequently shown as
 ``builder-dependent``.  When a ``source-read`` or ``include-read`` listener
 changes text, JSON provenance reports ``exact: false`` and text output uses an
-unknown ``?`` adornment rather than presenting generated coordinates as an
+unknown ``n`` style token rather than presenting generated coordinates as an
 editable source fact.
+
+======================================
+Include contexts and discovery roots
+======================================
+
+A file inserted by ``.. include::`` has no standalone hierarchy authority.
+Its title styles acquire depths from the document that includes it.  Reading
+or fixing that fragment alone can therefore turn an ordinary section into a
+page title, flatten it, or report a second top-level title that does not exist
+in the composed document.  check_rst calls each effective reading a
+*context*: every visible includer and clipping range, plus a standalone use
+when one is declared or Sphinx proves the file is also a document.
+
+Full ``check``, ``fix`` and ``diff`` parse each possible include, compose the
+selected file in every context, and judge its context-dependent title findings
+there.  A structural edit is safe only when every required context is
+available, every context needs the same physical edit, the edit stays inside
+the selected file, and each includer's section tree revalidates.  Conflicting
+available contexts produce ``include.context-conflict``.  A context that
+cannot be inspected produces ``include.context-unavailable``: a non-fixable
+ERROR when a structural mutation is refused, or an exactly anchored,
+retainable WARNING from ``check`` when nothing is proven wrong.  A fragment
+with no context-dependent structure produces no such warning.
+
+``check`` also joins a selected fragment's transitive includers read-only and
+whole-file.  This is deliberate even in Git-hunk scope: the fragment can be
+locally consistent while making an unchanged includer invalid.  ``fix`` and
+``diff`` never mutate or preview an unselected includer.  ``outline`` and
+``context`` project sections and leaves back to their physical files while
+showing their effective depths; they print one answer only when every context
+agrees and none is unavailable.  Content after a title Docutils drops remains
+in the last surviving parsed section rather than disappearing with the title.
+Where a contextual briefing cannot safely carry a document-level title
+finding, ``context`` says to run ``check`` instead of presenting the fragment's
+unrelated standalone diagnosis.
+
+Fast ``fix``/``diff`` and ``entitle`` cannot parse away false include-looking
+text.  They therefore use a conservative lexical boundary: a possible
+structural include, a declared fragment, an incomplete scan, or an uncovered
+file protects structural changes.  Full mode may later prove that an include
+inside a comment or literal block is only text.  A configured ``sphinx-src``
+is discovery-only in fast mode and ``entitle``: it establishes paths and the
+meaning of a leading ``/`` but never executes ``conf.py``.
+
+Full mode still fails closed where an isolated parse cannot reproduce the
+consumer: a confirmed indented or nested include, ``:parser:``, a replaced
+``include`` directive, ``source-read``/``include-read`` handlers, or configured
+``rst_prolog``/``rst_epilog`` makes that context unavailable.  A structural
+include argument beginning with ``/`` is likewise unavailable when no Sphinx
+source is known, because Docutils and Sphinx give it different roots; configure
+``sphinx-src`` to state which reading applies.
+
+Two independent declarations supply facts the scan cannot infer.  They are
+global options, before the command, and may also be arrays in
+``.check_rst.toml``::
+
+    standalone = ["appendix.rst"]
+    fragments = ["parts/**/*.rst"]
+
+``--standalone PATTERN`` adds a standalone context to matching files;
+``--fragment PATTERN`` declares an unseen, therefore unavailable, include
+context.  Both may cover one file.  Command-line patterns add to configured
+ones; ``--no-config`` drops only the configured patterns.  Quote command-line
+globs so check_rst, not the shell, expands them.  ``*``, ``?`` and ``[...]``
+stay inside one path component; ``**`` as a whole component spans directories;
+hidden names require an explicitly dotted component.  A pattern that matches
+no regular file is an error.  Configuration patterns are relative to the
+configuration directory; command-line patterns are relative to the working
+directory or absolute, but may not escape the established roots.
+
+Those roots define the closed world check_rst can search:
+
+* an active configuration's directory, plus a Sphinx source outside it;
+* otherwise, each selected file's Git worktree;
+* outside Git, the working directory for selected files beneath it.
+
+A selected file outside every discovery root is refused for structural
+mutation and by the two readers.  Run from the intended project root or pass
+``--config FILE``.  Conversely, an includer outside all roots is invisible, so
+its target looks standalone unless ``fragments``/``--fragment`` protects it.
+Automatic discovery scans ``.rst`` files, active Sphinx source suffixes in
+full mode, and every reached target whatever its suffix.  It skips an ignored
+includer and never descends into ``.git`` or a directory symlink.  Role
+patterns do include ignored regular files, so generated fragments remain
+declarable.  Fast discovery knows only ``.rst`` includers: when a
+non-``.rst`` includer can contribute structure, declare its target with
+``--fragment`` or the ``fragments`` key.  An unreadable part of the search
+universe makes the graph incomplete and structural changes fail closed.
 
 ========================================================
 Entry selectors: stable sections and universal aliases
@@ -1510,7 +1601,7 @@ for the one entry directly::
     check_rst context 'roadmap:Table queries' \
         docs/roadmap.rst
 
-``context ENTRY`` is a self-contained, read-only query requiring exactly
+``context ENTRY`` is a read-only query requiring exactly
 one positional ``.rst`` file.  It resolves the same heterogeneous entry
 stream that ``outline`` prints — sections, list containers and items,
 code-blocks, blockquotes, tables, admonitions, comments, toctrees, and future
@@ -1530,7 +1621,12 @@ structure.  If their depths disagree, an occurrence cannot be paired, or an
 include context is unavailable, the command exits 1 without presenting the
 standalone briefing as authoritative.  A refusal about nested content is
 anchored on the selected file's include line and names the nested physical
-location.
+location.  Projection follows the composed position of every leaf, not its
+standalone container: when Docutils drops an inconsistent title, the content
+after it remains at the depth of the last surviving parsed section.  If the
+briefing cannot safely attribute a document-level title finding to the local
+entry, it tells the reader to run ``check`` rather than quote a standalone
+finding that contradicts the contextual structure.
 
 A unique match reports its selector, kind, exact physical range and depth.  It
 reports the title line separately when an overline makes it differ from the
@@ -2349,7 +2445,17 @@ repository's own file, complete::
     sphinx-src = "docs"
     build-dir = "/tmp/check-rst-sphinx-build"
 
-Those two keys are the entire vocabulary.  With them committed, the
+The two optional role keys are arrays of glob patterns::
+
+    standalone = ["appendix.rst"]
+    fragments = ["parts/**/*.rst"]
+
+``standalone`` says that a file is also a document of its own even when a
+visible file includes it.  ``fragments`` says that an includer exists outside
+the discovery roots.  The detailed matching and safety contract is under
+"Include contexts and discovery roots" above.
+
+With the path keys committed, the
 bare commands run in verified mode with Phase 3 — the three-step loop
 needs no long options, and every repo can carry different facts (a
 repo whose ``conf.py`` sits at its root instead uses ``sphinx-src = "."``).
@@ -2403,6 +2509,7 @@ sphinx-src=docs, build-dir=/tmp/check-rst-sphinx-build`` for automatic
 discovery (this repository's own echo), or the selected config's absolute path
 for ``--config``.  The ``--format=json`` model carries
 the same ``config`` object saying which file supplied which values.
+Its ``roles`` member records every declaration, its source and its matches.
 You always know why a run is in verified mode.  It also carries a schema
 version and structured runtime metadata; normal verified output prints the
 corresponding concise ``runtime: check_rst …, Python …, Sphinx …, docutils …,
@@ -2410,9 +2517,9 @@ pygit2 …/libgit2 …`` line.
 When prose-word sampling is requested, snowballstemmer's version joins the
 runtime record because it affects grouping and typo candidates.
 
-===========================
-CLI flags always override
-===========================
+===============================
+CLI paths override; roles add
+===============================
 
 The config's TOML and schema are always validated.  An overridden path
 value is not applied or checked for ``conf.py``/directory existence.  A
@@ -2421,16 +2528,20 @@ and never created; it may be a valid partial declaration overridden by a
 later CLI invocation.  In contrast, an explicit ``--build-dir`` without a
 resolved Sphinx source is almost certainly a command mistake and fails with
 both remedies: ``--sphinx-src DIR`` or ``--config FILE``.
+Role options do not override: repeatable ``--standalone`` and ``--fragment``
+patterns add to the configured arrays.  ``--no-config`` removes the configured
+ones while retaining command-line declarations.
 
-================================================
-Unknown keys and non-string values fail loudly
-================================================
+=============================================
+Unknown keys and invalid values fail loudly
+=============================================
 
-A typo'd ``sphix-src`` silently ignored would be worse than no config
+A typo'd ``sphix-src`` or ``fragment`` silently ignored would be worse than no config
 at all (the same fail-loudly precedent as ``--sphinx-src`` without a
 ``conf.py``).  An explicitly requested config that is missing, not a
 regular file, malformed TOML, or empty also fails before Git discovery,
-any checking phase, or ``fix``.  ``refs`` and ``targets`` accept ``--config``
+any checking phase, or ``fix``.  A malformed, unmatched, unreadable, or
+root-escaping role pattern likewise fails and names its source.  ``refs`` and ``targets`` accept ``--config``
 because they need project settings; ``compare --snapshots`` rejects it because
 that mode is self-contained and reads no RST project.  Git-backed ``compare``
 accepts ``--config`` to select the repository root.

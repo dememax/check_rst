@@ -60,6 +60,22 @@ Global options precede the command, in the same style as Git.
    Reuse ``DIR`` for Sphinx output.  It requires ``--sphinx-src``; otherwise a
    temporary build directory is removed after the run.
 
+``--standalone PATTERN``
+   Add a standalone role for every matching regular file.  This says that a
+   file included elsewhere is also read as a document of its own.  Repeatable;
+   quote glob patterns so the shell does not expand them.
+
+``--fragment PATTERN``
+   Declare that every matching regular file has an include context outside
+   the files check_rst can discover.  Structural mutations then fail closed.
+   Repeatable; quote glob patterns.
+
+The two roles are independent and add to declarations from configuration.
+``--no-config`` drops configured declarations but keeps command-line ones.
+They affect commands that build a title model and are accepted but ignored by
+commands that do not.  See :manpage:`check_rst-config(5)` for matching and
+discovery-root rules.
+
 ``--version``
    Print the package version, copyright holder, and SPDX license expression.
 
@@ -97,8 +113,9 @@ Sphinx build only in verified mode.
 EXIT STATUS
 *************
 
-``0`` means no ERROR was found.  ``1`` means one or more ERRORs; preview
-commands also use ``1`` when their output shows that files would change.
+``0`` means the requested operation succeeded.  ``1`` means attention is
+required: one or more ERRORs, a refused or unresolved query, or a preview whose
+output shows that files would change.
 ``1`` is also the status for a runtime failure the tool detects itself —
 including an incompatible combination of otherwise individually valid
 options, or an operational failure such as an unreadable file or a Git or

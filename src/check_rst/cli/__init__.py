@@ -82,7 +82,7 @@ check, fix, and outline also accept --max-output-lines to cap report length
 without affecting exit status; diff rejects it because a truncated patch
 could look complete or applicable. See each command's own --help.
 
-Exit status: 0 no ERROR; 1 one or more ERRORs. Preview commands diff and
+Exit status: 0 success; 1 ERROR/refused/failed query. Preview commands diff and
 list-table also return 1 when files would change. 2 command-line usage error.
 
 Examples:
@@ -867,8 +867,9 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         description=(
             "Reader role: this file's section tree and complete physical ranges, navigable without a linear read. "
             "Structure-only by default; --with-findings restores the complete validation report. "
-            "Structure is always whole-document and the structure view never changes the exit status, "
-            "but validation ERRORs still make outline exit 1; the report then says how to show them."
+            "Structure is always whole-document; validation ERRORs still make outline exit 1. When "
+            "include contexts disagree or cannot be judged, outline also exits 1 rather than show one "
+            "context as authoritative."
         ),
         epilog=_DOCUMENTATION_EPILOG,
     )
@@ -964,7 +965,8 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         description=(
             "Reader role: a pre-edit briefing for one exact entry — an explicit label, a stable id, "
             "a generated selector, or an exact title/term/caption/preview. Use this when the entry is known "
-            "instead of searching raw markup. Never guesses among multiple exact matches."
+            "instead of searching raw markup. Never guesses among multiple exact matches, and refuses when "
+            "include contexts disagree or cannot be judged."
         ),
         epilog=_DOCUMENTATION_EPILOG,
     )

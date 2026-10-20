@@ -21,9 +21,9 @@ and its own ``Current status`` line while retaining the dated design history.
 Current status
 ****************
 
-=================================
-Shipped / implementation record
-=================================
+===================================
+Implementation and release record
+===================================
 
 The following capabilities are implemented and protected by tests:
 
@@ -82,6 +82,30 @@ The following capabilities are implemented and protected by tests:
   locations exact only where Docutils proves them; a named global option
   written after the command; and finding hints that match real output.
   Replaces the withdrawn 0.7.1.
+* 0.7.3 (in progress): complete ``CHAR`` + form title styles in ``outline``
+  and JSON, with CLI contract version 2; and contextual ownership for
+  ``.. include::`` fragments across ``check``, ``fix``, ``diff``, ``entitle``,
+  ``outline`` and ``context``.  Full mutation is planned in every proven
+  includer and standalone use, while fast mutation fails closed on possible
+  includes.  ``standalone``/``--standalone`` adds a standalone context and
+  ``fragments``/``--fragment`` declares an unseen one; JSON records both.
+  ``check`` judges contextual findings and joins transitive includers
+  read-only, while Sphinx-excluded selected files remain Phase 0/1 inputs and
+  only real Sphinx documents become build targets.  A configured Sphinx source
+  is discovery-only under fast mode and ``entitle``; ``entitle`` now accepts
+  configuration and refuses files whose context it cannot judge.  Lexical
+  include paths remain distinct contexts even when they resolve to one
+  canonical file, so path aliases cannot erase a disagreement.
+
+  The compatibility signatures are deliberate.  Fast mode may refuse where
+  full mode proves an include is only text; a scratch file outside every
+  discovery root warns and loses structural fixability; and a non-``.rst``
+  includer needs an explicit fragment declaration in fast mode.  Readers now
+  return status 1 instead of a standalone answer when contexts disagree, a
+  context is unavailable, or the selected file is outside every discovery
+  root; run from the intended project root or pass ``--config``.  Automatic
+  discovery skips ignored includers, while explicit role patterns can protect
+  ignored fragments.
 
 ==================
 Agreed next work
@@ -281,13 +305,16 @@ a complete outline is too large for a targeted query.
 
 Extended 2026-10-18 as the reader side of include-context planning: when the
 selected file is a fragment, ``context`` now uses every composing root rather
-than its unrelated standalone hierarchy.  Agreed title depths are projected
-through heterogeneous section subtrees, and title-free content carries the
-effective outer depth of each distinct inclusion occurrence.  A title
-Docutils drops is omitted; conflicting, unpairable, or unavailable contexts
+than its unrelated standalone hierarchy.  P6 projects title and leaf depths
+through heterogeneous section subtrees from their composed positions.  A
+title Docutils drops is omitted, but its following content remains beneath the
+last surviving parsed section; nested leaves therefore never retain a
+shallower standalone depth.  Conflicting, unpairable, or unavailable contexts
 fail closed.  Clipped and nested locations stay in physical source
 coordinates, and nested refusals are anchored on the selected file's include
-line.
+line.  A contextual briefing uses ``check``'s judgement where it can and
+directs the reader to ``check`` instead of presenting a misleading standalone
+title finding where it cannot.
 
 Extended 2026-08-24 after a cold-reader session used raw ``grep`` despite
 knowing the exact heading: the guide now chooses ``context`` precisely for a

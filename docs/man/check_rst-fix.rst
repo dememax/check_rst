@@ -28,13 +28,25 @@ Apply Phase 0 byte hygiene and Phase 1 adornment/hierarchy geometry.  The
 command rejects the complete selected set before writing if any file has an
 unresolved Git merge entry.  Semantic WARNINGs remain author decisions.
 
+Full ``fix`` plans a selected file in every available include context and in
+its standalone use when one is declared or proven.  It applies a structural
+edit only when every available include context needs the same physical edit,
+the edit stays inside the selected file, no required context is unavailable,
+and each includer's section tree revalidates.  Otherwise it keeps that file's
+titles and reports ``include.context-conflict`` or
+``include.context-unavailable``; byte hygiene may still apply.
+
 *********
 OPTIONS
 *********
 
 ``--fast``
    Run the parser-free mechanical pass only: hygiene plus adornment and
-   hierarchy fixes, without lint, statistics, or Sphinx.
+   hierarchy fixes, without lint, statistics, or Sphinx.  It uses a
+   conservative fast refusal: a possible include, declared fragment,
+   incomplete scan, or file outside every discovery root protects structural
+   changes that full ``fix`` might be able to prove safe.  It can refuse more
+   than full mode, but the two modes never apply conflicting structural edits.
 
 ``--normalize-blank-lines``
    Opt into parser-verified leading and repeated separator blank-line
