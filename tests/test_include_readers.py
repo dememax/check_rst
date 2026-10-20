@@ -383,6 +383,9 @@ def test_context_maps_clipped_and_nested_titles_to_physical_sources(
     assert f"Context: {rst_repo / 'sub.rst'}" in deep
     assert "range: 1-2" in deep
     assert "depth: 4" in deep
+    assert "is this document's level 1" not in deep
+    assert "fix remaps '~' to '#'" not in deep
+    assert "make that document's titles consistent by hand" in deep
 
 
 @pytest.mark.integration
@@ -401,6 +404,82 @@ def test_context_keeps_a_leaf_under_its_contextually_deepened_section(
     assert "depth: 5" in out
     assert 'part:Shared — section "Shared"' in out
     assert "parent: part:bullet-list@4" in out
+
+
+@pytest.mark.integration
+def test_readers_keep_content_after_titles_dropped_by_the_include_context(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Docutils drops an inconsistent title, not the content after it.
+
+    Both readers must place local and nested leaves below the last surviving
+    composed title instead of dropping them with their standalone section.
+    """
+    main = """######
+Main
+######
+
+**********
+Two
+**********
+
+=====
+Three
+=====
+
+#####
+Main2
+#####
+
+.. include:: part.rst
+"""
+    part = """Alpha
+=====
+
+Beta
+****
+
+Own para.
+
+- own item
+
+.. include:: sub.rst
+"""
+    sub = "- nested item one\n- nested item two\n"
+    (rst_repo / "main.rst").write_text(main, encoding="utf-8")
+    (rst_repo / "part.rst").write_text(part, encoding="utf-8")
+    (rst_repo / "sub.rst").write_text(sub, encoding="utf-8")
+    _commit(rst_repo, "main.rst", "part.rst", "sub.rst")
+    monkeypatch.chdir(rst_repo)
+
+    own_code, own = _run(monkeypatch, capsys, "context", "own item", "part.rst")
+    nested_code, nested = _run(monkeypatch, capsys, "context", "nested item one", "part.rst")
+    outline_code, outline = _run(monkeypatch, capsys, "outline", "part.rst")
+
+    assert own_code == 0, own
+    assert "depth: 3" in own
+    assert nested_code == 0, nested
+    assert "depth: 3" in nested
+    assert outline_code == 1, outline
+    assert 'bullet list ("-", 1 item)' in outline
+    assert 'bullet list ("-", 2 items)' in outline
+
+
+@pytest.mark.integration
+def test_outline_projects_leaf_depth_below_a_contextually_deepened_section(
+    rst_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Outline and context use one projection for heterogeneous entries."""
+    (rst_repo / "main.rst").write_text(_MAIN, encoding="utf-8")
+    (rst_repo / "part.rst").write_text("Shared\n------\n\n.. include:: sub.rst\n", encoding="utf-8")
+    (rst_repo / "sub.rst").write_text("Deep\n~~~~\n", encoding="utf-8")
+    _commit(rst_repo, "main.rst", "part.rst", "sub.rst")
+    monkeypatch.chdir(rst_repo)
+
+    code, out = _run(monkeypatch, capsys, "outline", "part.rst")
+
+    assert code == 1, out
+    assert '              4: include "sub.rst" (parsed)' in out
 
 
 @pytest.mark.integration
