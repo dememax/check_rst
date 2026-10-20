@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, cast
 import docutils.nodes
 import docutils.parsers.rst.languages
 import docutils.parsers.rst.languages.en
+import docutils.parsers.rst.roles
 import docutils.parsers.rst.states
 import docutils.utils
 from docutils.parsers.rst import tableparser
@@ -1577,6 +1578,48 @@ def _is_implicit_reference(node: docutils.nodes.Node) -> bool:
     return isinstance(node, docutils.nodes.reference) and "refuri" in node and str(node.rawsource) == str(node.astext())
 
 
+_EXPLICIT_ROLE_RE = re.compile(
+    rf":(?P<prefix>{docutils.parsers.rst.states.Inliner.simplename}):`"
+    rf"|`:(?P<suffix>{docutils.parsers.rst.states.Inliner.simplename}):"
+)
+
+
+def _names_third_party_role(text: str, document: docutils.nodes.document) -> bool:
+    """Whether *text* names a registered role defined outside Docutils.
+
+    The nested-inline probe uses Docutils' Inliner, which can call explicit
+    roles but cannot run block directives.  Resolve both prefix and suffix role
+    syntax against the same local/canonical registries and language aliases as
+    Docutils.  An unexpected registry shape fails closed; an unknown role is
+    safe because Inliner reports it as problematic without calling code.
+    """
+    names = {(match.group("prefix") or match.group("suffix")).lower() for match in _EXPLICIT_ROLE_RE.finditer(text)}
+    if not names:
+        return False
+    role_module = vars(docutils.parsers.rst.roles)
+    local_roles = role_module.get("_roles")
+    canonical_roles = role_module.get("_role_registry")
+    if not isinstance(local_roles, dict) or not isinstance(canonical_roles, dict):
+        return True
+    language = docutils.parsers.rst.languages.get_language(
+        document.settings.language_code,
+        document.reporter,
+    )
+    language_roles = getattr(language, "roles", {})
+    fallback_roles = docutils.parsers.rst.languages.en.roles
+    for name in names:
+        role = local_roles.get(name)
+        if role is None:
+            canonical_name = language_roles.get(name, fallback_roles.get(name, name))
+            role = canonical_roles.get(canonical_name)
+        if role is None:
+            continue
+        module = getattr(role, "__module__", type(role).__module__)
+        if not isinstance(module, str) or not module.startswith("docutils."):
+            return True
+    return False
+
+
 def _nested_inline_nodes(
     outer: docutils.nodes.Node,
     document: docutils.nodes.document,
@@ -1594,6 +1637,8 @@ def _nested_inline_nodes(
     _is_implicit_reference because recognition alone does not prove source
     markup was nested.
     """
+    if _names_third_party_role(str(outer.astext()), document):
+        return ()
     CALL_COUNTS["_nested_inline_reparse"] += 1
     probe = docutils.utils.new_document(f"{document.get('source', '<string>')}:inline-probe", document.settings)
     inliner = docutils.parsers.rst.states.Inliner()

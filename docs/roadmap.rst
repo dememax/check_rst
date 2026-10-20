@@ -98,6 +98,8 @@ The following capabilities are implemented and protected by tests:
   unseparated-title diagnostic now gives remedies both for a real title and
   for title-like text, including literal-block and escaped-punctuation
   examples.
+  Nested-inline diagnostics do not re-run a third-party interpreted role that
+  Docutils left as text inside an outer bold or emphasis span.
   ``check`` judges contextual findings and joins transitive includers
   read-only, while Sphinx-excluded selected files remain Phase 0/1 inputs and
   only real Sphinx documents become build targets.  A configured Sphinx source
