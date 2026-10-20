@@ -383,6 +383,7 @@ def test_title_block_after_markup_explains_the_real_ambiguity(
     assert [finding["code"] for finding in findings] == ["adornment.unseparated-title"]
     assert "Docutils reads '.. a comment' as markup, not as a title" in findings[0]["text"]
     assert "blank line before" in findings[0]["text"]
+    assert "if it is text, mark the block as literal or break the title-like punctuation" in findings[0]["text"]
 
 
 @pytest.mark.integration

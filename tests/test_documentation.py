@@ -226,6 +226,8 @@ def test_guide_quotes_the_unseparated_title_remedy() -> None:
     guide = _normalized_text(DOCS_DIR / "guide.rst")
 
     assert _UNSEPARATED_TITLE_REMEDY in guide
+    assert "directly after a non-blank line that is not a bullet item" in guide
+    assert "an enumerated item followed by an unindented line is ordinary text to Docutils" in guide
 
 
 def _normalized_text(path: Path) -> str:
