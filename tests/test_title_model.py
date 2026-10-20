@@ -300,7 +300,7 @@ MARKUP_AND_TEXT = Case(
     base=None,
     edited=_MARKUP_AND_TEXT_SOURCE,
     refusal=None,
-    tree=((1, "Top"),) + tuple((2, title) for _line, title in _MARKUP_AND_TEXT_CANDIDATES if title is not None),
+    tree=((1, "Top"), *((2, title) for _line, title in _MARKUP_AND_TEXT_CANDIDATES if title is not None)),
 )
 
 _BLOCK_AFTER_COMMENT = textwrap.dedent("""\
@@ -383,6 +383,28 @@ def test_title_block_after_markup_explains_the_real_ambiguity(
     assert [finding["code"] for finding in findings] == ["adornment.unseparated-title"]
     assert "Docutils reads '.. a comment' as markup, not as a title" in findings[0]["text"]
     assert "blank line before" in findings[0]["text"]
+
+
+@pytest.mark.integration
+def test_markup_shaped_line_inside_a_paragraph_is_not_called_markup(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Source state matters: without a separator Docutils keeps this comment-
+    shaped line in the paragraph, so its syntax alone proves no construct."""
+    monkeypatch.chdir(rst_repo)
+    path = rst_repo / "doc.rst"
+    path.write_text(
+        "#####\nTop\n#####\n\nParagraph.\n.. a comment\n=======\n\nBody.\n",
+        encoding="utf-8",
+    )
+
+    check_exit, findings = _json_findings(monkeypatch, capsys, "explicit")
+
+    assert check_exit == 0
+    assert [finding["code"] for finding in findings] == ["adornment.unseparated-title"]
+    assert "Docutils reads them as paragraph text" in findings[0]["text"]
 
 
 @pytest.mark.integration

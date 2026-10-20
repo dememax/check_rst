@@ -335,3 +335,12 @@ def test_guide_and_roadmap_record_cr43_boundaries_and_compatibility() -> None:
     assert "Readers now return status 1 instead of a standalone answer" in roadmap
     assert "contract version 2 covers both" in roadmap
     assert "P6 projects" not in roadmap
+
+
+@pytest.mark.unit
+def test_roadmap_records_cr45_title_candidate_boundary() -> None:
+    """The 0.7.3 record names the parser-free model's corrected boundary."""
+    roadmap = _normalized_text(DOCS_DIR / "roadmap.rst")
+
+    assert "proven Docutils body constructs" in roadmap
+    assert "Docutils falls back to ordinary text" in roadmap

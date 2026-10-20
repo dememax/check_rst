@@ -13,6 +13,7 @@ import re
 from typing import TYPE_CHECKING
 
 import docutils.nodes
+import docutils.parsers.rst.states
 
 from . import _helpers
 from ._composition import CompositionIndex
@@ -81,6 +82,58 @@ def fix_hygiene(path: pathlib.Path) -> bool:
 type _TitleStyle = tuple[str, bool]
 
 
+_LIST_ITEM_MARKER_RE = re.compile(r"^[ \t]*(?:[-+*]|(?:\d+|#)[.)])[ \t]+")
+_PROVEN_NON_TEXT_TRANSITIONS = (
+    "bullet",
+    "field_marker",
+    "doctest",
+    "line_block",
+    "grid_table_top",
+    "simple_table_top",
+    "explicit_markup",
+    "anonymous",
+)
+
+
+def _body_transition_match(name: str, line: str) -> re.Match[str] | None:
+    """Match one Docutils Body transition without running its parser."""
+    pattern = docutils.parsers.rst.states.Body.patterns[name]
+    if isinstance(pattern, re.Pattern):
+        return pattern.match(line)
+    return re.match(pattern, line)
+
+
+def _candidate_starts_body(lines: list[str], index: int) -> bool:
+    """Whether the parser-free model proves Body state at ``index``.
+
+    A blank separator (or the start of the file) is direct proof.  The title
+    model already treats a flush-left line after a list item as a new body
+    construct: the unindent ends the list, although Docutils may warn that the
+    list itself lacked a blank separator.
+    """
+    return index == 0 or not lines[index - 1].strip() or _LIST_ITEM_MARKER_RE.match(lines[index - 1]) is not None
+
+
+def _is_proven_non_title_construct(lines: list[str], index: int) -> bool:
+    """Whether Docutils must consume ``lines[index]`` as a Body construct.
+
+    The patterns are Docutils' own for the supported dependency lane, but a
+    pattern match is not always proof.  An enumerator directly above the
+    candidate underline corrects to ordinary text because that next line is
+    neither blank, indented nor the next enumerator.  An option marker also
+    corrects to text unless the same line supplies a description after the
+    marker.  All other selected transitions consume their matching line even
+    when the construct later reports malformed content.
+    """
+    if not _candidate_starts_body(lines, index):
+        return False
+    line = lines[index]
+    if any(_body_transition_match(name, line) is not None for name in _PROVEN_NON_TEXT_TRANSITIONS):
+        return True
+    option = _body_transition_match("option_marker", line)
+    return option is not None and bool(line[option.end() :].strip())
+
+
 def _underline_candidates(
     lines: list[str],
     doctree: docutils.nodes.document | None = None,
@@ -115,6 +168,8 @@ def _underline_candidates(
         title = lines[title_index]
         if not title.strip() or _is_adornment(title):
             continue
+        if _is_proven_non_title_construct(lines, title_index):
+            continue
         if underline_index >= 2 and _is_adornment(lines[underline_index - 2]):
             continue
         if title_index in multiline_paragraph_lines:
@@ -128,7 +183,7 @@ def _underline_candidates(
             doctree is None
             and title_index > 0
             and lines[title_index - 1].strip()
-            and re.match(r"^[ \t]*(?:[-+*]|(?:\d+|#)[.)])[ \t]+", lines[title_index - 1]) is None
+            and _LIST_ITEM_MARKER_RE.match(lines[title_index - 1]) is None
         ):
             candidates.append((title_index, "unproven"))
             continue
@@ -832,6 +887,25 @@ def _unseparated_title_findings(
             title_index for title_index, status in _underline_candidates(lines, doctree) if status == "title"
         }
     findings: list[Finding] = []
+    for block in iter_title_blocks(lines):
+        construct_index = block.index - 2
+        if construct_index < 0 or not _is_proven_non_title_construct(lines, construct_index):
+            continue
+        construct = lines[construct_index].strip()
+        title = block.title.strip()
+        findings.append(
+            Finding(
+                lineno=block.index + 1,
+                severity=Severity.ERROR,
+                text=(
+                    f"Docutils reads {construct!r} as markup, not as a title; the title block for {title!r} "
+                    "directly follows it without a blank line, so fix cannot prove its overline — add a blank "
+                    "line before the overline" + (_BLOCKED_SUFFIX if blocking else "")
+                ),
+                fixable=False,
+                code=FindingCode.ADORNMENT_UNSEPARATED_TITLE,
+            )
+        )
     for title_index, status in _underline_candidates(lines):
         if status != "unproven":
             continue
@@ -864,6 +938,7 @@ def _unseparated_title_findings(
                 code=FindingCode.ADORNMENT_UNSEPARATED_TITLE,
             )
         )
+    findings.sort(key=lambda finding: finding.lineno)
     return findings
 
 

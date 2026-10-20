@@ -92,7 +92,9 @@ The following capabilities are implemented and protected by tests:
   standalone context and ``fragments``/``--fragment`` declares an unseen one;
   JSON records both.  Standalone title geometry expands tabs at Docutils'
   default width of eight before measuring adornments, while preserving the
-  source tab.
+  source tab.  The parser-free title model gives proven Docutils body
+  constructs priority over underline-only title geometry, while preserving
+  markup-shaped lines that Docutils falls back to ordinary text.
   ``check`` judges contextual findings and joins transitive includers
   read-only, while Sphinx-excluded selected files remain Phase 0/1 inputs and
   only real Sphinx documents become build targets.  A configured Sphinx source
