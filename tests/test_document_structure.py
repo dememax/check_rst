@@ -3065,3 +3065,45 @@ def test_nested_inline_probe_never_runs_third_party_roles(
     _lint.check_nested_inline_markup(path, True, doc=document)
 
     assert _COUNTED_RUNS == []
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("registration", ["local", "canonical"])
+@pytest.mark.parametrize("nested_wrapper", [False, True], ids=["direct-wrapper", "nested-wrapper"])
+def test_nested_inline_probe_follows_custom_role_bases(
+    tmp_path: Path,
+    request: pytest.FixtureRequest,
+    registration: str,
+    nested_wrapper: bool,
+) -> None:
+    """H1: Docutils' CustomRole is safe only when every wrapped base role is
+    safe; a wrapper chain must not hide a third-party callable."""
+    registry = "_roles" if registration == "local" else "_role_registry"
+    register = (
+        docutils.parsers.rst.roles.register_local_role
+        if registration == "local"
+        else docutils.parsers.rst.roles.register_canonical_role
+    )
+    register("counted", _counted_role)
+
+    def clean_roles() -> None:
+        role_module = vars(docutils.parsers.rst.roles)
+        for name in ("counted", "inner", "myrole"):
+            role_module["_roles"].pop(name, None)
+        role_module[registry].pop("counted", None)
+
+    request.addfinalizer(clean_roles)
+    _COUNTED_RUNS.clear()
+    definitions = (
+        ".. role:: inner(counted)\n\n.. role:: myrole(inner)" if nested_wrapper else ".. role:: myrole(counted)"
+    )
+    path = tmp_path / "doc.rst"
+    path.write_text(f"{definitions}\n\nSome **bold :myrole:`x` text** here.\n", encoding="utf-8")
+    document = _document.Document(path, tmp_path)
+
+    _ = document.doctree
+    assert _COUNTED_RUNS == []
+
+    _lint.check_nested_inline_markup(path, True, doc=document)
+
+    assert _COUNTED_RUNS == []
