@@ -300,6 +300,10 @@ def test_include_context_contract_is_documented_for_each_command() -> None:
     assert "joined read-only and whole-file" in pages["check_rst-check.rst"]
     assert "conservative fast refusal" in pages["check_rst-fix.rst"]
     assert "every available include context" in pages["check_rst-fix.rst"]
+    assert "includers that both modes discover" in pages["check_rst-fix.rst"]
+    assert "non-``.rst`` includer" in pages["check_rst-fix.rst"]
+    assert "``fragments`` or ``--fragment``" in pages["check_rst-fix.rst"]
+    assert "never apply conflicting structural edits" not in pages["check_rst-fix.rst"]
     assert "same contextual plan as ``fix``" in pages["check_rst-diff.rst"]
     assert "``config.roles``" in pages["check_rst-json.rst"]
     assert "contexts disagree or one is unavailable" in pages["check_rst-outline.rst"]
@@ -329,4 +333,5 @@ def test_guide_and_roadmap_record_cr43_boundaries_and_compatibility() -> None:
     assert "0.7.3 (in progress)" in roadmap
     assert "contextual ownership for ``.. include::`` fragments" in roadmap
     assert "Readers now return status 1 instead of a standalone answer" in roadmap
-    assert "P6" in roadmap
+    assert "contract version 2 covers both" in roadmap
+    assert "P6 projects" not in roadmap
