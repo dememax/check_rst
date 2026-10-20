@@ -713,8 +713,15 @@ A title written directly after a non-blank line that is not a list item
 or a comment, Docutils reads it as a section title; after a paragraph line, it
 reads paragraph text, and the section is lost.  The parser-free ``fix`` cannot
 tell which, and the rest of the fix can depend on it, so the file is refused
-whenever ``fix`` would otherwise change something.  Add a blank line before
-the title.
+whenever ``fix`` would otherwise change something.  The diagnostic names both
+safe remedies::
+
+   if it is a title, add a blank line before it; if it is text, mark the block as literal or break the title-like punctuation
+
+For a real title, add the blank line.  For a diff, code, or console transcript,
+mark the text as a literal block with ``::`` or ``.. code-block:: text``.  For a
+single punctuation line meant as prose, break the title-like run; for example,
+write ``\.....`` instead of ``.....``.
 
 When nothing else would change, there is nothing to refuse, and ``fix``
 leaves the file alone.  ``check`` still reports a title that Docutils reads

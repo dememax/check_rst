@@ -94,7 +94,10 @@ The following capabilities are implemented and protected by tests:
   default width of eight before measuring adornments, while preserving the
   source tab.  The parser-free title model gives proven Docutils body
   constructs priority over underline-only title geometry, while preserving
-  markup-shaped lines that Docutils falls back to ordinary text.
+  markup-shaped lines that Docutils falls back to ordinary text.  An
+  unseparated-title diagnostic now gives remedies both for a real title and
+  for title-like text, including literal-block and escaped-punctuation
+  examples.
   ``check`` judges contextual findings and joins transitive includers
   read-only, while Sphinx-excluded selected files remain Phase 0/1 inputs and
   only real Sphinx documents become build targets.  A configured Sphinx source

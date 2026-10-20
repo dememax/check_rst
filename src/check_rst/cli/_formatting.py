@@ -793,6 +793,10 @@ def _apply_hierarchy_remap(lines: list[str], remap: dict[_TitleStyle, _TitleStyl
 
 
 _BLOCKED_SUFFIX = "; title fixes for this file wait until this is resolved"
+_UNSEPARATED_TITLE_REMEDY = (
+    "if it is a title, add a blank line before it; if it is text, mark the block as literal or break the "
+    "title-like punctuation"
+)
 
 
 def _mixed_style_findings(lines: list[str], ranges: list[tuple[int, int]] | None) -> list[Finding]:
@@ -914,19 +918,19 @@ def _unseparated_title_findings(
         if doctree is None:
             text = (
                 f"{title!r} directly follows a non-blank line, so fix cannot tell whether it is a "
-                "section title — add a blank line before it if it is one"
+                f"section title — {_UNSEPARATED_TITLE_REMEDY}"
             )
         elif title_index in docutils_titles:
             text = (
                 f"Docutils reads {title!r} as a section title, but it directly follows a non-blank "
-                "line, so fix cannot prove it is one — add a blank line before it"
+                f"line, so fix cannot prove it is one — {_UNSEPARATED_TITLE_REMEDY}"
             )
         else:
             # Docutils reads valid paragraph text, so on its own this is a
             # WARNING; while it blocks a fix it is an ERROR (CR-41).
             text = (
                 f"{title!r} and the line under it directly follow a non-blank line, so Docutils reads "
-                f"them as paragraph text — add a blank line before {title!r} if it is a title"
+                f"them as paragraph text — {_UNSEPARATED_TITLE_REMEDY}"
             )
         findings.append(
             Finding(
