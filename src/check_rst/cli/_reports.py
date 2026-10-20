@@ -659,16 +659,17 @@ def _project_context_entry_depths(
     sections: list[OutlineEntry],
     source_root: pathlib.Path,
     contextual_depths: dict[tuple[pathlib.Path, int], int] | None,
-    contextual_content_depth: int | None,
+    contextual_line_depths: dict[tuple[pathlib.Path, int], int] | None,
 ) -> list[LocalEntry]:
     """Carry contextual section depths through their heterogeneous subtrees.
 
-    ``ContextStage.reader_result`` proves title depths. Every other local
-    entry's depth is relative to its containing section, so keeping its
-    standalone number after that section moves would detach it from the
-    parent/path graph. Project the section's depth delta onto the entry and
-    omit an entry whose containing standalone section was dropped by the
-    contextual parse.
+    ``ContextStage.reader_result`` proves title depths and the enclosing
+    parsed section at each contributed physical line.  Every other local
+    entry's container nesting remains relative to its nearest standalone
+    section, but its section base comes from the composed position.  This is
+    deliberately not conditional on that standalone title surviving:
+    Docutils drops an inconsistent title while retaining the content after
+    it in the preceding composed section.
     """
     if contextual_depths is None:
         return entries
@@ -683,6 +684,35 @@ def _project_context_entry_depths(
         source = pathlib.Path(provenance.source)
         return (source if source.is_absolute() else source_root / source).resolve()
 
+    def path_from_source(source: str) -> pathlib.Path:
+        candidate = pathlib.Path(source)
+        return (candidate if candidate.is_absolute() else source_root / candidate).resolve()
+
+    def anchors(entry: LocalEntry, source: pathlib.Path, line: int) -> list[tuple[pathlib.Path, int]]:
+        """Physical positions that nest *entry* through its include chain."""
+        result = [(source, line)]
+        provenance = entry.provenance
+        if provenance is not None:
+            result.extend((path_from_source(site.source), site.lineno) for site in reversed(provenance.include_chain))
+        return result
+
+    def contextual_depth(entry: LocalEntry, positions: list[tuple[pathlib.Path, int]]) -> int | None:
+        if contextual_line_depths is None:
+            return None
+        for position in positions:
+            value = contextual_line_depths.get(position)
+            if value is not None:
+                return value
+        if isinstance(entry, IncludeEntry):
+            target = pathlib.Path(entry.resolved)
+            resolved = (target if target.is_absolute() else source_root / target).resolve()
+            candidates = [
+                (line, depth) for (source, line), depth in contextual_line_depths.items() if source == resolved
+            ]
+            if candidates:
+                return min(candidates)[1]
+        return None
+
     physical_sections = [(section, physical(section)) for section in sections]
     projected: list[LocalEntry] = []
     for entry in entries:
@@ -693,20 +723,21 @@ def _project_context_entry_depths(
             projected.append(entry)
             continue
         line = _entry_lineno(entry)
+        positions = anchors(entry, source, line)
         containing = [
             section
             for section, section_source in physical_sections
-            if section_source == source and _entry_source_start(section) <= line <= _entry_end(section)
+            if section_source is not None
+            and any(
+                section_source == anchor_source and _entry_source_start(section) <= anchor_line <= _entry_end(section)
+                for anchor_source, anchor_line in positions
+            )
         ]
-        if not containing:
-            shift = contextual_content_depth - 1 if contextual_content_depth is not None else 0
-            projected.append(dataclasses.replace(entry, depth=entry.depth + shift))
-            continue
-        section = max(containing, key=lambda candidate: candidate.depth)
-        contextual = contextual_depths.get((source, section.lineno))
+        contextual = contextual_depth(entry, positions)
         if contextual is None:
             continue
-        projected.append(dataclasses.replace(entry, depth=entry.depth + contextual - section.depth))
+        section_depth = max((candidate.depth for candidate in containing), default=0)
+        projected.append(dataclasses.replace(entry, depth=entry.depth + contextual - section_depth))
     return projected
 
 
@@ -751,12 +782,24 @@ def _context_candidate_line(candidate: ContextMatch) -> str:
 def _context_findings(
     document: Document,
     title_findings: list[Finding] | None = None,
+    structure_findings: list[Finding] | None = None,
 ) -> list[Finding]:
     """Phase 0/1 findings available without turning the query into a build."""
     findings = list(document.hygiene)
-    findings.extend(check_adornments(document.path, True, doc=document))
-    findings.extend(check_hierarchy(document.path, doc=document))
-    findings.extend(check_single_top_level(document.path, doc=document) if title_findings is None else title_findings)
+    if structure_findings is None:
+        findings.extend(check_adornments(document.path, True, doc=document))
+        findings.extend(check_hierarchy(document.path, doc=document))
+    else:
+        findings.extend(structure_findings)
+    if structure_findings is None:
+        findings.extend(
+            check_single_top_level(document.path, doc=document) if title_findings is None else title_findings
+        )
+    elif title_findings is not None:
+        # A composed root can already attribute this diagnostic to an
+        # included physical source.  Keep that contextual evidence; only the
+        # standalone adornment/hierarchy pass above is replaced.
+        findings.extend(title_findings)
     findings.extend(check_nested_inline_markup(document.path, True, doc=document))
     findings.extend(check_directives(document.path, True, True, doc=document))
     findings.extend(check_homoglyphs(document.path, doc=document))
@@ -780,6 +823,7 @@ def _format_context(
     outgoing: list[ReferenceEntry] | None,
     incoming: list[ReferenceEntry] | None,
     label: LabelDefinition | None = None,
+    contextual_structure: bool = False,
 ) -> str:
     parent, previous, following, children, path = _context_relationships(candidates, selected)
     start = _entry_source_start(selected.entry)
@@ -848,6 +892,8 @@ def _format_context(
     lines.append("findings:")
     if applicable:
         lines.extend(f"  {finding}" for finding in applicable)
+    elif contextual_structure:
+        lines.append("  (none in selected range; run check for document-level contextual title findings)")
     else:
         lines.append("  (none in selected range)")
 
@@ -939,7 +985,8 @@ def _run_context_query(
     build_dir: pathlib.Path | None,
     no_toctree: bool,
     contextual_depths: dict[tuple[pathlib.Path, int], int] | None = None,
-    contextual_content_depth: int | None = None,
+    contextual_line_depths: dict[tuple[pathlib.Path, int], int] | None = None,
+    contextual_structure_findings: list[Finding] | None = None,
     reader_refusal: tuple[int, str] | None = None,
 ) -> int:
     """Run the self-contained, read-only context query."""
@@ -1075,7 +1122,7 @@ def _run_context_query(
             standalone_outline,
             sphinx_src or project_root,
             contextual_depths,
-            contextual_content_depth,
+            contextual_line_depths,
         )
         composed_entries.extend(outline)
         local_entries, include_clusters = partition_composed_entries(composed_entries)
@@ -1175,7 +1222,20 @@ def _run_context_query(
             # attributed to this physical fragment. Source-less root findings
             # use another coordinate space and must never be relabeled below.
             context_title_findings = [finding for finding in title_findings if finding.source == selected.source]
-        local_findings = _context_findings(selected_document, context_title_findings)
+        if contextual_structure_findings is None:
+            local_findings = _context_findings(selected_document, context_title_findings)
+        else:
+            # ContextStage findings use the selected root file's coordinates.
+            # A nested included entry has another physical coordinate space;
+            # do not relabel a document-level finding as if it belonged to
+            # that nested source.  The briefing says where to obtain the full
+            # contextual judgment instead.
+            selected_structure_findings = [] if selected.source is not None else contextual_structure_findings
+            local_findings = _context_findings(
+                selected_document,
+                context_title_findings,
+                selected_structure_findings,
+            )
         if selected.source is not None:
             local_findings = [
                 dataclasses.replace(finding, source=selected.source) if finding.source is None else finding
@@ -1200,6 +1260,7 @@ def _run_context_query(
                 outgoing,
                 incoming,
                 selected_label,
+                contextual_structure_findings is not None,
             )
         )
         return 0

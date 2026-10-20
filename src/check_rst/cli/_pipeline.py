@@ -147,6 +147,15 @@ def _outline_in_include_context(
     return _contexts.project_reader_outline(path, entries, source_root, depths)
 
 
+def _line_depths_in_include_context(
+    args: argparse.Namespace,
+    path: pathlib.Path,
+) -> dict[tuple[pathlib.Path, int], int] | None:
+    """Return agreed enclosing depths for contributed physical lines."""
+    contextual: dict[pathlib.Path, dict[tuple[pathlib.Path, int], int]] = getattr(args, "contextual_line_depths", {})
+    return contextual.get(pathlib.Path(os.path.abspath(path)))
+
+
 def _outline_reader_refusal(args: argparse.Namespace, path: pathlib.Path) -> tuple[int, str] | None:
     refusals: dict[pathlib.Path, tuple[int, str]] = getattr(args, "outline_refusals", {})
     return refusals.get(pathlib.Path(os.path.abspath(path)))
@@ -818,16 +827,23 @@ def _run_sphinx_phases(
                             state.total_warnings += 1
                 if args.outline and not args.json:
                     contextual_outline = _outline_in_include_context(args, path, phase2_doc.outline, project_root)
-                    heuristic_entries: list[LocalEntry] = [
-                        *contextual_outline,
-                        *include_entries,
-                        *code_blocks,
-                        *phase2_doc.block_quotes,
-                        *phase2_doc.tables,
-                        *phase2_doc.admonitions,
-                        *phase2_doc.comments,
-                        *phase2_doc.lists,
-                    ]
+                    contextual_leaves = _reports._project_context_entry_depths(
+                        path,
+                        [
+                            *include_entries,
+                            *code_blocks,
+                            *phase2_doc.block_quotes,
+                            *phase2_doc.tables,
+                            *phase2_doc.admonitions,
+                            *phase2_doc.comments,
+                            *phase2_doc.lists,
+                        ],
+                        phase2_doc.outline,
+                        project_root,
+                        getattr(args, "contextual_outline_depths", {}).get(pathlib.Path(os.path.abspath(path))),
+                        _line_depths_in_include_context(args, path),
+                    )
+                    heuristic_entries: list[LocalEntry] = [*contextual_outline, *contextual_leaves]
                     heuristic_root, include_clusters = partition_composed_entries(heuristic_entries)
                     heuristic_combined: list[MergedEntry] = _merge_toctree_clusters(
                         heuristic_root,

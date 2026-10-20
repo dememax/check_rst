@@ -1778,15 +1778,16 @@ def _main() -> None:
         else ({}, [])
     )
     args.contextual_outline_depths = {}
-    args.contextual_content_depths = {}
+    args.contextual_line_depths = {}
+    args.contextual_structure_findings = {}
     args.outline_refusals = {}
     if args.command in {"outline", "context"}:
         for path in files:
             planning = args.include_planning.get(pathlib.Path(os.path.abspath(path)))
             if planning is None:
                 continue
-            depths, content_depth, refusal = (
-                planning.stage.reader_result(args.command) if planning.stage is not None else ({}, None, None)
+            depths, line_depths, refusal = (
+                planning.stage.reader_result(args.command) if planning.stage is not None else ({}, {}, None)
             )
             if planning.guard_text is not None:
                 line = planning.anchor or 1
@@ -1795,7 +1796,13 @@ def _main() -> None:
                 line, text = refusal.lineno, refusal.text
             else:
                 args.contextual_outline_depths[pathlib.Path(os.path.abspath(path))] = depths
-                args.contextual_content_depths[pathlib.Path(os.path.abspath(path))] = content_depth
+                args.contextual_line_depths[pathlib.Path(os.path.abspath(path))] = line_depths
+                if args.command == "context" and planning.stage is not None:
+                    lines = planning.stage.composer.disk_lines(planning.stage.own)
+                    if lines is not None:
+                        args.contextual_structure_findings[pathlib.Path(os.path.abspath(path))] = planning.stage.check(
+                            lines, None
+                        )
                 continue
             args.outline_refusals[pathlib.Path(os.path.abspath(path))] = (line, text)
     args.whole_file_paths = frozenset(pathlib.Path(os.path.abspath(includer)) for includer, _fragment in joined)
@@ -1840,7 +1847,8 @@ def _main() -> None:
                     args.build_dir if context_sphinx_src is not None else None,
                     args.no_toctree,
                     args.contextual_outline_depths.get(context_path),
-                    args.contextual_content_depths.get(context_path),
+                    args.contextual_line_depths.get(context_path),
+                    args.contextual_structure_findings.get(context_path),
                     args.outline_refusals.get(context_path),
                 )
             )

@@ -664,21 +664,35 @@ class ContextStage:
 
     def reader_result(
         self, command: str = "outline"
-    ) -> tuple[dict[tuple[pathlib.Path, int], int], int | None, Finding | None]:
-        """Return agreed physical-title and content depths, or a refusal.
+    ) -> tuple[
+        dict[tuple[pathlib.Path, int], int],
+        dict[tuple[pathlib.Path, int], int],
+        Finding | None,
+    ]:
+        """Return agreed title and enclosing depths, or a refusal.
 
         P6's reader commands may print one result only when every context
         gives each physical title the same effective depth.  The source style
         itself is already one physical fact; the surrounding documents decide
         its rank.  A repeated inclusion at two depths is therefore a conflict
-        even inside one root document.
+        even inside one root document.  The second map records the last
+        surviving parsed section at every contributed physical source line.
+        Leaves use that composed position rather than the standalone title
+        that happened to contain them; Docutils may discard an inconsistent
+        title while retaining its following content.
         """
         refusal_prefix = f"{command} cannot report one structure"
-        outcomes: list[tuple[str, dict[tuple[pathlib.Path, int], frozenset[int]], frozenset[int]]] = []
+        outcomes: list[
+            tuple[
+                str,
+                dict[tuple[pathlib.Path, int], frozenset[int]],
+                dict[tuple[pathlib.Path, int], frozenset[int]],
+            ]
+        ] = []
         own_text = self.composer.disk_text(self.own)
         own_lines = self.composer.disk_lines(self.own)
         if own_text is None or own_lines is None:
-            return {}, None, self._finding(1, f"{refusal_prefix}: this file cannot be read")
+            return {}, {}, self._finding(1, f"{refusal_prefix}: this file cannot be read")
         selected_anchors: dict[tuple[pathlib.Path, int], int] = {}
         selected_source_anchors: dict[pathlib.Path, int] = {}
         try:
@@ -716,7 +730,7 @@ class ContextStage:
             if root_text is None:
                 return (
                     {},
-                    None,
+                    {},
                     self._finding(
                         1,
                         f"{refusal_prefix}: the context {label} cannot be read",
@@ -734,7 +748,7 @@ class ContextStage:
             except Exception:  # a reader must fail closed when the parse proves no tree
                 return (
                     {},
-                    None,
+                    {},
                     self._finding(
                         1,
                         f"{refusal_prefix}: the context {label} cannot be parsed",
@@ -772,7 +786,7 @@ class ContextStage:
                     "be paired with its occurrence",
                     physical,
                 )
-                return {}, None, self._finding(refusal_anchor(physical), text)
+                return {}, {}, self._finding(refusal_anchor(physical), text)
             depths: dict[tuple[pathlib.Path, int], set[int]] = {}
             parsed_events: list[tuple[int, int]] = []
             for source, underline, depth in sections:
@@ -796,7 +810,7 @@ class ContextStage:
                         )
                         if mapped_physical is not None:
                             text = located(text, mapped_physical)
-                        return {}, None, self._finding(anchor, text)
+                        return {}, {}, self._finding(anchor, text)
                     continue
                 origin, position = candidates.popleft()
                 parsed_events.append((position, depth))
@@ -804,28 +818,28 @@ class ContextStage:
                     # Origin.index is the underline's physical 0-based line;
                     # OutlineEntry uses the title's equal 1-based line.
                     depths.setdefault((origin.path, origin.index), set()).add(depth)
-            content_depths: set[int] = set()
-            if command == "context":
-                starts: dict[int, int] = {}
-                for position, origin in enumerate(composition.origins):
-                    if origin is not None and origin.occurrence is not None:
-                        starts.setdefault(origin.occurrence, position)
-                parsed_events.sort()
-                for start in starts.values():
-                    enclosing = 0
-                    for position, depth in parsed_events:
-                        if position >= start:
-                            break
-                        enclosing = depth
-                    content_depths.add(enclosing + 1)
+            physical_line_depths: dict[tuple[pathlib.Path, int], set[int]] = {}
+            parsed_events.sort()
+            event_index = 0
+            enclosing = 0
+            for position, origin in enumerate(composition.origins):
+                while event_index < len(parsed_events) and parsed_events[event_index][0] <= position:
+                    enclosing = parsed_events[event_index][1]
+                    event_index += 1
+                if origin is not None and origin.selected:
+                    physical_line_depths.setdefault((origin.path, origin.index + 1), set()).add(enclosing)
             outcomes.append(
-                (label, {line: frozenset(values) for line, values in depths.items()}, frozenset(content_depths))
+                (
+                    label,
+                    {line: frozenset(values) for line, values in depths.items()},
+                    {line: frozenset(values) for line, values in physical_line_depths.items()},
+                )
             )
 
         if not outcomes:
-            return {}, None, None
-        first_label, first, first_content = outcomes[0]
-        for other_label, other, _other_content in outcomes[1:]:
+            return {}, {}, None
+        first_label, first, first_lines = outcomes[0]
+        for other_label, other, _other_lines in outcomes[1:]:
             if other == first:
                 continue
             key = min(
@@ -843,7 +857,7 @@ class ContextStage:
 
             return (
                 {},
-                None,
+                {},
                 self._finding(
                     refusal_anchor(key),
                     located(
@@ -853,13 +867,13 @@ class ContextStage:
                     ),
                 ),
             )
-        for label, context_depths, _content_depths in outcomes:
+        for label, context_depths, _line_depths in outcomes:
             repeated = next((key for key, values in context_depths.items() if len(values) > 1), None)
             if repeated is not None:
                 values = ", ".join(str(value) for value in sorted(context_depths[repeated]))
                 return (
                     {},
-                    None,
+                    {},
                     self._finding(
                         refusal_anchor(repeated),
                         located(
@@ -868,37 +882,57 @@ class ContextStage:
                         ),
                     ),
                 )
-        if command == "context":
 
-            def content_verdict(label: str, values: frozenset[int]) -> str:
-                if not values:
-                    return f"{label} does not include this content"
-                if len(values) == 1:
-                    return f"{label} reports depth {next(iter(values))}"
-                shown = ", ".join(str(value) for value in sorted(values))
-                return f"{label} reports depths {shown}"
+        def content_verdict(label: str, values: frozenset[int] | None) -> str:
+            if not values:
+                return f"{label} does not include this content"
+            if len(values) == 1:
+                return f"{label} reports depth {next(iter(values)) + 1}"
+            shown = ", ".join(str(value + 1) for value in sorted(values))
+            return f"{label} reports depths {shown}"
 
-            if any(content != first_content for _label, _depths, content in outcomes[1:]):
-                other_label, _other, other_content = next(
-                    outcome for outcome in outcomes[1:] if outcome[2] != first_content
-                )
+        for other_label, _other, other_lines in outcomes[1:]:
+            if other_lines == first_lines:
+                continue
+            key = min(
+                (
+                    key
+                    for key in first_lines.keys() | other_lines.keys()
+                    if first_lines.get(key) != other_lines.get(key)
+                ),
+                key=lambda item: (str(item[0]), item[1]),
+            )
+            return (
+                {},
+                {},
+                self._finding(
+                    refusal_anchor(key),
+                    located(
+                        f"{refusal_prefix}: {content_verdict(first_label, first_lines.get(key))} and "
+                        f"{content_verdict(other_label, other_lines.get(key))}",
+                        key,
+                    ),
+                ),
+            )
+        for label, _context_depths, contextual_line_values in outcomes:
+            repeated = next((key for key, values in contextual_line_values.items() if len(values) > 1), None)
+            if repeated is not None:
                 return (
                     {},
-                    None,
+                    {},
                     self._finding(
-                        1,
-                        f"{refusal_prefix}: {content_verdict(first_label, first_content)} and "
-                        f"{content_verdict(other_label, other_content)}",
+                        refusal_anchor(repeated),
+                        located(
+                            f"{refusal_prefix}: {content_verdict(label, contextual_line_values[repeated])}",
+                            repeated,
+                        ),
                     ),
                 )
-            if len(first_content) != 1:
-                return (
-                    {},
-                    None,
-                    self._finding(1, f"{refusal_prefix}: {content_verdict(first_label, first_content)}"),
-                )
-        content_depth = next(iter(first_content)) if first_content else None
-        return {key: next(iter(values)) for key, values in first.items()}, content_depth, None
+        return (
+            {key: next(iter(values)) for key, values in first.items()},
+            {key: next(iter(values)) for key, values in first_lines.items()},
+            None,
+        )
 
     @staticmethod
     def _named(finding: Finding, documents: list[str], itself: bool) -> Finding:

@@ -385,7 +385,7 @@ def test_context_maps_clipped_and_nested_titles_to_physical_sources(
     assert "depth: 4" in deep
     assert "is this document's level 1" not in deep
     assert "fix remaps '~' to '#'" not in deep
-    assert "make that document's titles consistent by hand" in deep
+    assert "run check for document-level contextual title findings" in deep
 
 
 @pytest.mark.integration
@@ -461,8 +461,8 @@ Own para.
     assert nested_code == 0, nested
     assert "depth: 3" in nested
     assert outline_code == 1, outline
-    assert 'bullet list ("-", 1 item)' in outline
-    assert 'bullet list ("-", 2 items)' in outline
+    assert "bullet list ('-', 1 item)" in outline
+    assert "bullet list ('-', 2 items)" in outline
 
 
 @pytest.mark.integration
