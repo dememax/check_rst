@@ -408,6 +408,40 @@ def test_markup_shaped_line_inside_a_paragraph_is_not_called_markup(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("source", "expected_exit", "expected_fix_exit"),
+    (
+        ("1. a\n.. c\n=======\n\nBody.\n", 0, 0),
+        ("1. a\n.. c\n=======\nTitle\n=======\n\nBody.\n", 1, 1),
+    ),
+    ids=("underline-candidate", "title-block"),
+)
+def test_enumerator_does_not_prove_a_fresh_markup_context(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    source: str,
+    expected_exit: int,
+    expected_fix_exit: int,
+) -> None:
+    """E1: an enumerator followed by an unindented line falls back to text,
+    so the apparent comment and title geometry remain one paragraph."""
+    monkeypatch.chdir(rst_repo)
+    path = rst_repo / "doc.rst"
+    path.write_text(source, encoding="utf-8")
+
+    check_exit, findings = _json_findings(monkeypatch, capsys, "explicit")
+    fix_exit, _fix_out = _run(monkeypatch, capsys, "fix", "--fast", "doc.rst")
+
+    assert check_exit == expected_exit
+    assert [finding["code"] for finding in findings] == ["adornment.unseparated-title"]
+    assert "Docutils reads them as paragraph text" in findings[0]["text"]
+    assert "as markup" not in findings[0]["text"]
+    assert fix_exit == expected_fix_exit
+    assert path.read_text(encoding="utf-8") == source
+
+
+@pytest.mark.integration
 def test_unseparated_title_is_a_non_fixable_error_even_when_nothing_else_changes(
     rst_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
