@@ -3383,6 +3383,25 @@ def test_fix_cjk_title_adornment_width(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+def test_fix_standalone_tabbed_title_uses_docutils_tab_width(
+    tmp_path: Path,
+) -> None:
+    """CR-49: standalone titles use Docutils' default tab width of 8.
+
+    The source tab remains a tab; only the display-width calculation expands it.
+    """
+    p = tmp_path / "tabbed-title.rst"
+    p.write_text("A\tB\n---------\n\nText.\n", encoding="utf-8")
+
+    assert _formatting.fix_structure(p, whole_file=True) is True
+    adornment = "#" * 11
+    assert p.read_text(encoding="utf-8") == (
+        f"{adornment}\nA\tB\n{adornment}\n\nText.\n"
+    )
+    assert _formatting.check_adornments(p, whole_file=True) == []
+
+
+@pytest.mark.integration
 def test_adornments_combining_accents_use_column_width(tmp_path: Path) -> None:
     """NFD combining accents: 'resume naive francais' written with NFD
     combining acute accents, diaeresis, and cedilla is 25 code points but
