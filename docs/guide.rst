@@ -708,7 +708,7 @@ If it is a title, give it its own underline and a blank line.
 A title directly after a non-blank line
 -----------------------------------------
 
-A title written directly after a non-blank line that is not a list item
+A title written directly after a non-blank line that is not a bullet item
 (``adornment.unseparated-title``) has no proven reading.  After a field list
 or a comment, Docutils reads it as a section title; after a paragraph line, it
 reads paragraph text, and the section is lost.  The parser-free ``fix`` cannot
@@ -717,6 +717,10 @@ whenever ``fix`` would otherwise change something.  The diagnostic names both
 safe remedies::
 
    if it is a title, add a blank line before it; if it is text, mark the block as literal or break the title-like punctuation
+
+A bullet item is the exception because an unindent ends it.  In this geometry,
+an enumerated item followed by an unindented line is ordinary text to Docutils,
+not proof that a new body construct begins.
 
 For a real title, add the blank line.  For a diff, code, or console transcript,
 mark the text as a literal block with ``::`` or ``.. code-block:: text``.  For a

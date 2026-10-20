@@ -904,8 +904,8 @@ def _unseparated_title_findings(
                 severity=Severity.ERROR,
                 text=(
                     f"Docutils reads {construct!r} as markup, not as a title; the title block for {title!r} "
-                    "directly follows it without a blank line, so fix cannot prove its overline — add a blank "
-                    "line before the overline" + (_BLOCKED_SUFFIX if blocking else "")
+                    f"directly follows it without a blank line, so fix cannot prove its overline — "
+                    f"{_UNSEPARATED_TITLE_REMEDY}" + (_BLOCKED_SUFFIX if blocking else "")
                 ),
                 fixable=False,
                 code=FindingCode.ADORNMENT_UNSEPARATED_TITLE,
