@@ -3033,3 +3033,35 @@ def test_locating_a_table_never_reruns_third_party_code(
 
     assert runs_after_parse == 1
     assert len(_COUNTED_RUNS) == 1
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("registration", ["local", "canonical"])
+@pytest.mark.parametrize("role", [":counted:`x`", "`x`:counted:"], ids=["prefix", "suffix"])
+def test_nested_inline_probe_never_runs_third_party_roles(
+    tmp_path: Path,
+    request: pytest.FixtureRequest,
+    registration: str,
+    role: str,
+) -> None:
+    """CR-44: markup hidden inside a bold span is text to the document
+    parse, and check_rst's diagnostic probe must not execute its role."""
+    registry = "_roles" if registration == "local" else "_role_registry"
+    register = (
+        docutils.parsers.rst.roles.register_local_role
+        if registration == "local"
+        else docutils.parsers.rst.roles.register_canonical_role
+    )
+    register("counted", _counted_role)
+    request.addfinalizer(lambda: vars(docutils.parsers.rst.roles)[registry].pop("counted", None))
+    _COUNTED_RUNS.clear()
+    path = tmp_path / "doc.rst"
+    path.write_text(f"Some **bold {role} text** here.\n", encoding="utf-8")
+    document = _document.Document(path, tmp_path)
+
+    _ = document.doctree
+    assert _COUNTED_RUNS == []
+
+    _lint.check_nested_inline_markup(path, True, doc=document)
+
+    assert _COUNTED_RUNS == []
