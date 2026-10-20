@@ -170,6 +170,19 @@ def test_outline_help_states_findings_and_exit_status(
 
 
 @pytest.mark.integration
+def test_reader_help_names_include_context_refusals(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CR-43 changes reader status 1, so concise help must not preserve the
+    old promise that only validation or query resolution controls it."""
+    _code, outline = _run(monkeypatch, capsys, "outline", "--help")
+    _code, context = _run(monkeypatch, capsys, "context", "--help")
+
+    assert "include contexts disagree or cannot be judged" in " ".join(outline.split())
+    assert "include contexts disagree or cannot be judged" in " ".join(context.split())
+
+
+@pytest.mark.integration
 def test_no_directives_help_names_exactly_what_it_suppresses(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

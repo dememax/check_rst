@@ -268,3 +268,65 @@ def test_json_manual_documents_the_form_member() -> None:
     assert "``form``" in manual
     assert '``"o"``, ``"u"`` or ``"n"``' in manual
     assert "an absent ``form`` means the snapshot never recorded it" in manual
+
+
+@pytest.mark.unit
+def test_include_context_contract_is_documented_for_each_command() -> None:
+    """CR-43 P7: every affected interface names its contextual contract.
+
+    The guide carries the full rationale, but a reader who starts from a
+    command manual must still learn whether the command discovers, refuses,
+    composes or reports include contexts.
+    """
+    pages = {
+        name: _normalized_text(DOCS_DIR / "man" / name)
+        for name in (
+            "check_rst.rst",
+            "check_rst-check.rst",
+            "check_rst-config.rst",
+            "check_rst-diff.rst",
+            "check_rst-entitle.rst",
+            "check_rst-fix.rst",
+            "check_rst-json.rst",
+            "check_rst-outline.rst",
+            "check_rst-reports.rst",
+        )
+    }
+
+    assert "``--standalone PATTERN``" in pages["check_rst.rst"]
+    assert "``--fragment PATTERN``" in pages["check_rst.rst"]
+    assert "``standalone = [PATTERN, ...]``" in pages["check_rst-config.rst"]
+    assert "``fragments = [PATTERN, ...]``" in pages["check_rst-config.rst"]
+    assert "joined read-only and whole-file" in pages["check_rst-check.rst"]
+    assert "conservative fast refusal" in pages["check_rst-fix.rst"]
+    assert "every available include context" in pages["check_rst-fix.rst"]
+    assert "same contextual plan as ``fix``" in pages["check_rst-diff.rst"]
+    assert "``config.roles``" in pages["check_rst-json.rst"]
+    assert "contexts disagree or one is unavailable" in pages["check_rst-outline.rst"]
+    assert "contexts disagree or one is unavailable" in pages["check_rst-reports.rst"]
+    assert "outside every discovery root" in pages["check_rst-outline.rst"]
+    assert "outside every discovery root" in pages["check_rst-reports.rst"]
+    assert "discovery-only" in pages["check_rst-entitle.rst"]
+
+
+@pytest.mark.unit
+def test_guide_and_roadmap_record_cr43_boundaries_and_compatibility() -> None:
+    """The normative guide and release record name CR-43's limitations and
+    visible compatibility signatures, including the reader-side N1 change."""
+    guide = _normalized_text(DOCS_DIR / "guide.rst")
+    roadmap = _normalized_text(DOCS_DIR / "roadmap.rst")
+
+    for phrase in (
+        "Include contexts and discovery roots",
+        "``include.context-conflict``",
+        "``include.context-unavailable``",
+        "non-``.rst`` includer",
+        "ignored includer",
+        "outside every discovery root",
+    ):
+        assert phrase in guide
+
+    assert "0.7.3 (in progress)" in roadmap
+    assert "contextual ownership for ``.. include::`` fragments" in roadmap
+    assert "Readers now return status 1 instead of a standalone answer" in roadmap
+    assert "P6" in roadmap
