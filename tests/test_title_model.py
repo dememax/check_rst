@@ -271,6 +271,58 @@ UNSEPARATED_TITLES = (
 )
 
 
+_MARKUP_AND_TEXT_CANDIDATES = (
+    ("- item", None),
+    ("-item", "-item"),
+    ("1. item", "1. item"),
+    (":field: value", None),
+    (":field:value", ":field:value"),
+    ("--help  description", None),
+    ("--help", "--help"),
+    (">>> print(1)", None),
+    (">> print(1)", ">> print(1)"),
+    ("| text", None),
+    ("|text", "|text"),
+    ("+---+---+", None),
+    ("+-- not a grid", "+-- not a grid"),
+    ("=== ===", None),
+    ("=== not table", "=== not table"),
+    (".. a comment", None),
+    ("..not markup", "..not markup"),
+    ("__ target_", None),
+    ("__target_", "__target_"),
+)
+_MARKUP_AND_TEXT_SOURCE = "#####\nTop\n#####\n\n" + "".join(
+    f"{line}\n=====================\n\n" for line, _title in _MARKUP_AND_TEXT_CANDIDATES
+)
+MARKUP_AND_TEXT = Case(
+    name="markup constructs and text fallbacks above adornments",
+    base=None,
+    edited=_MARKUP_AND_TEXT_SOURCE,
+    refusal=None,
+    tree=((1, "Top"),) + tuple((2, title) for _line, title in _MARKUP_AND_TEXT_CANDIDATES if title is not None),
+)
+
+_BLOCK_AFTER_COMMENT = textwrap.dedent("""\
+    ###
+    Top
+    ###
+
+    .. a comment
+    =======
+    Sub
+    =======
+
+    Body.
+    """)
+BLOCK_AFTER_COMMENT = Case(
+    name="title block directly after a comment",
+    base=None,
+    edited=_BLOCK_AFTER_COMMENT,
+    refusal="adornment.unseparated-title",
+)
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize("scope", SCOPES)
 @pytest.mark.parametrize("case", UNSEPARATED_TITLES, ids=lambda case: case.name)
@@ -285,6 +337,52 @@ def test_unseparated_title_blocks_structural_fixes(
     parser-free model cannot prove it.  Check used to call it fixable while
     fix ignored it, and fix rewrote a correct heading around it (CR-29)."""
     _assert_contract(rst_repo, case, scope, monkeypatch, capsys)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("scope", SCOPES)
+def test_markup_constructs_are_not_promoted_but_text_fallbacks_are_titles(
+    rst_repo: Path,
+    scope: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """CR-45: match Docutils' Body transitions without treating a mere
+    markup-shaped line as proof.  An enumerator and an option without a
+    description are important text fallbacks in this candidate geometry."""
+    assert _tree(MARKUP_AND_TEXT.edited) == MARKUP_AND_TEXT.tree
+    _assert_contract(rst_repo, MARKUP_AND_TEXT, scope, monkeypatch, capsys)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("scope", SCOPES)
+def test_title_block_glued_to_proven_markup_is_unseparated(
+    rst_repo: Path,
+    scope: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The comment is not the shared line's title.  Its missing separator
+    instead makes the following title block unprovable to the mutation model."""
+    _assert_contract(rst_repo, BLOCK_AFTER_COMMENT, scope, monkeypatch, capsys)
+
+
+@pytest.mark.integration
+def test_title_block_after_markup_explains_the_real_ambiguity(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(rst_repo)
+    path = rst_repo / "doc.rst"
+    path.write_text(_BLOCK_AFTER_COMMENT.replace("###", "#####"), encoding="utf-8")
+
+    check_exit, findings = _json_findings(monkeypatch, capsys, "explicit")
+
+    assert check_exit == 1
+    assert [finding["code"] for finding in findings] == ["adornment.unseparated-title"]
+    assert "Docutils reads '.. a comment' as markup, not as a title" in findings[0]["text"]
+    assert "blank line before" in findings[0]["text"]
 
 
 @pytest.mark.integration
