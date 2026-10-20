@@ -3395,9 +3395,7 @@ def test_fix_standalone_tabbed_title_uses_docutils_tab_width(
 
     assert _formatting.fix_structure(p, whole_file=True) is True
     adornment = "#" * 11
-    assert p.read_text(encoding="utf-8") == (
-        f"{adornment}\nA\tB\n{adornment}\n\nText.\n"
-    )
+    assert p.read_text(encoding="utf-8") == (f"{adornment}\nA\tB\n{adornment}\n\nText.\n")
     assert _formatting.check_adornments(p, whole_file=True) == []
 
 

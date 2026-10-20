@@ -647,11 +647,14 @@ def _canonical_title(title: str) -> tuple[str, int]:
 
     The canonical title is stripped; the required length is its display
     width (docutils.utils.column_width — what docutils itself measures)
-    plus 2.  Single definition, consumed by check_adornments and by both
-    branches of _compute_adornment_fixes.
+    plus 2.  Docutils expands tabs at width 8 before parsing standalone
+    input, so measure the expanded text without replacing the source tab.
+    Single definition, consumed by check_adornments and by both branches of
+    _compute_adornment_fixes.
     """
     stripped = title.strip()
-    return stripped, docutils.utils.column_width(stripped) + 2
+    measured = stripped.expandtabs(8)
+    return stripped, docutils.utils.column_width(measured) + 2
 
 
 def analyze_block(block: TitleBlock) -> BlockCorrection:

@@ -90,7 +90,9 @@ The following capabilities are implemented and protected by tests:
   is planned in every proven includer and standalone use, while fast mutation
   fails closed on possible includes.  ``standalone``/``--standalone`` adds a
   standalone context and ``fragments``/``--fragment`` declares an unseen one;
-  JSON records both.
+  JSON records both.  Standalone title geometry expands tabs at Docutils'
+  default width of eight before measuring adornments, while preserving the
+  source tab.
   ``check`` judges contextual findings and joins transitive includers
   read-only, while Sphinx-excluded selected files remain Phase 0/1 inputs and
   only real Sphinx documents become build targets.  A configured Sphinx source
