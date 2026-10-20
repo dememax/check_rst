@@ -83,12 +83,14 @@ The following capabilities are implemented and protected by tests:
   written after the command; and finding hints that match real output.
   Replaces the withdrawn 0.7.1.
 * 0.7.3 (in progress): complete ``CHAR`` + form title styles in ``outline``
-  and JSON, with CLI contract version 2; and contextual ownership for
-  ``.. include::`` fragments across ``check``, ``fix``, ``diff``, ``entitle``,
-  ``outline`` and ``context``.  Full mutation is planned in every proven
-  includer and standalone use, while fast mutation fails closed on possible
-  includes.  ``standalone``/``--standalone`` adds a standalone context and
-  ``fragments``/``--fragment`` declares an unseen one; JSON records both.
+  and JSON; and contextual ownership for ``.. include::`` fragments across
+  ``check``, ``fix``, ``diff``, ``entitle``, ``outline`` and ``context``.  CLI
+  contract version 2 covers both the incompatible style-token text and the new
+  reader status 1 when contexts disagree or cannot be judged.  Full mutation
+  is planned in every proven includer and standalone use, while fast mutation
+  fails closed on possible includes.  ``standalone``/``--standalone`` adds a
+  standalone context and ``fragments``/``--fragment`` declares an unseen one;
+  JSON records both.
   ``check`` judges contextual findings and joins transitive includers
   read-only, while Sphinx-excluded selected files remain Phase 0/1 inputs and
   only real Sphinx documents become build targets.  A configured Sphinx source
@@ -305,16 +307,16 @@ a complete outline is too large for a targeted query.
 
 Extended 2026-10-18 as the reader side of include-context planning: when the
 selected file is a fragment, ``context`` now uses every composing root rather
-than its unrelated standalone hierarchy.  P6 projects title and leaf depths
-through heterogeneous section subtrees from their composed positions.  A
-title Docutils drops is omitted, but its following content remains beneath the
-last surviving parsed section; nested leaves therefore never retain a
-shallower standalone depth.  Conflicting, unpairable, or unavailable contexts
-fail closed.  Clipped and nested locations stay in physical source
-coordinates, and nested refusals are anchored on the selected file's include
-line.  A contextual briefing uses ``check``'s judgement where it can and
-directs the reader to ``check`` instead of presenting a misleading standalone
-title finding where it cannot.
+than its unrelated standalone hierarchy.  The contextual readers project
+title and leaf depths through heterogeneous section subtrees from their
+composed positions.  A title Docutils drops is omitted, but its following
+content remains beneath the last surviving parsed section; nested leaves
+therefore never retain a shallower standalone depth.  Conflicting, unpairable,
+or unavailable contexts fail closed.  Clipped and nested locations stay in
+physical source coordinates, and nested refusals are anchored on the selected
+file's include line.  A contextual briefing uses ``check``'s judgement where
+it can and directs the reader to ``check`` instead of presenting a misleading
+standalone title finding where it cannot.
 
 Extended 2026-08-24 after a cold-reader session used raw ``grep`` despite
 knowing the exact heading: the guide now chooses ``context`` precisely for a

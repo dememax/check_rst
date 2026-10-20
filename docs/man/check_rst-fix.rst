@@ -45,8 +45,12 @@ OPTIONS
    hierarchy fixes, without lint, statistics, or Sphinx.  It uses a
    conservative fast refusal: a possible include, declared fragment,
    incomplete scan, or file outside every discovery root protects structural
-   changes that full ``fix`` might be able to prove safe.  It can refuse more
-   than full mode, but the two modes never apply conflicting structural edits.
+   changes that full ``fix`` might be able to prove safe.  For includers that
+   both modes discover, fast mode may refuse where full mode proceeds, but it
+   does not apply a conflicting structural edit.  Fast discovery scans only
+   ``.rst`` includers.  If a non-``.rst`` includer can contribute structure,
+   declare its target with ``fragments`` or ``--fragment``; without that fact,
+   fast mode cannot protect the target and may differ from full mode.
 
 ``--normalize-blank-lines``
    Opt into parser-verified leading and repeated separator blank-line
