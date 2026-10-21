@@ -82,7 +82,7 @@ The following capabilities are implemented and protected by tests:
   locations exact only where Docutils proves them; a named global option
   written after the command; and finding hints that match real output.
   Replaces the withdrawn 0.7.1.
-* 0.7.3 (in progress): complete ``CHAR`` + form title styles in ``outline``
+* 0.7.3 (2026-10-21): complete ``CHAR`` + form title styles in ``outline``
   and JSON; and contextual ownership for ``.. include::`` fragments across
   ``check``, ``fix``, ``diff``, ``entitle``, ``outline`` and ``context``.  CLI
   contract version 2 covers both the incompatible style-token text and the new

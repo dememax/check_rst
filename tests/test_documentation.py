@@ -344,7 +344,7 @@ def test_guide_and_roadmap_record_cr43_boundaries_and_compatibility() -> None:
     ):
         assert phrase in guide
 
-    assert "0.7.3 (in progress)" in roadmap
+    assert "0.7.3 (2026-10-21)" in roadmap
     assert "contextual ownership for ``.. include::`` fragments" in roadmap
     assert "Readers now return status 1 instead of a standalone answer" in roadmap
     assert "contract version 2 covers both" in roadmap
