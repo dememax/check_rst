@@ -8,6 +8,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import docutils
 import docutils.nodes
 import docutils.utils
 import pygit2
@@ -16,6 +17,69 @@ from _support import _rst
 
 from check_rst import cli
 from check_rst.cli import _helpers, _lint, _types
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("installed", "reported"),
+    [
+        (docutils.VersionInfo(0, 22, 4), "0.22.4"),
+        (docutils.VersionInfo(0, 24, 0), "0.24.0"),
+    ],
+)
+def test_cli_rejects_unsupported_docutils_runtime_version(
+    installed: docutils.VersionInfo,
+    reported: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Both sides of the declared Docutils range fail before CLI work."""
+    monkeypatch.setattr(docutils, "__version_info__", installed)
+    monkeypatch.setattr("sys.argv", ["check_rst", "--version"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert f"check_rst: docutils >=0.23,<0.24 is required; found {reported}" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+def test_cli_accepts_supported_docutils_runtime_version(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The structured version, rather than the legacy string, controls the gate."""
+    monkeypatch.setattr(docutils, "__version_info__", docutils.VersionInfo(0, 23, 9))
+    monkeypatch.setattr(docutils, "__version__", "0.22.4")
+    monkeypatch.setattr("sys.argv", ["check_rst", "--version"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    assert "check_rst 0.7.3" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("installed", [None, object()])
+def test_cli_rejects_missing_or_unrecognizable_docutils_runtime_version(
+    installed: object | None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Absent or malformed structured version data cannot bypass the gate."""
+    if installed is None:
+        monkeypatch.delattr(docutils, "__version_info__")
+    else:
+        monkeypatch.setattr(docutils, "__version_info__", installed)
+    monkeypatch.setattr("sys.argv", ["check_rst", "--version"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert "check_rst: docutils >=0.23,<0.24 is required; found unknown" in capsys.readouterr().out
 
 
 @pytest.mark.unit
