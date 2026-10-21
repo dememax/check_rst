@@ -107,20 +107,25 @@ The following capabilities are implemented and protected by tests:
   ``check`` judges contextual findings and joins transitive includers
   read-only, while Sphinx-excluded selected files remain Phase 0/1 inputs and
   only real Sphinx documents become build targets.  A configured Sphinx source
-  is discovery-only under fast mode and ``entitle``; ``entitle`` now accepts
-  configuration and refuses files whose context it cannot judge.  Lexical
-  include paths remain distinct contexts even when they resolve to one
-  canonical file, so path aliases cannot erase a disagreement.
+  is discovery-only under fast mode and ``entitle``, but it must contain
+  ``conf.py``: a configured source without ``conf.py`` now exits 1 instead of
+  being ignored by fast mode.  ``entitle`` now accepts configuration and
+  refuses files whose context it cannot judge.  Lexical include paths remain
+  distinct contexts even when they resolve to one canonical file, so path
+  aliases cannot erase a disagreement.
 
   The compatibility signatures are deliberate.  Fast mode may refuse where
-  full mode proves an include is only text; a scratch file outside every
-  discovery root warns and loses structural fixability; and a non-``.rst``
-  includer needs an explicit fragment declaration in fast mode.  Readers now
-  return status 1 instead of a standalone answer when contexts disagree, a
-  context is unavailable, or the selected file is outside every discovery
-  root; run from the intended project root or pass ``--config``.  Automatic
-  discovery skips ignored includers, while explicit role patterns can protect
-  ignored fragments.
+  full mode proves an include is only text.  In the comparison corpus, 6 of 60
+  Docutils documentation pages include a title-free menu bar: ``fix --fast``
+  now refuses them, while full ``fix`` proves the include adds no titles and
+  fixes them with their section structures intact; run full ``fix`` for that
+  verified result.  A scratch file outside every discovery root warns and
+  loses structural fixability, and a non-``.rst`` includer needs an explicit
+  fragment declaration in fast mode.  Readers now return status 1 instead of a
+  standalone answer when contexts disagree, a context is unavailable, or the
+  selected file is outside every discovery root; run from the intended project
+  root or pass ``--config``.  Automatic discovery skips ignored includers,
+  while explicit role patterns can protect ignored fragments.
 
 ==================
 Agreed next work
