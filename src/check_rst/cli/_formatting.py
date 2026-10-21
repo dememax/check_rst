@@ -44,6 +44,7 @@ from ._types import (
     FindingCode,
     FixPlan,
     FixResult,
+    PendingTitle,
     ResolvedTitleDiagnostics,
     Severity,
     TextSpaceCounts,
@@ -1344,6 +1345,68 @@ def _diagnostics_by_title(
         if ordinal >= 0 and line <= spans[ordinal][1]:
             owned.add((ordinal, code))
     return owned
+
+
+def _pending_fixable_titles(
+    path: pathlib.Path,
+    document: Document,
+    ranges: list[tuple[int, int]] | None,
+    findings: list[Finding],
+    source: str,
+) -> tuple[PendingTitle, ...]:
+    """Return selected titles a pending adornment fix would restore.
+
+    This is CR-34's parser-free half of the proof. A candidate must own an
+    exact fixable adornment finding, be absent from Docutils' current section
+    tree, survive the same structural computation ``fix`` uses, and keep its
+    ordinal across that computation. First-encounter style rank in the fixed
+    model supplies the section depth used by autosectionlabel's maximum-depth
+    setting. Any disagreement fails closed.
+    """
+    before_events = _title_style_events(document.lines)
+    before_spans = _title_spans(document.lines)
+    owned = _diagnostics_by_title(
+        before_spans,
+        [
+            (finding.lineno, finding.code)
+            for finding in findings
+            if finding.fixable and finding.source is None and finding.code.value.startswith("adornment.")
+        ],
+    )
+    owned_ordinals = {ordinal for ordinal, _code in owned}
+    if not owned_ordinals:
+        return ()
+
+    current_lines = {
+        entry.lineno for entry in build_outline(path, doc=document) if entry.provenance is None and entry.lineno > 0
+    }
+    fixed = _apply_structure_to_text(document.text, ranges)
+    if fixed == document.text:
+        return ()
+    fixed_lines = fixed.splitlines()
+    after_events = _title_style_events(fixed_lines)
+    if len(before_events) != len(after_events):
+        return ()
+
+    style_depths: dict[_TitleStyle, int] = {}
+    pending: list[PendingTitle] = []
+    for ordinal, ((before_index, _before_style), (after_index, after_style)) in enumerate(
+        zip(before_events, after_events, strict=True)
+    ):
+        depth = style_depths.setdefault(after_style, len(style_depths) + 1)
+        lineno = before_index + 1
+        if ordinal not in owned_ordinals or lineno in current_lines:
+            continue
+        pending.append(
+            PendingTitle(
+                path=path.resolve(),
+                source=source,
+                lineno=lineno,
+                title=fixed_lines[after_index].strip(),
+                depth=depth,
+            )
+        )
+    return tuple(pending)
 
 
 def _fix_resolved_title_diagnostics(

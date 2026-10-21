@@ -28,6 +28,7 @@ from ._document import Document, build_outline
 from ._formatting import (
     _apply_fix_plan,
     _fix_resolved_title_diagnostics,
+    _pending_fixable_titles,
     _plan_fix,
     _structure_plan,
     _title_style_events,
@@ -73,6 +74,7 @@ from ._types import (
     LocalEntry,
     MergedEntry,
     OutlineEntry,
+    PendingTitle,
     ResolvedTitleDiagnostics,
     Severity,
     ToctreeEntry,
@@ -122,6 +124,9 @@ class _PipelineState:
     suppressed_restatements: int = 0
     # Resolved physical file -> Sphinx title diagnostics fix provably removes.
     title_restatements: dict[pathlib.Path, ResolvedTitleDiagnostics] = dataclasses.field(default_factory=dict)
+    # Selected malformed titles whose exact post-fix autosectionlabel can be
+    # proven after the live Sphinx configuration is available (CR-34).
+    pending_titles: list[PendingTitle] = dataclasses.field(default_factory=list)
 
     # Retained-WARNING sidecar state: the loaded decisions, how many WARNINGs
     # they hid, which sources a whole-file check judged for staleness, cached
@@ -645,6 +650,17 @@ def _run_phase1(
                     single_top_v = []
             all_v = adornment_v + hierarchy_v + single_top_v
             adornments_clean = not all_v
+            if verified_path and not is_joined and not args.fix:
+                relative = _relative_to_root(path.resolve(), project_root.resolve())
+                state.pending_titles.extend(
+                    _pending_fixable_titles(
+                        path,
+                        document,
+                        None if file_whole else document.ranges,
+                        all_v,
+                        str(relative) if relative is not None else str(path),
+                    )
+                )
             if args.skip_fixable:
                 # Severity and repairability are independent.  Suppress only
                 # findings explicitly owned by the deterministic fixer; a
@@ -1119,7 +1135,7 @@ def _run_sphinx_phases(
                     args.sphinx_src,
                     project_root,
                 )
-            sphinx_v = [_attach_did_you_mean(f, env) for f in sphinx_v]
+            sphinx_v = [_attach_did_you_mean(f, env, state.pending_titles) for f in sphinx_v]
             # Sphinx's own warnings are scoped to the build targets: a joined
             # includer's are not this run's (P5c).
             target_documents = {path: state.documents[path] for path in verified_files if path in state.documents}

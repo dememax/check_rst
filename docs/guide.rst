@@ -2098,7 +2098,20 @@ SAME live Sphinx environment Phase 2 already built for this run —
 which needs a completed HTML build and holds less than the env
 already in hand.  No candidate close enough means no suggestion is
 appended — the WARNING is unchanged, not padded with a guess nobody
-asked for.  This closes the "guess and wait" loop that broken
+asked for.
+
+An undefined ``:ref:`` label can also name a selected title which a pending
+adornment fix will restore.  The WARNING remains visible.  When the live
+project has ``sphinx.ext.autosectionlabel`` loaded, and its document-prefix
+and maximum-depth settings prove that the fixed title produces exactly the
+missing label, the diagnostic names the title and source line, asks for a
+rerun after ``fix``, and puts that exact label first in ``did you mean``.
+The annotation is withheld when any part of that proof is missing — for
+example, when the title's file was not selected or the configured depth
+excludes it.  An ordinary fuzzy match is never presented as proof of a
+pending label.
+
+This closes the "guess and wait" loop that broken
 references used to leave entirely to you: previously, fixing a typo'd
 target meant re-running the whole check to find out if your guess was
 right; now the first run already names it.

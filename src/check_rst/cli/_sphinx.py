@@ -59,6 +59,7 @@ from ._types import (
     LocalEntry,
     MergedEntry,
     OutlineEntry,
+    PendingTitle,
     ReferenceEntry,
     ResolvedTitleDiagnostics,
     Severity,
@@ -1485,7 +1486,46 @@ def _did_you_mean(target: str, candidates: Iterable[str]) -> str | None:
     return f" — did you mean: {', '.join(repr(m) for m in matches)}?"
 
 
-def _attach_did_you_mean(finding: Finding, env: sphinx.environment.BuildEnvironment) -> Finding:
+def _pending_autosectionlabel(
+    target: str,
+    env: sphinx.environment.BuildEnvironment,
+    pending_titles: Iterable[PendingTitle],
+) -> PendingTitle | None:
+    """Return the unique pending title proven to generate *target*.
+
+    Mirror sphinx.ext.autosectionlabel's extension, prefix and maximum-depth
+    predicates exactly. A missing or malformed setting, an unreachable file,
+    or more than one matching title is not a proof and yields no annotation.
+    """
+    extensions = getattr(env._app, "extensions", {})
+    if not isinstance(extensions, dict) or "sphinx.ext.autosectionlabel" not in extensions:
+        return None
+    prefix = getattr(env.config, "autosectionlabel_prefix_document", None)
+    maxdepth = getattr(env.config, "autosectionlabel_maxdepth", None)
+    if not isinstance(prefix, bool) or (
+        maxdepth is not None and (not isinstance(maxdepth, int) or isinstance(maxdepth, bool))
+    ):
+        return None
+
+    matches: list[PendingTitle] = []
+    for pending in pending_titles:
+        node_depth = pending.depth - 1
+        if maxdepth and node_depth >= maxdepth:
+            continue
+        docname = _docname_for(env, pending.path)
+        if docname is None:
+            continue
+        raw_name = f"{docname}:{pending.title}" if prefix else pending.title
+        if docutils.nodes.fully_normalize_name(raw_name) == target:
+            matches.append(pending)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _attach_did_you_mean(
+    finding: Finding,
+    env: sphinx.environment.BuildEnvironment,
+    pending_titles: Iterable[PendingTitle] = (),
+) -> Finding:
     """Append a 'did you mean' suggestion to a broken-:doc:/:ref: finding,
     using the SAME live Sphinx environment Phase 2 already built for this
     run (env.found_docs, env.domaindata['std']['anonlabels']) — never
@@ -1503,10 +1543,22 @@ def _attach_did_you_mean(finding: Finding, env: sphinx.environment.BuildEnvironm
         return finding
     m = _BROKEN_LABEL_REF_RE.search(finding.text)
     if m:
+        target = m.group(1)
         anonlabels = env.domaindata.get("std", {}).get("anonlabels", {})
-        suggestion = _did_you_mean(m.group(1), anonlabels)
+        pending = _pending_autosectionlabel(target, env, pending_titles)
+        candidates = list(anonlabels)
+        annotation = ""
+        if pending is not None:
+            candidates.insert(0, target)
+            annotation = (
+                f" — target {pending.title!r} at {pending.source}:{pending.lineno} has a pending "
+                "fixable adornment — rerun after fix"
+            )
+        suggestion = _did_you_mean(target, dict.fromkeys(candidates))
         if suggestion:
-            return dataclasses.replace(finding, text=finding.text + suggestion)
+            return dataclasses.replace(finding, text=finding.text + annotation + suggestion)
+        if annotation:
+            return dataclasses.replace(finding, text=finding.text + annotation)
         return finding
     return finding
 

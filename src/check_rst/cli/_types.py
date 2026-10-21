@@ -220,6 +220,22 @@ type ResolvedTitleDiagnostics = frozenset[tuple[tuple[int, int], FindingCode]]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class PendingTitle:
+    """A selected title that one pending adornment fix would restore.
+
+    CR-34 carries only the facts needed to prove an autosectionlabel target:
+    the selected physical file and displayed source path, the original title
+    line and text, and its parser-free post-fix section depth.
+    """
+
+    path: pathlib.Path
+    source: str
+    lineno: int
+    title: str
+    depth: int
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class FixCounts:
     """Structured counts for the deterministic mutation stages."""
 

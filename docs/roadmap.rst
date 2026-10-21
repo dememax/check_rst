@@ -100,6 +100,10 @@ The following capabilities are implemented and protected by tests:
   examples.
   Nested-inline diagnostics do not re-run a third-party interpreted role that
   Docutils left as text inside an outer bold or emphasis span.
+  An undefined autosectionlabel reference remains a WARNING; when the live
+  extension, prefix and maximum-depth settings prove that a selected title's
+  pending adornment fix creates exactly that label, the diagnostic names the
+  title and source line and offers the exact post-fix label first.
   ``check`` judges contextual findings and joins transitive includers
   read-only, while Sphinx-excluded selected files remain Phase 0/1 inputs and
   only real Sphinx documents become build targets.  A configured Sphinx source
