@@ -24,6 +24,9 @@ from check_rst.cli import _helpers, _lint, _types
     ("installed", "reported"),
     [
         (docutils.VersionInfo(0, 22, 4), "0.22.4"),
+        (docutils.VersionInfo(0, 23, 0, "candidate", 1, True), "0.23.0rc1"),
+        (docutils.VersionInfo(0, 24, 0, "beta", 0, False), "0.24.0b0.dev"),
+        (docutils.VersionInfo(0, 24, 0, "candidate", 1, True), "0.24.0rc1"),
         (docutils.VersionInfo(0, 24, 0), "0.24.0"),
     ],
 )
