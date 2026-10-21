@@ -1582,6 +1582,34 @@ _EXPLICIT_ROLE_RE = re.compile(
     rf":(?P<prefix>{docutils.parsers.rst.states.Inliner.simplename}):`"
     rf"|`:(?P<suffix>{docutils.parsers.rst.states.Inliner.simplename}):"
 )
+_NO_BASE_ROLE = object()
+
+
+def _role_chain_is_docutils(role: object) -> bool:
+    """Whether a role and every role it delegates to come from Docutils.
+
+    A ``.. role:: derived(base)`` definition registers a Docutils CustomRole,
+    but calling that wrapper calls ``base_role``.  Inspect every wrapper layer,
+    rather than accepting the outer object's module as proof that the probe
+    cannot execute third-party code.  Cycles and malformed wrapper state fail
+    closed.
+    """
+    current = role
+    seen: set[int] = set()
+    while True:
+        identity = id(current)
+        if identity in seen:
+            return False
+        seen.add(identity)
+        module = getattr(current, "__module__", type(current).__module__)
+        if not isinstance(module, str) or not module.startswith("docutils."):
+            return False
+        base_role = getattr(current, "base_role", _NO_BASE_ROLE)
+        if base_role is _NO_BASE_ROLE:
+            return True
+        if not callable(base_role):
+            return False
+        current = base_role
 
 
 def _names_third_party_role(text: str, document: docutils.nodes.document) -> bool:
@@ -1614,8 +1642,7 @@ def _names_third_party_role(text: str, document: docutils.nodes.document) -> boo
             role = canonical_roles.get(canonical_name)
         if role is None:
             continue
-        module = getattr(role, "__module__", type(role).__module__)
-        if not isinstance(module, str) or not module.startswith("docutils."):
+        if not _role_chain_is_docutils(role):
             return True
     return False
 
