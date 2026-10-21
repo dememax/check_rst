@@ -14,6 +14,7 @@ import tempfile
 import unicodedata
 from typing import TYPE_CHECKING, NoReturn, cast
 
+import docutils
 import docutils.frontend
 import docutils.nodes
 import docutils.parsers.rst
@@ -50,7 +51,21 @@ CALL_COUNTS: collections.Counter[str] = collections.Counter()
 
 _JSON_SCHEMA_VERSION = 1
 _CLI_CONTRACT_VERSION = 2
+_MIN_DOCUTILS_VERSION = (0, 23)
+_MAX_DOCUTILS_VERSION = (0, 24)
 _MIN_PYGIT2_VERSION = (1, 20, 0)
+
+
+def _require_docutils_version() -> None:
+    """Fail clearly unless the imported Docutils is in the supported range."""
+    imported_version = getattr(docutils, "__version_info__", None)
+    installed = "unknown"
+    if isinstance(imported_version, docutils.VersionInfo):
+        installed = f"{imported_version.major}.{imported_version.minor}.{imported_version.micro}"
+        if imported_version >= _MIN_DOCUTILS_VERSION and imported_version < _MAX_DOCUTILS_VERSION:
+            return
+    print(f"check_rst: docutils >=0.23,<0.24 is required; found {installed}")
+    raise SystemExit(1)
 
 
 def _require_pygit2_version() -> None:

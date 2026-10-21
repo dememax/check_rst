@@ -2181,6 +2181,7 @@ def _run_json_check() -> NoReturn:
 
 def main() -> None:
     """Run the CLI, installing the whole-report sink when requested."""
+    _helpers._require_docutils_version()
     _helpers._require_pygit2_version()
     if _json_check_requested(sys.argv[1:]):
         _run_json_check()
