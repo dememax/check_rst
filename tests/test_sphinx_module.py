@@ -1580,6 +1580,80 @@ def test_attach_did_you_mean_undefined_label_suggests_close_label(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("extension", "prefix", "maxdepth", "select_target", "annotated"),
+    [
+        (True, True, 2, True, True),
+        (True, True, 1, True, False),
+        (True, False, 2, True, False),
+        (False, True, 2, True, False),
+        (True, True, 2, False, False),
+    ],
+    ids=["complete-proof", "past-maxdepth", "wrong-prefix", "extension-absent", "target-not-selected"],
+)
+def test_cli_undefined_label_names_pending_fixable_title_only_on_complete_proof(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    extension: bool,
+    prefix: bool,
+    maxdepth: int,
+    select_target: bool,
+    annotated: bool,
+) -> None:
+    """CR-34: never replace an undefined-label warning with a guess.
+
+    Annotate it only when the active autosectionlabel settings prove that
+    fixing one selected malformed title creates exactly the missing label.
+    """
+    extensions = "['sphinx.ext.autosectionlabel']" if extension else "[]"
+    (rst_repo / "conf.py").write_text(
+        f"project = 'Labels'\nextensions = {extensions}\n"
+        f"autosectionlabel_prefix_document = {prefix!r}\n"
+        f"autosectionlabel_maxdepth = {maxdepth}\n",
+        encoding="utf-8",
+    )
+    (rst_repo / "index.rst").write_text(
+        "Index\n=====\n\n.. toctree::\n\n   a\n   b\n",
+        encoding="utf-8",
+    )
+    target = rst_repo / "a.rst"
+    target.write_text(
+        "###\nA\n###\n\n=====\nNew section\n====\n\nText.\n",
+        encoding="utf-8",
+    )
+    reference = rst_repo / "b.rst"
+    reference.write_text(
+        "###\nB\n###\n\n.. _a:new sections:\n\nSee :ref:`a:New section`.\n",
+        encoding="utf-8",
+    )
+    selected = [str(target), str(reference)] if select_target else [str(reference)]
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "check_rst.py",
+            "--sphinx-src",
+            str(rst_repo),
+            "check",
+            "--skip-fixable",
+            *selected,
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    out = capsys.readouterr().out
+    assert exc.value.code == 0
+    assert "undefined label: 'a:new section'" in out
+    if annotated:
+        assert "target 'New section' at a.rst:6 has a pending fixable adornment — rerun after fix" in out
+        assert "did you mean: 'a:new section'," in out
+    else:
+        assert "pending fixable adornment" not in out
+
+
+@pytest.mark.integration
 def test_attach_did_you_mean_no_suggestion_when_nothing_close(
     build_sphinx_env: BuildSphinxEnv,
 ) -> None:
