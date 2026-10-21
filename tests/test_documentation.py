@@ -329,7 +329,8 @@ def test_include_context_contract_is_documented_for_each_command() -> None:
 @pytest.mark.unit
 def test_guide_and_roadmap_record_cr43_boundaries_and_compatibility() -> None:
     """The normative guide and release record name CR-43's limitations and
-    visible compatibility signatures, including the reader-side N1 change."""
+    visible compatibility signatures, including the reader-side N1 change,
+    conservative title-free-include refusal, and fast Sphinx-source check."""
     guide = _normalized_text(DOCS_DIR / "guide.rst")
     roadmap = _normalized_text(DOCS_DIR / "roadmap.rst")
 
@@ -347,6 +348,10 @@ def test_guide_and_roadmap_record_cr43_boundaries_and_compatibility() -> None:
     assert "contextual ownership for ``.. include::`` fragments" in roadmap
     assert "Readers now return status 1 instead of a standalone answer" in roadmap
     assert "contract version 2 covers both" in roadmap
+    assert "title-free menu bar" in roadmap
+    assert "run full ``fix``" in roadmap
+    assert "without ``conf.py`` now exits 1" in roadmap
+    assert "instead of being ignored by fast mode" in roadmap
     assert "P6 projects" not in roadmap
 
 
