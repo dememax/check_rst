@@ -116,31 +116,8 @@ def _document_include_log(document: docutils.nodes.document) -> _IncludeLog:
 
 
 def _docutils_include_clip(clip: _IncludeClip) -> _IncludeClip:
-    """Reshape the public clip identity into the active Docutils format.
-
-    Only start-after/end-before need reshaping: docutils' own '' vs None
-    distinction there is a real runtime-API-version boundary (0.22.4 uses
-    unchanged_required and '' for an absent text clip; 0.23 uses unchanged
-    and None, so an explicit empty value can mean an empty-line boundary —
-    flattening those would collapse two semantically distinct 0.23
-    values). start-line/end-line carry no such version-dependent default
-    and come straight from *clip* — recomputing them from options a
-    second time here previously duplicated the exact extraction `clip`
-    itself already did (found independently by three review angles in
-    one pass: Simplification, Efficiency, and Reuse all flagged the same
-    duplicate `options.get()` pair).
-    """
-    option_spec = DocutilsInclude.option_spec
-    if option_spec is None:
-        raise RuntimeError("Docutils Include directive has no option specification")
-    text_default: str | None = "" if option_spec["start-after"] is directives.unchanged_required else None
-    start_after, end_before = clip[2], clip[3]
-    return (
-        clip[0],
-        clip[1],
-        start_after if start_after is not None else text_default,
-        end_before if end_before is not None else text_default,
-    )
+    """Return the source-and-clip identity used by supported Docutils 0.23."""
+    return clip
 
 
 def _active_include_cycle(initial_resolved: str, clip: _IncludeClip, include_log: _IncludeLog) -> str | None:
@@ -173,9 +150,8 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
             initial_resolved = str(absolute)
         else:
             initial_resolved = str((pathlib.Path(owner_source).parent / raw_target).resolve())
-        # The public record normalizes absent fields to None across supported
-        # Docutils versions; cycle matching separately uses Docutils' native
-        # tuple because its 0.22.4 and 0.23 defaults differ.
+        # The public record and Docutils 0.23 both keep absent fields as None;
+        # explicit empty strings remain distinct text-boundary values.
         clip = cast(
             "_IncludeClip",
             (
