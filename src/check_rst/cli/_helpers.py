@@ -56,13 +56,23 @@ _MAX_DOCUTILS_VERSION = (0, 24)
 _MIN_PYGIT2_VERSION = (1, 20, 0)
 
 
+def _format_docutils_version(version: docutils.VersionInfo) -> str:
+    """Render Docutils' structured version fields without trusting its string."""
+    prerelease = ""
+    if version.releaselevel != "final":
+        marker = {"alpha": "a", "beta": "b", "candidate": "rc"}[version.releaselevel]
+        prerelease = f"{marker}{version.serial}"
+    development = "" if version.release else ".dev"
+    return f"{version.major}.{version.minor}.{version.micro}{prerelease}{development}"
+
+
 def _require_docutils_version() -> None:
     """Fail clearly unless the imported Docutils is in the supported range."""
     imported_version = getattr(docutils, "__version_info__", None)
     installed = "unknown"
     if isinstance(imported_version, docutils.VersionInfo):
-        installed = f"{imported_version.major}.{imported_version.minor}.{imported_version.micro}"
-        if imported_version >= _MIN_DOCUTILS_VERSION and imported_version < _MAX_DOCUTILS_VERSION:
+        installed = _format_docutils_version(imported_version)
+        if imported_version >= _MIN_DOCUTILS_VERSION and imported_version[:2] < _MAX_DOCUTILS_VERSION:
             return
     print(f"check_rst: docutils >=0.23,<0.24 is required; found {installed}")
     raise SystemExit(1)
