@@ -18,7 +18,7 @@ authors = [
 ]
 # Run-time dependencies pulled in by a normal check-rst installation.
 dependencies = [
-    "docutils>=0.22.4,<0.24",
+    "docutils>=0.23,<0.24",
     "Sphinx>=9.1,<10",
     "snowballstemmer>=3.1,<4",
     "pygit2>=1.20,<2",
