@@ -117,6 +117,15 @@ def test_packaging_metadata_exposes_the_canonical_guide() -> None:
 
 
 @pytest.mark.unit
+def test_packaging_metadata_requires_the_supported_docutils_minor() -> None:
+    with (PROJECT_ROOT / "pyproject.toml").open("rb") as stream:
+        dependencies = tomllib.load(stream)["project"]["dependencies"]
+
+    assert "docutils>=0.23,<0.24" in dependencies
+    assert "Sphinx>=9.1,<10" in dependencies
+
+
+@pytest.mark.unit
 def test_release_docs_require_a_concrete_clean_export_build() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     releasing = (DOCS_DIR / "releasing.rst").read_text(encoding="utf-8")
