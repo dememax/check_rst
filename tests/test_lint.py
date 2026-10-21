@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
+from unittest import mock
 
 import docutils.nodes
 import pytest
@@ -339,23 +340,19 @@ def test_outer_inline_literal_is_explicit_data_by_default(tmp_path: Path, source
 
 
 @pytest.mark.unit
-def test_findall_node_types_uses_callable_condition_for_docutils_022() -> None:
-    """Docutils 0.22 rejects a tuple passed directly as Node.findall's
-    condition; the compatibility adapter must use the callable form accepted
-    by both 0.22 and 0.23."""
+def test_findall_node_types_uses_native_docutils_023_tuple() -> None:
+    """The supported Node.findall accepts a tuple of element classes."""
     strong = docutils.nodes.strong()
     emphasis = docutils.nodes.emphasis()
     paragraph = docutils.nodes.paragraph("", "plain")
     document = docutils.utils.new_document("test")
     document.extend([strong, emphasis, paragraph])
+    node_types = (docutils.nodes.strong, docutils.nodes.emphasis)
 
-    found = list(
-        _helpers._findall_node_types(
-            document,
-            (docutils.nodes.strong, docutils.nodes.emphasis),
-        )
-    )
+    with mock.patch.object(document, "findall", wraps=document.findall) as findall:
+        found = list(_helpers._findall_node_types(document, node_types))
 
+    findall.assert_called_once_with(node_types)
     assert found == [strong, emphasis]
 
 
