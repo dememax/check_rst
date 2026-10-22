@@ -259,16 +259,16 @@ def test_guide_defines_the_title_placeholder_as_check_rst_terminology() -> None:
 @pytest.mark.unit
 def test_guide_explains_title_styles_from_primary_sources() -> None:
     """The style rule is anchored to the specification, the primer and the
-    Docutils parser pinned to both supported lanes, not to a moving branch."""
+    supported Docutils 0.23 parser, not to a moving branch."""
     guide = _normalized_text(DOCS_DIR / "guide.rst")
 
     for source in (
         "https://docutils.sourceforge.io/docs/ref/rst/restructuredtext.html#sections",
         "https://docutils.sourceforge.io/docs/user/rst/quickstart.html#document-title-subtitle",
-        "https://sourceforge.net/p/docutils/code/10276/tree/tags/docutils-0.22.4/docutils/parsers/rst/states.py",
         "https://sourceforge.net/p/docutils/code/10339/tree/tags/docutils-0.23/docutils/parsers/rst/states.py",
     ):
         assert source in guide
+    assert "tags/docutils-0.22.4/" not in guide
     assert "Inconsistent title style: skip from level" in guide
     assert "DocTitle" in guide
 
