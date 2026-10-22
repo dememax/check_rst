@@ -237,14 +237,15 @@ class _DocumentCore:
         """Return a table's physical top border, or None when it is unproven.
 
         Docutils' own table line is kept only when a physical table block
-        starts there.  Docutils 0.23 gives a table inside a "table" directive
-        the directive's line, and the 0.22.x floor gives no line at all; then
-        the caller reports an approximate location.  Lexical recovery, which
-        paired tables with source blocks by position, shape or cell
-        evidence, was withdrawn for 0.7.2: six review rounds found exact but
-        wrong locations, or third-party code run a second time, in every
-        variant (CR-30; exact recovery without table lines is deferred to
-        0.7.3).
+        starts there.  On Docutils 0.23 raw grid and simple tables identify
+        their top border, but directive-created and list tables identify the
+        directive instead.  Missing or unusable metadata likewise proves no
+        physical table start; in either case the caller reports an approximate
+        location.  Lexical recovery, which paired tables with source blocks by
+        position, shape or cell evidence, was withdrawn for 0.7.2: six review
+        rounds found exact but wrong locations, or third-party code run a
+        second time, in every variant (CR-30; CR-30b keeps exact recovery
+        without a proven table-block line deferred).
         """
         if not isinstance(table.line, int):
             return None
@@ -1039,23 +1040,19 @@ def _simple_table_end(lines: list[str], start: int) -> int | None:
 
 def _table_kind_and_start(lines: list[str], anchor: int) -> tuple[str, int]:
     """Best-effort kind + true start line (both 1-based) for the table
-    whose earliest located AST line is *anchor* — either its <title>
-    child's line (caption present) or the first content paragraph found
-    inside it (no caption, so the anchor sits somewhere inside the table's
-    own body).
+    whose selected AST line is *anchor* — its <title> child's line when a
+    caption is present, the table node's own line when usable, or the first
+    located descendant when table-node metadata is unavailable.
 
     A directive's own line IS the anchor when there's a caption (docutils
     sets a '.. table:: Caption' title's .line to the directive's own
-    line — confirmed directly).  Without a caption, the anchor is
-    somewhere in a raw grid/simple table (scan upward, INCLUSIVE of the
-    anchor itself, through consecutive border/rule lines to the topmost
-    one) — inclusive because which line docutils locates here is
-    version-dependent: confirmed directly that docutils 0.23 (gl63) sets
-    the <table> node's OWN .line to the TOP border, while this host's
-    docutils leaves it unset and the first locatable line is the header
-    content row one line below the border; scanning inclusive of the
-    anchor handles both without caring which one this docutils build gave
-    us.  A grid/simple table found this way can ALSO be wrapped in a
+    line — confirmed directly).  Without a caption, scan upward INCLUSIVE
+    of the anchor through consecutive border/rule lines to the topmost one.
+    Docutils 0.23 puts a raw grid/simple table's own line on that top border;
+    the inclusive scan also preserves the fail-closed safety path where
+    unavailable table metadata leaves the first located descendant on a
+    header content row one line below it.  A grid/simple table found this way
+    can ALSO be wrapped in a
     captionless directive of its own — the two are not mutually
     exclusive, so the scan continues upward past the topmost border,
     skipping the directive's own blank/option lines, to check for an
@@ -1095,9 +1092,9 @@ def _table_kind_and_start(lines: list[str], anchor: int) -> tuple[str, int]:
         return _TABLE_DIRECTIVE_KIND[list_item_directive.group(2).lower()], anchor
 
     # Where to start looking for the run of border/rule lines: the anchor
-    # itself if it's ALREADY one (docutils 0.23/gl63 — table.line is the
-    # top border), otherwise one line above it (this host's docutils —
-    # the anchor is the header content row sitting just below the border).
+    # itself if it is already the top border (the normal Docutils 0.23 raw
+    # table location), otherwise one line above it (a fallback descendant
+    # anchor can be the header content row just below the border).
     if _GRID_TABLE_BORDER_RE.match(anchor_line) or _SIMPLE_TABLE_RULE_RE.match(anchor_line):
         i = anchor_idx
     else:
