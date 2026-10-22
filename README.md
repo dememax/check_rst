@@ -90,7 +90,7 @@ Docutils 0.23 required by this project, pip selects Sphinx 9.2 or later:
 ```bash
 python3.14 -m venv ~/opt/check_rst-ubuntu
 ~/opt/check_rst-ubuntu/bin/python -m pip install \
-    --editable '/path/to/check_rst[dev]'
+    --editable '/path/to/check_rst[dev]' pytest==9.1.1
 ~/opt/check_rst-ubuntu/bin/python -m pip check
 ```
 
