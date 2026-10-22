@@ -178,17 +178,144 @@ def test_directives_rubric_flagged(tmp_path: Path) -> None:
     assert any("rubric" in v for v in violations)
 
 
+def _cli_rubric_findings(
+    path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> tuple[str, list[tuple[str | None, int, str]]]:
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "check", "--verbose", str(path)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+    text = capsys.readouterr().out
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["check_rst.py", "--no-config", "check", "--verbose", "--format=json", str(path)],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+    findings = json.loads(capsys.readouterr().out)["files"][0]["findings"]
+    return text, [
+        (finding["source"], finding["lineno"], finding["text"].split("' detected", 1)[0])
+        for finding in findings
+        if finding["code"] == _types.FindingCode.PSEUDO_HEADING_RUBRIC
+    ]
+
+
 @pytest.mark.integration
-def test_directives_rubric_uses_source_line_when_docutils_points_after_directive(tmp_path: Path) -> None:
-    """Docutils 0.22 reports the line after a rubric; source text is authoritative."""
-    path = _rst(tmp_path, "Before.\n\n.. rubric:: My Heading\n\nAfter.\n")
+def test_rubric_locations_ignore_directive_text_in_literal_blocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    path = _rst(
+        tmp_path,
+        """\
+        Intro.
+
+        Example::
+
+           Literal text.
+           .. rubric:: Fake In Literal
+
+        .. rubric:: Real
+
+        Text.
+
+        .. .. rubric:: Commented
+
+        .. rubric:: Second Real
+        """,
+    )
+
+    text, findings = _cli_rubric_findings(path, monkeypatch, capsys)
+
+    assert f"{path}:8: WARNING: '.. rubric:: Real'" in text
+    assert f"{path}:14: WARNING: '.. rubric:: Second Real'" in text
+    assert [(lineno, message) for _source, lineno, message in findings] == [
+        (8, "'.. rubric:: Real"),
+        (14, "'.. rubric:: Second Real"),
+    ]
+
+
+@pytest.mark.integration
+def test_rubric_location_ignores_an_earlier_unflagged_block_quote(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    path = _rst(
+        tmp_path,
+        """\
+        Intro.
+
+        Quote:
+
+            Text.
+
+            .. rubric:: In Quote
+
+            More text.
+
+        .. container:: box
+
+           .. rubric:: In Container
+        """,
+    )
     document = _document.Document(path, tmp_path)
-    rubric = next(document.doctree.findall(docutils.nodes.rubric))
-    rubric.line = 4
+    block_quote = next(document.doctree.findall(docutils.nodes.block_quote))
+    assert [rubric.astext() for rubric in block_quote.findall(docutils.nodes.rubric)] == ["In Quote"]
 
-    violations = _lint.check_directives(path, True, doc=document)
+    text, findings = _cli_rubric_findings(path, monkeypatch, capsys)
 
-    assert [(finding.lineno, finding.code) for finding in violations] == [(3, _types.FindingCode.PSEUDO_HEADING_RUBRIC)]
+    assert f"{path}:13: WARNING: '.. rubric:: In Container'" in text
+    assert [(lineno, message) for _source, lineno, message in findings] == [
+        (13, "'.. rubric:: In Container"),
+    ]
+
+
+@pytest.mark.integration
+def test_clipped_rubric_locations_use_the_surviving_line_and_collapse_duplicates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "frag.rst").write_text(
+        "\nPrelude.\n\nMore.\n\n.. rubric:: Clipped\n\nMARK\n\n.. rubric:: Surviving\n\nTail.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "mid.rst").write_text(
+        ".. rubric:: Nested Level\n\nText.\n\n.. include:: frag.rst\n   :start-after: MARK\n",
+        encoding="utf-8",
+    )
+    path = _rst(
+        tmp_path,
+        """\
+        Intro.
+
+        .. include:: frag.rst
+
+        .. include:: frag.rst
+           :start-after: MARK
+
+        .. include:: mid.rst
+        """,
+    )
+
+    text, findings = _cli_rubric_findings(path, monkeypatch, capsys)
+
+    assert "frag.rst:10: WARNING: '.. rubric:: Surviving'" in text
+    assert text.count("'.. rubric:: Surviving' detected") == 1
+    assert sorted(findings) == [
+        ("frag.rst", 6, "'.. rubric:: Clipped"),
+        ("frag.rst", 10, "'.. rubric:: Surviving"),
+        ("mid.rst", 1, "'.. rubric:: Nested Level"),
+    ]
 
 
 @pytest.mark.integration
