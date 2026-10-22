@@ -1580,7 +1580,7 @@ _GRID_CELL_COMMENTS = textwrap.dedent("""\
 
 
 def _tables_carry_lines(document: _document.Document) -> bool:
-    """Return whether Docutils gave the document's tables a line (0.23+)."""
+    """Return whether Docutils gave any of the document's tables a line."""
     return any(isinstance(table.line, int) for table in document.doctree.findall(docutils.nodes.table))
 
 
@@ -1598,8 +1598,8 @@ def _cell_comments_are_approximate(document: _document.Document) -> bool:
 def test_grid_table_cell_comments_report_their_content_lines(tmp_path: Path) -> None:
     """Docutils gives a comment inside a table cell no location, and the
     nearest located ancestor is the table's top border.  Each comment must
-    report the physical lines of its own cell content instead.  Without
-    Docutils' table line (the 0.22.x floor) they are approximate (CR-30)."""
+    report the physical lines of its own cell content instead.  Without a
+    table line proving that border they are approximate (CR-30)."""
     document = _document.Document(_rst(tmp_path, _GRID_CELL_COMMENTS), tmp_path)
 
     if not _tables_carry_lines(document):
@@ -1623,11 +1623,11 @@ def test_grid_table_comment_location_ignores_docutils_source_metadata(tmp_path: 
 
 @pytest.mark.integration
 def test_grid_table_comment_location_without_docutils_table_metadata(tmp_path: Path) -> None:
-    """The supported Docutils floor leaves table line and source unset.
+    """Exercise the fail-closed path with table line and source removed.
 
     Without them nothing proves which physical table holds a comment, so
     every cell comment is approximate rather than recovered by position
-    (CR-30; exact recovery is deferred to 0.7.3)."""
+    (CR-30; exact recovery remains deferred as CR-30b)."""
     document = _document.Document(_rst(tmp_path, _GRID_CELL_COMMENTS), tmp_path)
     for table in document.doctree.findall(docutils.nodes.table):
         table.line = None
@@ -2827,8 +2827,8 @@ _NOTE_REPLACEMENTS: dict[str, type[docutils.parsers.rst.Directive]] = {
 # The cases are the counterexamples that refuted each lexical recovery during
 # 0.7.2, kept as CR-30b's acceptance corpus: none may become exact unless the
 # recovery proves which source block produced the table.
-# name: (source, other files, findings when Docutils gives tables their line).
-# Without that line every location is approximate (CR-30, 0.7.2 contract).
+# name: (source, other files, findings with usable table metadata).
+# Without that metadata every location is approximate (CR-30 contract).
 _TABLE_LOCATION_CASES: dict[str, tuple[str, dict[str, str], list[tuple[int, bool]]]] = {
     "after a literal-block table": (
         _TOP + "Example::\n\n   +-----+-----+\n   | a   | b   |\n   +-----+-----+\n\n" + _CELL_COMMENT_TABLE,
@@ -2929,16 +2929,17 @@ _TABLE_LOCATION_CASES: dict[str, tuple[str, dict[str, str], list[tuple[int, bool
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
+@pytest.mark.parametrize("without_metadata", [False, True], ids=["table-metadata", "no-table-metadata"])
 @pytest.mark.parametrize("name", list(_TABLE_LOCATION_CASES))
 def test_table_cell_location_is_exact_only_where_docutils_proves_it(
-    tmp_path: Path, request: pytest.FixtureRequest, name: str, floor: bool
+    tmp_path: Path, request: pytest.FixtureRequest, name: str, without_metadata: bool
 ) -> None:
     """A table-cell comment's line is exact only when Docutils gives the table
     a line at which a physical table block starts.  Otherwise it is
     approximate, never recovered by lexical guessing: six review rounds
-    found exact but wrong locations in every recovery heuristic (CR-30;
-    exact recovery without table lines is deferred to 0.7.3)."""
+    found exact but wrong locations in every recovery heuristic.  Removing
+    the metadata exercises that fail-closed contract (CR-30); exact recovery
+    without a proven table-block line remains deferred as CR-30b."""
     source, others, with_metadata = _TABLE_LOCATION_CASES[name]
     replacement = _NOTE_REPLACEMENTS.get(name)
     if replacement is not None:
@@ -2949,11 +2950,11 @@ def test_table_cell_location_is_exact_only_where_docutils_proves_it(
     path = tmp_path / "doc.rst"
     path.write_text(source, encoding="utf-8")
     document = _document.Document(path, tmp_path)
-    if floor:
+    if without_metadata:
         for table in document.doctree.findall(docutils.nodes.table):
             table.line = None
             table.source = None
-    # The real Docutils 0.22.x floor never gives a table a line.
+    # The no-table-metadata variant deliberately removes every usable line.
     metadata = any(isinstance(table.line, int) for table in document.doctree.findall(docutils.nodes.table))
 
     found = [(f.lineno, f.location_exact) for f in _lint.check_directives(path, True, doc=document)]
@@ -2993,7 +2994,7 @@ def _counted_role(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("floor", [False, True], ids=["table-metadata", "no-table-metadata"])
+@pytest.mark.parametrize("without_metadata", [False, True], ids=["table-metadata", "no-table-metadata"])
 @pytest.mark.parametrize(
     ("place", "second"),
     [
@@ -3004,7 +3005,7 @@ def _counted_role(
     ],
 )
 def test_locating_a_table_never_reruns_third_party_code(
-    tmp_path: Path, request: pytest.FixtureRequest, floor: bool, place: str, second: str
+    tmp_path: Path, request: pytest.FixtureRequest, without_metadata: bool, place: str, second: str
 ) -> None:
     """Locating a table must not execute a registered third-party directive or
     role a second time: its code may have side effects, and only the
@@ -3022,7 +3023,7 @@ def test_locating_a_table_never_reruns_third_party_code(
     path.write_text(f"Title\n=====\n\n.. note::\n\n{sibling}{grid}", encoding="utf-8")
     document = _document.Document(path, tmp_path)
     _ = document.doctree
-    if floor:
+    if without_metadata:
         for table in document.doctree.findall(docutils.nodes.table):
             table.line = None
             table.source = None
