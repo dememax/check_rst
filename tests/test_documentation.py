@@ -137,6 +137,14 @@ def test_release_docs_require_a_concrete_clean_export_build() -> None:
 
 
 @pytest.mark.unit
+def test_isolated_development_recipe_installs_the_test_runner() -> None:
+    """A fresh non-system venv can run README's documented pytest command."""
+    readme = " ".join((PROJECT_ROOT / "README.md").read_text(encoding="utf-8").split())
+
+    assert "--editable '/path/to/check_rst[dev]' pytest==9.1.1" in readme
+
+
+@pytest.mark.unit
 def test_contract_version_and_next_minor_scope_are_documented() -> None:
     command_manual = (DOCS_DIR / "man" / "check_rst.rst").read_text(encoding="utf-8")
     roadmap = (DOCS_DIR / "roadmap.rst").read_text(encoding="utf-8")
