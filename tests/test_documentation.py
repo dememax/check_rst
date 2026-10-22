@@ -119,10 +119,11 @@ def test_packaging_metadata_exposes_the_canonical_guide() -> None:
 @pytest.mark.unit
 def test_packaging_metadata_requires_the_supported_docutils_minor() -> None:
     with (PROJECT_ROOT / "pyproject.toml").open("rb") as stream:
-        dependencies = tomllib.load(stream)["project"]["dependencies"]
+        project = tomllib.load(stream)["project"]
 
-    assert "docutils>=0.23,<0.24" in dependencies
-    assert "Sphinx>=9.1,<10" in dependencies
+    assert "docutils>=0.23,<0.24" in project["dependencies"]
+    assert "Sphinx>=9.1,<10" in project["dependencies"]
+    assert "types-docutils==0.23.0.20260923" in project["optional-dependencies"]["dev"]
 
 
 @pytest.mark.unit
