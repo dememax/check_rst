@@ -23,7 +23,7 @@ import docutils.utils
 import pygit2
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator
+    from collections.abc import Iterable, Iterator
 
 
 from ._types import (
@@ -954,21 +954,8 @@ def _findall_node_types(
     root: docutils.nodes.Node,
     node_types: tuple[type[docutils.nodes.Element], ...],
 ) -> Iterator[docutils.nodes.Element]:
-    """Yield descendants matching *node_types* through Docutils 0.23.
-
-    Docutils 0.23 accepts a tuple of classes directly as ``Node.findall``'s
-    condition.  The pinned 0.22 stub predates that overload, so expose the
-    verified runtime signature through a narrow typed adapter until the
-    separate CR-50 stub update.
-
-    Narrowed to Element (not the broader Node): both current callers pass
-    Element-subclass tuples, and Element is what gives them .rawsource/.get.
-    """
-    findall = cast(
-        "Callable[[tuple[type[docutils.nodes.Element], ...]], Iterator[docutils.nodes.Element]]",
-        root.findall,
-    )
-    yield from findall(node_types)
+    """Yield descendants narrowed by Docutils 0.23's tuple overload."""
+    yield from root.findall(node_types)
 
 
 def _block_depth(node: docutils.nodes.Node) -> int:
