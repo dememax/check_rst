@@ -126,6 +126,24 @@ The following capabilities are implemented and protected by tests:
   selected file is outside every discovery root; run from the intended project
   root or pass ``--config``.  Automatic discovery skips ignored includers,
   while explicit role patterns can protect ignored fragments.
+* 0.7.4 (in progress): the supported Docutils range is ``>=0.23,<0.24``.
+  Dependency-resolving pip installations select Sphinx 9.2 or later because
+  upstream Sphinx 9.1 excludes Docutils 0.23; Gentoo's Sphinx 9.1 build accepts
+  Docutils 0.23 and remains supported.  A structured runtime gate rejects
+  importable Docutils versions outside the range, so an environment constrained
+  to ``docutils<0.23`` fails resolution and a ``--no-deps`` installation with an
+  importable old version exits with the gate's message.  Because the entry point
+  imports Docutils-using modules before the gate runs, it cannot promise that
+  tailored message if a future incompatible Docutils already fails during
+  import.
+
+  D14 also includes CR-51: rubric findings now use Docutils 0.23's rubric-node
+  line.  This corrects cases where 0.7.3 could report earlier rubric-looking
+  text in a literal block, a skipped block-quote rubric, or a clipped-away
+  rubric before ``:start-after:``; duplicate findings that now share the same
+  physical source line collapse again.  These classified location corrections
+  are the sole exception to CR-50's byte-identical 0.23 output requirement.
+  The CLI and JSON contract version remains 2.
 
 ==================
 Agreed next work

@@ -44,11 +44,12 @@ check_rst --help
 
 `pip install` builds a wheel internally and installs both the Python package
 and its console entry point, along with its bounded dependencies (`docutils`,
-`Sphinx`, `snowballstemmer`, `pygit2`).  The supported docutils range is
-0.22.4 through 0.23: PyPI's Sphinx 9.1.0 resolves to docutils 0.22.4, while
-distributions such as Gentoo may provide a tested Sphinx build with docutils
-0.23.  Both runtime combinations run the same test suite.  To build the
-wheel explicitly from the same clean export instead:
+`Sphinx`, `snowballstemmer`, `pygit2`). The supported Docutils range is
+`>=0.23,<0.24`. An ordinary PyPI resolution selects Sphinx 9.2 or later,
+because upstream Sphinx 9.1 excludes Docutils 0.23; Gentoo's Sphinx 9.1 build
+accepts Docutils 0.23 and remains supported. The suite runs in that single
+Docutils 0.23 environment. To build the wheel explicitly from the same clean
+export instead:
 
 ```bash
 python3.14 -m pip wheel --wheel-dir dist /tmp/check_rst-source.tar
@@ -57,6 +58,13 @@ python3.14 -m pip install dist/check_rst-0.7.3-py3-none-any.whl
 
 The generated wheel is a pure-Python, platform-independent package. Its exact
 filename includes the package version from `check_rst.__version__`.
+
+At startup, `check_rst` checks `docutils.__version_info__` and rejects an
+importable runtime outside `>=0.23,<0.24`. This protects `--no-deps` and
+system-site installations that bypass the package resolver. The entry point
+imports Docutils-using modules before this gate runs, however, so a future
+incompatible Docutils release that already fails during those imports may not
+reach `check_rst`'s tailored version message.
 
 On Gentoo, a host-wide checker should reuse the distribution's coherent
 Sphinx/docutils stack and its installed Sphinx extensions. Keep the launcher
@@ -75,30 +83,14 @@ importable by the same interpreter that runs `check_rst`. Use ordinary
 dependency-resolving `pip install` in a self-contained environment when its
 projects also install their Sphinx extensions there.
 
-To reproduce the Gentoo validation stack on Ubuntu, install the same tested
-direct dependency versions rather than accepting pip's Docutils downgrade.
-Upstream Sphinx 9.1.0 metadata declares `docutils<0.23`; Gentoo removes that
-upper bound before building Sphinx. The following mirrors that one
-metadata adjustment, so the resulting environment remains coherent under
-`pip check` while running Sphinx 9.1.0 with Docutils 0.23:
+For an isolated development environment outside Gentoo, let pip resolve a
+compatible upstream Sphinx rather than patching Sphinx 9.1 metadata. With
+Docutils 0.23 required by this project, pip selects Sphinx 9.2 or later:
 
 ```bash
 python3.14 -m venv ~/opt/check_rst-ubuntu
-install -d /tmp/check_rst-sphinx-source
-~/opt/check_rst-ubuntu/bin/python -m pip download \
-    --no-deps --no-binary=:all: --dest /tmp/check_rst-sphinx-source \
-    Sphinx==9.1.0
-tar -xf /tmp/check_rst-sphinx-source/sphinx-9.1.0.tar.gz \
-    -C /tmp/check_rst-sphinx-source
-sed -i 's/docutils>=0.21,<0.23/docutils>=0.21/' \
-    /tmp/check_rst-sphinx-source/sphinx-9.1.0/pyproject.toml
 ~/opt/check_rst-ubuntu/bin/python -m pip install \
-    /tmp/check_rst-sphinx-source/sphinx-9.1.0 \
-    docutils==0.23 snowballstemmer==3.1.1 pygit2==1.20.1 \
-    mypy==2.2.0 types-docutils==0.22.3.20260518 \
-    pytest==9.1.1 pytest-cov==7.1.0 setuptools==83.0.0
-~/opt/check_rst-ubuntu/bin/python -m pip install \
-    --no-build-isolation --no-deps --editable /path/to/check_rst
+    --editable '/path/to/check_rst[dev]'
 ~/opt/check_rst-ubuntu/bin/python -m pip check
 ```
 
@@ -117,7 +109,7 @@ For development, install the checkout in editable mode:
 
 ```bash
 cd /path/to/check_rst
-python3.14 -m pip install --editable .
+python3.14 -m pip install --editable '.[dev]'
 ```
 
 Ordinary Python source edits then take effect without reinstalling. Reinstall

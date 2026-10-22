@@ -513,6 +513,12 @@ A declared dependency floor needs a real dependency lane
   with the resolved Docutils and Sphinx versions printed in the log; targeted
   attribute simulation remains useful focused coverage rather than a substitute.
 
+  CR-50 later retired the 0.22.x compatibility lane and made 0.23 the only
+  supported Docutils minor.  Current validation therefore runs the full suite
+  in one real Docutils 0.23 environment.  Simulated missing or unusable node
+  metadata remains fail-closed safety coverage, not a second compatibility
+  claim.
+
 Recovering a location needs proof of provenance, not plausibility
   On the Docutils 0.22.x floor a table node has no line, and 0.7.1 paired
   tables with lexical grid blocks by position.  During 0.7.2 each refinement

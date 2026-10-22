@@ -214,11 +214,8 @@ token, the character followed by ``o`` (overline and underline) or ``u``
 (underline only), such as ``*o`` or ``*u``, and a bare ``n`` when the source
 does not prove the style.  The parser implementation is ``check_subsection``
 and the two ``style =`` assignments in ``docutils/parsers/rst/states.py``,
-pinned for both supported lanes:
+pinned to the supported release rather than a moving branch:
 
-* Docutils 0.22.4, tag ``docutils-0.22.4``, revision r10276:
-  `states.py <https://sourceforge.net/p/docutils/code/10276/tree/tags/docutils-0.22.4/docutils/parsers/rst/states.py>`__,
-  lines 431, 2917 and 3155;
 * Docutils 0.23, tag ``docutils-0.23``, revision r10339:
   `states.py <https://sourceforge.net/p/docutils/code/10339/tree/tags/docutils-0.23/docutils/parsers/rst/states.py>`__,
   lines 431, 2919 and 3157.

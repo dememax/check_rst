@@ -25,14 +25,21 @@ Installation
 ==============
 
 The package declares a ``check_rst`` console entry point and requires Python
-3.14.  Install it once with a standards-based Python package installer.  Its
-docutils compatibility range deliberately covers both PyPI's Sphinx 9.1.0
-stack (docutils 0.22.4) and distribution builds such as Gentoo's Sphinx
-9.1.0-r1 stack (docutils 0.23); the suite is validated in both environments.
-A host-specific launcher may pin an absolute interpreter or installed
-checkout when protection from an activated virtual environment is required;
-that launcher belongs to the host configuration, not to a consuming
-repository.
+3.14.  Install it once with a standards-based Python package installer.  It
+supports Docutils ``>=0.23,<0.24`` and validates the suite in that single
+Docutils 0.23 environment.  An ordinary PyPI resolution selects Sphinx 9.2 or
+later because upstream Sphinx 9.1 excludes Docutils 0.23; distribution builds
+such as Gentoo's Sphinx 9.1.0-r1 accept Docutils 0.23 and remain supported.  A
+host-specific launcher may pin an absolute interpreter or installed checkout
+when protection from an activated virtual environment is required; that
+launcher belongs to the host configuration, not to a consuming repository.
+
+The CLI checks ``docutils.__version_info__`` at startup and rejects an
+importable runtime outside the declared range.  This diagnoses an old or new
+Docutils left by ``--no-deps`` or a system-site installation.  The entry point
+imports Docutils-using modules before the gate runs, however, so a future
+incompatible Docutils release that already fails during those imports may not
+reach the tailored range message.
 
 Normal Git integration is provided by ``pygit2`` 1.20 or newer and does not
 shell out to the Git CLI.  Version 1.20 makes non-UTF-8 filenames available
