@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 from _support import _GOOD_BLOCK, BuildSphinxEnv, _build_multi_file_env, _git
-from docutils.parsers.rst import directives as docutils_directives
 from docutils.parsers.rst.directives.misc import Include as DocutilsInclude
 
 from check_rst import cli
@@ -28,30 +27,6 @@ if TYPE_CHECKING:
 
     import docutils.nodes
     import sphinx.environment
-
-
-@pytest.mark.unit
-def test_tracking_include_uses_docutils_023_clip_identity(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Cycle pre-detection preserves Docutils 0.23's absent clip values."""
-    source = tmp_path / "index.rst"
-    option_spec = DocutilsInclude.option_spec
-    assert option_spec is not None
-    assert option_spec["start-after"] is docutils_directives.unchanged
-    monkeypatch.setattr(
-        DocutilsInclude,
-        "option_spec",
-        {"start-after": docutils_directives.unchanged_required},
-    )
-    clip = _composition._docutils_include_clip((None, None, None, None))
-    assert clip == (None, None, None, None)
-    assert _composition._active_include_cycle(
-        str(source),
-        clip,
-        [(str(source), clip)],
-    ) == str(source)
 
 
 @pytest.mark.unit
@@ -2582,19 +2557,35 @@ def test_toctree_inside_include_retains_include_provenance(tmp_path: Path) -> No
 
 
 @pytest.mark.integration
-def test_verified_include_cycle_is_visible_in_composition_entries(tmp_path: Path) -> None:
-    """Docutils' source-and-clip cycle refusal remains a visible path edge."""
+@pytest.mark.parametrize(
+    ("reverse_options", "expected_cycles"),
+    [
+        ("", [("part.rst", None), ("index.rst", "index.rst")]),
+        (
+            "   :start-after:\n",
+            [("part.rst", None), ("index.rst", None), ("part.rst", "part.rst")],
+        ),
+    ],
+)
+def test_verified_include_cycle_distinguishes_absent_and_empty_clip(
+    tmp_path: Path,
+    reverse_options: str,
+    expected_cycles: list[tuple[str, str | None]],
+) -> None:
+    """An explicit empty clip moves Docutils' cycle one include deeper."""
     (tmp_path / "conf.py").write_text('project = "test"\nextensions = []\n', encoding="utf-8")
     index = tmp_path / "index.rst"
     index.write_text("Index\n=====\n\n.. include:: part.rst\n", encoding="utf-8")
-    (tmp_path / "part.rst").write_text(".. include:: index.rst\n", encoding="utf-8")
+    (tmp_path / "part.rst").write_text(
+        f".. include:: index.rst\n{reverse_options}",
+        encoding="utf-8",
+    )
 
     env, _ = _sphinx._build_sphinx_env(tmp_path, tmp_path / "_build")
     document = _document.Document(index, tmp_path)
     includes = _sphinx.find_includes(env, "index", document)
 
-    assert len(includes) == 2
-    assert includes[1].cycle == "index.rst"
+    assert [(entry.target, entry.cycle) for entry in includes] == expected_cycles
     assert includes[1].provenance is not None
     assert includes[1].provenance.source == "part.rst"
 
