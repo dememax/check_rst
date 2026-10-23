@@ -126,7 +126,7 @@ The following capabilities are implemented and protected by tests:
   selected file is outside every discovery root; run from the intended project
   root or pass ``--config``.  Automatic discovery skips ignored includers,
   while explicit role patterns can protect ignored fragments.
-* 0.7.4 (in progress): the supported Docutils range is ``>=0.23,<0.24``.
+* 0.7.4 (2026-10-23): the supported Docutils range is ``>=0.23,<0.24``.
   Dependency-resolving pip installations select Sphinx 9.2 or later because
   upstream Sphinx 9.1 excludes Docutils 0.23; Gentoo's Sphinx 9.1 build accepts
   Docutils 0.23 and remains supported.  A structured runtime gate rejects
