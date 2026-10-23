@@ -115,11 +115,6 @@ def _document_include_log(document: docutils.nodes.document) -> _IncludeLog:
     return cast("_IncludeLog", include_log)
 
 
-def _docutils_include_clip(clip: _IncludeClip) -> _IncludeClip:
-    """Return the source-and-clip identity used by supported Docutils 0.23."""
-    return clip
-
-
 def _active_include_cycle(initial_resolved: str, clip: _IncludeClip, include_log: _IncludeLog) -> str | None:
     """Return the active target matching Docutils' source-and-clip identity."""
     active_identities = {(str(pathlib.Path(str(source)).resolve()), active_clip) for source, active_clip in include_log}
@@ -161,9 +156,12 @@ def _tracking_include_class(base: type[Directive]) -> type[Directive]:
                 options.get("end-before"),
             ),
         )
-        docutils_clip = _docutils_include_clip(clip)
         resolved_identity = str(pathlib.Path(initial_resolved).resolve())
-        cycle = _active_include_cycle(resolved_identity, docutils_clip, _document_include_log(self.state.document))
+        cycle = _active_include_cycle(
+            resolved_identity,
+            clip,
+            _document_include_log(self.state.document),
+        )
         marker = docutils.nodes.comment()
         marker.source = owner_source
         marker.line = owner_lineno
