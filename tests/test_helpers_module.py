@@ -61,7 +61,7 @@ def test_cli_accepts_supported_docutils_runtime_version(
         cli.main()
 
     assert exc.value.code == 0
-    assert "check_rst 0.7.3" in capsys.readouterr().out
+    assert "check_rst 0.7.4" in capsys.readouterr().out
 
 
 @pytest.mark.unit
@@ -117,7 +117,7 @@ def test_cli_accepts_required_pygit2_runtime_version(
         cli.main()
 
     assert exc.value.code == 0
-    assert "check_rst 0.7.3" in capsys.readouterr().out
+    assert "check_rst 0.7.4" in capsys.readouterr().out
 
 
 @pytest.mark.unit
