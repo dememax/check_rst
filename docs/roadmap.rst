@@ -1027,9 +1027,9 @@ Staged TDD implementation
 
 Each stage starts with the smallest failing result-level test, then adds a live
 Git or paired-snapshot integration test through the real CLI.  Run the focused
-tests before the full suite and strict Ruff/mypy checks; exercise both supported
-Docutils endpoints and parser/Sphinx modes wherever the new fingerprint depends
-on them.
+tests before the full suite and strict Ruff/mypy checks; exercise the supported
+Docutils 0.23 environment and both parser/Sphinx modes wherever the new
+fingerprint depends on them.
 
 #. Shipped 2026-08-13: separate section representation from topology.
    ``compare --snapshots`` reports adornment, depth, derived parent, and relative
