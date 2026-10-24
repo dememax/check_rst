@@ -2780,6 +2780,85 @@ def test_nested_table_matrix_owns_structure_through_every_container(tmp_path: Pa
     assert problems == []
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("rows", "expected_ranges"),
+    [
+        pytest.param(
+            [
+                ("Key", "Details"),
+                ("one", ["+---+---+", "| A | B |", "+---+---+"]),
+            ],
+            [(5, 13), (10, 12)],
+            id="owned-first-row-proves-nested-range",
+        ),
+        pytest.param(
+            [
+                ("", ""),
+                ("one", ["+---+---+", "| A | B |", "+---+---+"]),
+            ],
+            [(5, 13)],
+            id="empty-first-row-omits-unproven-nested-range",
+        ),
+        pytest.param(
+            [
+                ("", ""),
+                ("one", "plain text"),
+                ("two", ["+---+---+", "| A | B |", "+---+---+"]),
+            ],
+            [(5, 15)],
+            id="later-owned-row-cannot-prove-table-top",
+        ),
+    ],
+)
+def test_nested_table_does_not_claim_its_table_directive_ancestor_marker(
+    tmp_path: Path,
+    rows: list[tuple[str, str | list[str]]],
+    expected_ranges: list[tuple[int, int]],
+) -> None:
+    """CR-53: an ancestor directive marker never proves a child range."""
+    left_width = 5
+    right_width = 14
+    border = f"+{'-' * left_width}+{'-' * right_width}+"
+    lines = ["#####", "T", "#####", "", ".. table:: Caption", "", f"   {border}"]
+    for left, right in rows:
+        content = right if isinstance(right, list) else [right]
+        for index, value in enumerate(content):
+            left_value = left if index == 0 else ""
+            lines.append(f"   | {left_value.ljust(left_width - 2)} | {value.ljust(right_width - 2)} |")
+        lines.append(f"   {border}")
+    path = tmp_path / "tables.rst"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    document = _document.Document(path)
+    messages = [
+        message for message in document.doctree.findall(docutils.nodes.system_message) if message.get("level", 0) >= 3
+    ]
+    entries = _document.find_tables(path, document)
+
+    assert messages == []
+    assert [(entry.lineno, entry.end) for entry in entries] == expected_ranges
+
+
+@pytest.mark.integration
+def test_non_nested_table_preview_preserves_docutils_system_message_text(tmp_path: Path) -> None:
+    """CR-53 excludes nested tables without rewriting other AST text."""
+    content = ".. unknown:: value"
+    border = f"+{'-' * (len(content) + 2)}+"
+    path = tmp_path / "table.rst"
+    path.write_text(f"{border}\n| {content} |\n{border}\n", encoding="utf-8")
+    document = _document.Document(path)
+    table = next(document.doctree.findall(docutils.nodes.table))
+    expected = _document._outline_preview(
+        " ".join(cell.astext() for row in table.findall(docutils.nodes.row) for cell in row.children)
+    )
+
+    entry = _document.find_tables(path, document)[0]
+
+    assert expected.startswith(f"{path}:2:")
+    assert entry.preview == expected
+
+
 @pytest.mark.unit
 def test_table_end_stops_at_closing_border_not_past_it() -> None:
     """Found by code review of the fix above: extending through bare
