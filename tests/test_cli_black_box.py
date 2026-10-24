@@ -619,7 +619,10 @@ def test_black_box_fix_result_is_explained_by_compare_and_reader_queries(
                          =====  =====
                 =======  =====================
                 """),
-            [(5, 15, [4, 2]), (10, 14, [2, 2])],
+            [
+                (5, 15, [2, 2], "Key Details one Nested table:"),
+                (10, 14, [2, 2], "A B 1 2"),
+            ],
             id="nested-table-rules-have-deeper-indentation",
         ),
         pytest.param(
@@ -634,7 +637,7 @@ def test_black_box_fix_result_is_explained_by_compare_and_reader_queries(
                 1       2
                 ====    ====
                 """),
-            [(5, 9, [2, 2])],
+            [(5, 9, [2, 2], "A B 1 2")],
             id="tab-expanded-rule-widths-match",
         ),
     ],
@@ -642,7 +645,7 @@ def test_black_box_fix_result_is_explained_by_compare_and_reader_queries(
 def test_valid_simple_table_rule_shapes_complete_json_and_outline(
     tmp_path: Path,
     table_source: str,
-    expected_tables: list[tuple[int, int, list[int]]],
+    expected_tables: list[tuple[int, int, list[int], str]],
 ) -> None:
     """CR-52: accepted nested/tabbed rules never abort table readers.
 
@@ -658,12 +661,52 @@ def test_valid_simple_table_rule_shapes_complete_json_and_outline(
     assert report.returncode == 0, report.stderr
     assert report.stderr == ""
     tables = json.loads(report.stdout)["files"][0]["tables"]
-    assert [(table["lineno"], table["end"], table["dims"]) for table in tables] == expected_tables
+    assert [(table["lineno"], table["end"], table["dims"], table["preview"]) for table in tables] == expected_tables
     assert all(table["kind"] == "simple" for table in tables)
     assert outline.returncode == 0, outline.stderr
     assert outline.stderr == ""
-    for _start, _end, (rows, columns) in expected_tables:
+    for _start, _end, (rows, columns), preview in expected_tables:
         assert f"Table (simple, {rows}x{columns})" in outline.stdout
+        assert preview in outline.stdout
+
+
+@pytest.mark.integration
+def test_nested_grid_table_owns_its_rows_preview_and_end(tmp_path: Path) -> None:
+    """CR-53: an inner grid is content, not rows, of its outer table."""
+    document = tmp_path / "tables.rst"
+    document.write_text(
+        textwrap.dedent("""\
+            #######
+            Title
+            #######
+
+            +-----+--------------+
+            | Key | Details      |
+            +=====+==============+
+            | one | +---+---+    |
+            |     | | A | B |    |
+            |     | +---+---+    |
+            |     | | 1 | 2 |    |
+            |     | +---+---+    |
+            +-----+--------------+
+            """),
+        encoding="utf-8",
+    )
+
+    report = _run_cli(tmp_path, "--no-config", "check", "--format=json", document.name)
+    outline = _run_cli(tmp_path, "--no-config", "outline", document.name)
+
+    assert report.returncode == 0, report.stderr
+    assert report.stderr == ""
+    tables = json.loads(report.stdout)["files"][0]["tables"]
+    assert [(table["lineno"], table["end"], table["dims"], table["preview"]) for table in tables] == [
+        (5, 13, [2, 2], "Key Details one"),
+        (8, 12, [2, 2], "A B 1 2"),
+    ]
+    assert outline.returncode == 0, outline.stderr
+    assert outline.stderr == ""
+    assert "5-13: Table (grid, 2x2): Key Details one" in outline.stdout
+    assert "8-12: Table (table, 2x2): A B 1 2" in outline.stdout
 
 
 @pytest.mark.integration
