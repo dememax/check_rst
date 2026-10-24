@@ -619,7 +619,7 @@ def test_black_box_fix_result_is_explained_by_compare_and_reader_queries(
                          =====  =====
                 =======  =====================
                 """),
-            [(5, 15, [2, 2]), (10, 14, [2, 2])],
+            [(5, 15, [4, 2]), (10, 14, [2, 2])],
             id="nested-table-rules-have-deeper-indentation",
         ),
         pytest.param(
@@ -662,7 +662,8 @@ def test_valid_simple_table_rule_shapes_complete_json_and_outline(
     assert all(table["kind"] == "simple" for table in tables)
     assert outline.returncode == 0, outline.stderr
     assert outline.stderr == ""
-    assert outline.stdout.count("Table (simple, 2x2)") == len(expected_tables)
+    for _start, _end, (rows, columns) in expected_tables:
+        assert f"Table (simple, {rows}x{columns})" in outline.stdout
 
 
 @pytest.mark.integration

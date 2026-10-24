@@ -1017,21 +1017,32 @@ _TABLE_OPTION_RE = re.compile(r"^[ \t]+:([\w-]+):")
 
 
 def _simple_table_end(lines: list[str], start: int) -> int | None:
-    """Docutils' exact end-exclusive simple-table stopping predicate.
+    """Docutils' end-exclusive simple-table stopping predicate.
 
     ``start`` is the zero-based top rule.  ``None`` means no complete
-    bottom was found; a mismatched rule is malformed rather than an end.
+    bottom was proven.  Docutils expands tabs before its state machine and
+    tests later border rules only at the table top's effective indentation;
+    a deeper-indented rule belongs to nested content, not this table.  A
+    same-indent width mismatch fails closed instead of turning uncertain
+    lexical provenance into an exception.
+
     Keeping this in the source-attribution module gives outline ranges and
     list-table replacement ranges one definition of the grammar boundary.
     """
-    top_length = len(lines[start].strip())
+    top = lines[start].expandtabs(8).rstrip()
+    top_indent = len(top) - len(top.lstrip(" "))
+    top_length = len(top) - top_indent
     found = 0
     for cursor in range(start + 1, len(lines)):
-        line = lines[cursor]
-        if not _SIMPLE_TABLE_RULE_RE.match(line):
+        line = lines[cursor].expandtabs(8).rstrip()
+        indent = len(line) - len(line.lstrip(" "))
+        if indent != top_indent:
             continue
-        if len(line.strip()) != top_length:
-            raise ValueError("simple-table bottom/header rule does not match its top rule")
+        rule = line[top_indent:]
+        if not _SIMPLE_TABLE_BORDER_RE.match(rule):
+            continue
+        if len(rule) != top_length:
+            return None
         found += 1
         if found == 2 or cursor + 1 == len(lines) or not lines[cursor + 1].strip():
             return cursor + 1
