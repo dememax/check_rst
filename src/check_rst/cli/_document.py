@@ -60,6 +60,7 @@ if TYPE_CHECKING:
 
 _COMMENT_MARKER_RE = re.compile(r"^[ \t]*\.\.(?:[ \t]+(.*))?$")
 _SIMPLE_TABLE_BORDER_RE = re.compile(r"^=+(?: +=+)*$")
+_LIST_ITEM_CONTENT_RE = re.compile(r"^((?:[ \t]*(?:[*+-]|\d+[.)])[ \t]+)+)(.*)$")
 
 
 def _nearest_ancestor[NodeT: docutils.nodes.Node](node: docutils.nodes.Node, node_type: type[NodeT]) -> NodeT | None:
@@ -80,21 +81,57 @@ def _table_block(lines: list[str], top: int) -> tuple[list[str], int] | None:
     if not 1 <= top <= len(lines):
         return None
     border = lines[top - 1]
-    indent = len(border) - len(border.lstrip(" "))
-    first = border.strip()
+    list_item = _LIST_ITEM_CONTENT_RE.match(border)
+    if list_item is not None:
+        indent = len(list_item.group(1).expandtabs(8))
+        first = list_item.group(2).expandtabs(8).rstrip()
+
+        def content_at(index: int) -> str | None:
+            if index == top - 1:
+                return first
+            expanded = lines[index].expandtabs(8)
+            if expanded[:indent].strip():
+                return None
+            return expanded[indent:]
+
+    else:
+        indent = len(border) - len(border.lstrip(" "))
+        first = border.strip()
+
+        def content_at(index: int) -> str | None:
+            line = lines[index]
+            if line[:indent].strip():
+                return None
+            return line[indent:]
+
     block: list[str] = []
     if first.startswith("+"):
-        for line in lines[top - 1 :]:
-            if line[:indent].strip() or not line[indent:].startswith(("+", "|")):
+        for index in range(top - 1, len(lines)):
+            content = content_at(index)
+            if content is None or not content.startswith(("+", "|")):
                 break
-            block.append(line[indent:])
+            block.append(content)
         return block, indent
     if _SIMPLE_TABLE_BORDER_RE.match(first):
+        top_rule = first.expandtabs(8).rstrip()
+        found = 0
         for index in range(top - 1, len(lines)):
-            content = lines[index][indent:]
+            content = content_at(index)
+            if content is None:
+                return None
             block.append(content)
+            if index == top - 1:
+                continue
+            candidate = content.expandtabs(8).rstrip()
+            candidate_indent = len(candidate) - len(candidate.lstrip(" "))
+            rule = candidate[candidate_indent:]
+            if candidate_indent != 0 or not _SIMPLE_TABLE_BORDER_RE.match(rule):
+                continue
+            if len(rule) != len(top_rule):
+                return None
+            found += 1
             at_end = index + 1 == len(lines) or not lines[index + 1].strip()
-            if index > top - 1 and at_end and _SIMPLE_TABLE_BORDER_RE.match(content.strip()):
+            if found == 2 or at_end:
                 return block, indent
     return None
 
@@ -178,6 +215,8 @@ class _DocumentCore:
         self,
         node: docutils.nodes.Node,
         lines: list[str],
+        *,
+        allow_owned_body: bool = False,
     ) -> tuple[list[str], range, tuple[int, int, int]] | None:
         """Return a physical-coordinate view of the table cell holding *node*.
 
@@ -197,7 +236,7 @@ class _DocumentCore:
         row = entry.parent if entry is not None else None
         if entry is None or row is None or table is None:
             return None
-        top = self._table_source_top(table, lines)
+        top = self._table_source_top(table, lines, allow_owned_body=allow_owned_body)
         if top is None:
             return None
         located = _table_block(lines, top)
@@ -257,9 +296,24 @@ class _DocumentCore:
         if len(chain) == 1:
             return None
 
-        view = list(lines)
-        for nested in reversed(chain[:-1]):
-            cell_view = self._table_cell_view(nested, view)
+        outer_to_inner = list(reversed(chain))
+        view: list[str] | None = None
+        replay_from = 0
+        for index, candidate in enumerate(outer_to_inner):
+            top = self._table_source_top(candidate, lines, allow_owned_body=True)
+            located = _table_block(lines, top) if top is not None else None
+            if located is None:
+                continue
+            assert top is not None
+            block, indent = located
+            view = [""] * (top - 1) + [f"{' ' * indent}{line}" if line else "" for line in block]
+            replay_from = index + 1
+            break
+        if view is None:
+            return None
+
+        for nested in outer_to_inner[replay_from:]:
+            cell_view = self._table_cell_view(nested, view, allow_owned_body=True)
             if cell_view is None:
                 return None
             view, cell_range, _cursor_key = cell_view
@@ -268,26 +322,47 @@ class _DocumentCore:
             view = [""] * first + view[first:end]
         return view
 
-    def _table_source_top(self, table: docutils.nodes.table, lines: list[str]) -> int | None:
+    def _table_source_top(
+        self,
+        table: docutils.nodes.table,
+        lines: list[str],
+        *,
+        allow_owned_body: bool = False,
+    ) -> int | None:
         """Return a table's physical top border, or None when it is unproven.
 
         Docutils' own table line is kept only when a physical table block
         starts there.  On Docutils 0.23 raw grid and simple tables identify
-        their top border, but directive-created and list tables identify the
-        directive instead.  Missing or unusable metadata likewise proves no
-        physical table start; in either case the caller reports an approximate
-        location.  Lexical recovery, which paired tables with source blocks by
-        position, shape or cell evidence, was withdrawn for 0.7.2: six review
-        rounds found exact but wrong locations, or third-party code run a
-        second time, in every variant (CR-30; CR-30b keeps exact recovery
-        without a proven table-block line deferred).
+        their top border.  Directive-created tables identify their marker,
+        which deliberately remains insufficient for exact table-cell finding
+        locations (CR-30).
+
+        The range-only CR-53 caller may set ``allow_owned_body`` after a
+        containing-cell view has exposed the built-in table directive's body.
+        A directly owned, located cell paragraph then proves the adjacent
+        preceding border.  This is parsed ownership, not a source-order/shape
+        pairing: descendant-table content is excluded and no directive is run
+        again.  Broader lexical recovery remains forbidden.
         """
         if not isinstance(table.line, int):
             return None
         top = self.composition.physical_line(table, table.line)
-        if top <= 0 or _table_block(lines, top) is None:
+        if top > 0 and _table_block(lines, top) is not None:
+            return top
+        if not allow_owned_body:
             return None
-        return top
+        for node in table.findall():
+            if (
+                node is table
+                or not isinstance(node.line, int)
+                or _nearest_ancestor(node, docutils.nodes.table) is not table
+            ):
+                continue
+            physical = self.composition.physical_line(node, node.line)
+            candidate = physical - 1
+            if candidate > 0 and _table_block(lines, candidate) is not None:
+                return candidate
+        return None
 
     @property
     def _comment_source_contexts(self) -> dict[int, tuple[int, list[str], SourceProvenance | None]]:
@@ -1029,6 +1104,10 @@ def find_lists(path: pathlib.Path, doc: Document | None = None) -> list[ListEntr
 # registry lookup (confirmed: directives/__init__.py's directive_name.lower()),
 # so '.. Table::'/'.. CSV-Table::' are exactly as valid as the lowercase form.
 _TABLE_DIRECTIVE_RE = re.compile(r"\.\.\s+(table|list-table|csv-table)::", re.IGNORECASE)
+_LIST_ITEM_TABLE_DIRECTIVE_RE = re.compile(
+    r"^[ \t]*(?:(?:[*+-]|\d+[.)])[ \t]+)+(\.\.\s+(table|list-table|csv-table)::)",
+    re.IGNORECASE,
+)
 
 
 _TABLE_DIRECTIVE_KIND = {"table": "table", "list-table": "list", "csv-table": "csv"}
@@ -1129,11 +1208,7 @@ def _table_kind_and_start(lines: list[str], anchor: int) -> tuple[str, int]:
     # Only accept a directive after a list marker here; ``| .. table::``
     # inside an aligned-table cell is virtual parsed content and is not
     # independently editable in the physical source.
-    list_item_directive = re.match(
-        r"^[ \t]*(?:(?:[*+-]|\d+[.)])[ \t]+)+(\.\.\s+(table|list-table|csv-table)::)",
-        anchor_line,
-        re.IGNORECASE,
-    )
+    list_item_directive = _LIST_ITEM_TABLE_DIRECTIVE_RE.match(anchor_line)
     if list_item_directive:
         return _TABLE_DIRECTIVE_KIND[list_item_directive.group(2).lower()], anchor
 
@@ -1365,6 +1440,20 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
 
         kind, start = _table_kind_and_start(lines, anchor)
         nested_source_view = document._nested_table_source_view(table, lines)
+        raw_marker_line = lines[start - 1] if 0 <= start - 1 < len(lines) else ""
+        raw_proven_directive = bool(
+            _TABLE_DIRECTIVE_RE.match(raw_marker_line.strip()) or _LIST_ITEM_TABLE_DIRECTIVE_RE.match(raw_marker_line)
+        )
+        if (
+            _nearest_ancestor(table, docutils.nodes.table) is not None
+            and nested_source_view is None
+            and not raw_proven_directive
+        ):
+            # TableEntry has no approximation marker in JSON or outline.
+            # Omitting an unprovable nested range is the existing fail-closed
+            # representation; reporting raw fallback numbers would present an
+            # exact-looking but potentially ancestral start/end (CR-30).
+            continue
         if nested_source_view is not None:
             # Keep ``kind`` from the physical source.  For tables framed
             # inside an aligned-table cell it deliberately remains the
@@ -1372,6 +1461,10 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
             # The recursively parsed cell view independently proves the
             # table's own physical start.
             _nested_kind, start = _table_kind_and_start(nested_source_view, anchor)
+        directive_line = lines[start - 1] if 0 <= start - 1 < len(lines) else ""
+        proven_directive = bool(
+            _TABLE_DIRECTIVE_RE.match(directive_line.strip()) or _LIST_ITEM_TABLE_DIRECTIVE_RE.match(directive_line)
+        )
 
         # A captionless csv-table's content is synthesized from parsed CSV
         # data with no real source correspondence: every cell paragraph
@@ -1428,6 +1521,8 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
             # _table_end's own content-line-driven extension has nothing
             # trustworthy to start from either.
             end = _directive_body_end(lines, rescued_csv_marker_idx)
+        elif kind in {"list", "table"} and proven_directive:
+            end = _directive_body_end(nested_source_view or lines, start - 1)
         else:
             physical_content_lines = [
                 document.composition.physical_line(n, n.line)
