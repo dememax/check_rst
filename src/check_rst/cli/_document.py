@@ -351,12 +351,14 @@ class _DocumentCore:
             return top
         if not allow_owned_body:
             return None
-        for node in table.findall():
-            if (
-                node is table
-                or not isinstance(node.line, int)
-                or _nearest_ancestor(node, docutils.nodes.table) is not table
-            ):
+        first_row = next(
+            (row for row in table.findall(docutils.nodes.row) if _nearest_ancestor(row, docutils.nodes.table) is table),
+            None,
+        )
+        if first_row is None:
+            return None
+        for node in first_row.findall():
+            if not isinstance(node.line, int) or _nearest_ancestor(node, docutils.nodes.table) is not table:
                 continue
             physical = self.composition.physical_line(node, node.line)
             candidate = physical - 1
@@ -1395,8 +1397,23 @@ def _table_owned_text(node: docutils.nodes.Node) -> str:
     if isinstance(node, docutils.nodes.Text):
         return node.astext()
     if isinstance(node, docutils.nodes.Element):
+        if next(node.findall(docutils.nodes.table), None) is None:
+            return node.astext()
         return node.child_text_separator.join(_table_owned_text(child) for child in node.children)
     return node.astext()
+
+
+def _table_ancestor_claims_start(
+    table: docutils.nodes.table,
+    starts: dict[int, int],
+    candidate: int,
+) -> bool:
+    ancestor = _nearest_ancestor(table, docutils.nodes.table)
+    while ancestor is not None:
+        if starts.get(id(ancestor)) == candidate:
+            return True
+        ancestor = _nearest_ancestor(ancestor, docutils.nodes.table)
+    return False
 
 
 def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEntry]:
@@ -1412,6 +1429,7 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
     """
     document = _resolve_document(path, doc)
     entries: list[TableEntry] = []
+    table_starts: dict[int, int] = {}
     csv_table_search_from: dict[str, int] = {}
     captionless_csv_markers: dict[str, list[int]] = {}
     for table in document.doctree.findall(docutils.nodes.table):
@@ -1440,15 +1458,12 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
 
         kind, start = _table_kind_and_start(lines, anchor)
         nested_source_view = document._nested_table_source_view(table, lines)
+        ancestor = _nearest_ancestor(table, docutils.nodes.table)
         raw_marker_line = lines[start - 1] if 0 <= start - 1 < len(lines) else ""
         raw_proven_directive = bool(
             _TABLE_DIRECTIVE_RE.match(raw_marker_line.strip()) or _LIST_ITEM_TABLE_DIRECTIVE_RE.match(raw_marker_line)
-        )
-        if (
-            _nearest_ancestor(table, docutils.nodes.table) is not None
-            and nested_source_view is None
-            and not raw_proven_directive
-        ):
+        ) and not _table_ancestor_claims_start(table, table_starts, start)
+        if ancestor is not None and nested_source_view is None and not raw_proven_directive:
             # TableEntry has no approximation marker in JSON or outline.
             # Omitting an unprovable nested range is the existing fail-closed
             # representation; reporting raw fallback numbers would present an
@@ -1464,7 +1479,7 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
         directive_line = lines[start - 1] if 0 <= start - 1 < len(lines) else ""
         proven_directive = bool(
             _TABLE_DIRECTIVE_RE.match(directive_line.strip()) or _LIST_ITEM_TABLE_DIRECTIVE_RE.match(directive_line)
-        )
+        ) and not _table_ancestor_claims_start(table, table_starts, start)
 
         # A captionless csv-table's content is synthesized from parsed CSV
         # data with no real source correspondence: every cell paragraph
@@ -1536,6 +1551,7 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
             end = _table_end(end_lines, last_content_line, start)
         csv_table_search_from[source_key] = max(csv_table_search_from.get(source_key, 0), end)
 
+        table_starts[id(table)] = start
         entries.append(TableEntry(start, depth, kind, (rows, cols), caption, preview, end, provenance))
     return entries
 
