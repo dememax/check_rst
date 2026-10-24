@@ -233,6 +233,41 @@ class _DocumentCore:
             view[first - 1 + index] = f"{' ' * indent}{text}" if text.strip() else ""
         return view, range(first, first + len(cell_lines)), (id(table), row_index, cell_index)
 
+    def _nested_table_source_view(
+        self,
+        table: docutils.nodes.table,
+        lines: list[str],
+    ) -> list[str] | None:
+        """Return *table* isolated through every containing table cell.
+
+        Each ``_table_cell_view`` invocation is proven by reparsing the
+        immediate aligned-table ancestor with Docutils.  Replay those views
+        from the outermost nested table inward: this exposes the next table's
+        real border without losing physical line indexes.  At each level,
+        blank the prefix before the proven cell and discard the suffix after
+        it so neither adjacent ancestor border can be attributed to the
+        nested table.  ``None`` means the table is not nested, or that some
+        level lacks parser-proven cell geometry.
+        """
+        chain = [table]
+        ancestor = _nearest_ancestor(table, docutils.nodes.table)
+        while ancestor is not None:
+            chain.append(ancestor)
+            ancestor = _nearest_ancestor(ancestor, docutils.nodes.table)
+        if len(chain) == 1:
+            return None
+
+        view = list(lines)
+        for nested in reversed(chain[:-1]):
+            cell_view = self._table_cell_view(nested, view)
+            if cell_view is None:
+                return None
+            view, cell_range, _cursor_key = cell_view
+            first = cell_range.start - 1
+            end = cell_range.stop - 1
+            view = [""] * first + view[first:end]
+        return view
+
     def _table_source_top(self, table: docutils.nodes.table, lines: list[str]) -> int | None:
         """Return a table's physical top border, or None when it is unproven.
 
@@ -1329,6 +1364,14 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
         source_key = str(path.resolve()) if provenance is None else provenance.source
 
         kind, start = _table_kind_and_start(lines, anchor)
+        nested_source_view = document._nested_table_source_view(table, lines)
+        if nested_source_view is not None:
+            # Keep ``kind`` from the physical source.  For tables framed
+            # inside an aligned-table cell it deliberately remains the
+            # fail-closed "table" when raw source does not prove a syntax.
+            # The recursively parsed cell view independently proves the
+            # table's own physical start.
+            _nested_kind, start = _table_kind_and_start(nested_source_view, anchor)
 
         # A captionless csv-table's content is synthesized from parsed CSV
         # data with no real source correspondence: every cell paragraph
@@ -1394,15 +1437,7 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
                 and (n is table or _nearest_ancestor(n, docutils.nodes.table) is table)
             ]
             last_content_line = max(physical_content_lines) if physical_content_lines else start
-            cell_view = document._table_cell_view(table, lines)
-            if cell_view is None:
-                end_lines = lines
-            else:
-                view, cell_range, _cursor_key = cell_view
-                # The view uses physical line numbers.  Bound it to the
-                # parser-proven containing-cell range so the ancestor's next
-                # border cannot look like this nested table's own bottom.
-                end_lines = view[: cell_range.stop - 1]
+            end_lines = nested_source_view if nested_source_view is not None else lines
             end = _table_end(end_lines, last_content_line, start)
         csv_table_search_from[source_key] = max(csv_table_search_from.get(source_key, 0), end)
 
