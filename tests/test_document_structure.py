@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import textwrap
 from typing import TYPE_CHECKING, Any
@@ -2618,6 +2619,165 @@ def test_directive_simple_table_end_extends_through_multiline_final_row(tmp_path
 
     assert len(entries) == 1
     assert (entries[0].lineno, entries[0].end) == (4, 11)
+
+
+type _MatrixTable = tuple[int, int, tuple[int, int], str]
+
+_MATRIX_POSITIONS = {"first": 0, "middle": 1, "last": 2}
+
+
+def _shift_matrix_tables(tables: list[_MatrixTable], offset: int) -> list[_MatrixTable]:
+    return [(start + offset, end + offset, dims, preview) for start, end, dims, preview in tables]
+
+
+def _grid_table_matrix_source(
+    depth: int,
+    position: str,
+    level: int = 1,
+) -> tuple[list[str], list[_MatrixTable]]:
+    inner_lines: list[str] = []
+    inner_tables: list[_MatrixTable] = []
+    if depth > 1:
+        inner_lines, inner_tables = _grid_table_matrix_source(depth - 1, position, level + 1)
+
+    left_width = 7
+    right_width = max(7, *(map(len, inner_lines) if inner_lines else [0]))
+    border = f"+{'-' * (left_width + 2)}+{'-' * (right_width + 2)}+"
+    lines = [border]
+    own_cells: list[str] = []
+    nested_offset = 0
+    target = _MATRIX_POSITIONS[position]
+    for row_index in range(3):
+        left = f"L{level}{row_index + 1}"
+        if row_index == target and inner_lines:
+            right = ""
+            content = inner_lines
+            nested_offset = len(lines)
+        else:
+            right = f"R{level}{row_index + 1}"
+            content = [right]
+        own_cells.extend((left, right))
+        for content_index, value in enumerate(content):
+            left_value = left if content_index == 0 else ""
+            lines.append(f"| {left_value.ljust(left_width)} | {value.ljust(right_width)} |")
+        lines.append(border)
+
+    preview = " ".join(cell for cell in own_cells if cell)
+    tables = [(1, len(lines), (3, 2), preview)]
+    tables.extend(_shift_matrix_tables(inner_tables, nested_offset))
+    return lines, tables
+
+
+def _simple_table_matrix_source(
+    depth: int,
+    position: str,
+    level: int = 1,
+) -> tuple[list[str], list[_MatrixTable]]:
+    inner_lines: list[str] = []
+    inner_tables: list[_MatrixTable] = []
+    if depth > 1:
+        inner_lines, inner_tables = _simple_table_matrix_source(depth - 1, position, level + 1)
+
+    left_width = 7
+    right_width = max(10, *(map(len, inner_lines) if inner_lines else [0]))
+    rule = f"{'=' * left_width}  {'=' * right_width}"
+    lines = [rule]
+    own_cells: list[str] = []
+    nested_offset = 0
+    target = _MATRIX_POSITIONS[position]
+    for row_index in range(3):
+        left = f"L{level}{row_index + 1}"
+        if row_index == target and inner_lines:
+            right = f"N{level}"
+            own_cells.extend((left, right))
+            lines.extend((f"{left.ljust(left_width)}  {right}", ""))
+            nested_offset = len(lines)
+            lines.extend(f"{' ' * (left_width + 2)}{line}" if line else "" for line in inner_lines)
+        else:
+            right = f"R{level}{row_index + 1}"
+            own_cells.extend((left, right))
+            lines.append(f"{left.ljust(left_width)}  {right}")
+        if row_index < 2:
+            lines.append("")
+    lines.append(rule)
+
+    tables = [(1, len(lines), (3, 2), " ".join(own_cells))]
+    tables.extend(_shift_matrix_tables(inner_tables, nested_offset))
+    return lines, tables
+
+
+def _wrap_table_matrix_source(
+    lines: list[str],
+    tables: list[_MatrixTable],
+    container: str,
+) -> tuple[list[str], list[_MatrixTable]]:
+    if container == "aligned":
+        return lines, tables
+    if container == "list-table":
+        wrapped = [
+            ".. list-table::",
+            "",
+            "   * - Matrix",
+            f"     - {lines[0]}",
+            *(f"       {line}" if line else "" for line in lines[1:]),
+        ]
+        return wrapped, [(1, len(wrapped), (1, 2), "Matrix"), *_shift_matrix_tables(tables, 3)]
+    if container == "table-directive":
+        wrapped = [".. table:: Matrix", "", *(f"   {line}" if line else "" for line in lines)]
+        shifted = _shift_matrix_tables(tables, 2)
+        _start, end, dims, preview = shifted[0]
+        shifted[0] = (1, end, dims, preview)
+        return wrapped, shifted
+    raise AssertionError(f"unknown matrix container: {container}")
+
+
+@pytest.mark.integration
+def test_nested_table_matrix_owns_structure_through_every_container(tmp_path: Path) -> None:
+    """CR-53: generated parser-valid geometry proves every table's range.
+
+    The 72 cases cross depths 1..4, grid/simple grammars, first/middle/last
+    nested rows, and bare aligned/list-table/table-directive containers.
+    Every expected range comes from the generated physical geometry; Docutils'
+    own parse independently proves the table count and each table's shape.
+    """
+    problems: list[str] = []
+    cases = itertools.product(
+        range(1, 5),
+        ("grid", "simple"),
+        _MATRIX_POSITIONS,
+        ("aligned", "list-table", "table-directive"),
+    )
+    for depth, grammar, position, container in cases:
+        source_builder = _grid_table_matrix_source if grammar == "grid" else _simple_table_matrix_source
+        lines, expected = source_builder(depth, position)
+        lines, expected = _wrap_table_matrix_source(lines, expected, container)
+        case = f"depth={depth},grammar={grammar},position={position},container={container}"
+        path = tmp_path / f"{depth}-{grammar}-{position}-{container}.rst"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        document = _document.Document(path)
+
+        error_messages = [
+            message
+            for message in document.doctree.findall(docutils.nodes.system_message)
+            if message.get("level", 0) >= 3
+        ]
+        parsed_shapes: list[tuple[int, int]] = []
+        for table in document.doctree.findall(docutils.nodes.table):
+            own_rows = [
+                row
+                for row in table.findall(docutils.nodes.row)
+                if _document._nearest_ancestor(row, docutils.nodes.table) is table
+            ]
+            tgroup = next(table.findall(docutils.nodes.tgroup), None)
+            parsed_shapes.append((len(own_rows), tgroup.get("cols", 0) if tgroup is not None else 0))
+
+        entries = _document.find_tables(path, document)
+        actual = [(entry.lineno, entry.end, entry.dims, entry.preview) for entry in entries]
+        expected_shapes = [dims for _start, _end, dims, _preview in expected]
+        if error_messages or parsed_shapes != expected_shapes or actual != expected:
+            problems.append(case)
+
+    assert problems == []
 
 
 @pytest.mark.unit
