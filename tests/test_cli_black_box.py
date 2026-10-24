@@ -598,6 +598,74 @@ def test_black_box_fix_result_is_explained_by_compare_and_reader_queries(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("table_source", "expected_tables"),
+    [
+        pytest.param(
+            textwrap.dedent("""\
+                #######
+                Title
+                #######
+
+                =======  =====================
+                Key      Details
+                =======  =====================
+                one      Nested table:
+
+                         =====  =====
+                         A      B
+                         =====  =====
+                         1      2
+                         =====  =====
+                =======  =====================
+                """),
+            [(5, 15, [2, 2]), (10, 14, [2, 2])],
+            id="nested-table-rules-have-deeper-indentation",
+        ),
+        pytest.param(
+            textwrap.dedent("""\
+                #######
+                Title
+                #######
+
+                ====\t====
+                A       B
+                ====    ====
+                1       2
+                ====    ====
+                """),
+            [(5, 9, [2, 2])],
+            id="tab-expanded-rule-widths-match",
+        ),
+    ],
+)
+def test_valid_simple_table_rule_shapes_complete_json_and_outline(
+    tmp_path: Path,
+    table_source: str,
+    expected_tables: list[tuple[int, int, list[int]]],
+) -> None:
+    """CR-52: accepted nested/tabbed rules never abort table readers.
+
+    These generated tables retain only the two grammar predicates distilled
+    from the public Linux corpus; none of that corpus's text is copied.
+    """
+    document = tmp_path / "tables.rst"
+    document.write_text(table_source, encoding="utf-8")
+
+    report = _run_cli(tmp_path, "--no-config", "check", "--format=json", document.name)
+    outline = _run_cli(tmp_path, "--no-config", "outline", document.name)
+
+    assert report.returncode == 0, report.stderr
+    assert report.stderr == ""
+    tables = json.loads(report.stdout)["files"][0]["tables"]
+    assert [(table["lineno"], table["end"], table["dims"]) for table in tables] == expected_tables
+    assert all(table["kind"] == "simple" for table in tables)
+    assert outline.returncode == 0, outline.stderr
+    assert outline.stderr == ""
+    assert outline.stdout.count("Table (simple, 2x2)") == len(expected_tables)
+
+
+@pytest.mark.integration
 def test_black_box_list_table_result_survives_compare_outline_and_check(
     black_box_project: Path,
 ) -> None:
