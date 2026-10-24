@@ -710,6 +710,89 @@ def test_nested_grid_table_owns_its_rows_preview_and_end(tmp_path: Path) -> None
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("table_source", "expected_ranges"),
+    [
+        pytest.param(
+            textwrap.dedent("""\
+                #######
+                Title
+                #######
+
+                +-----+----------------------+
+                | Key | Details              |
+                +=====+======================+
+                | one | +---+--------------+ |
+                |     | | X | +---+---+    | |
+                |     | |   | | A | B |    | |
+                |     | |   | +---+---+    | |
+                |     | +---+--------------+ |
+                +-----+----------------------+
+                """),
+            [(5, 13), (8, 12), (9, 11)],
+            id="three-level-grid-end",
+        ),
+        pytest.param(
+            textwrap.dedent("""\
+                #######
+                Title
+                #######
+
+                +---------------+---------------+
+                | +---+---+     | +---+         |
+                | | A | B |     | | C |         |
+                | +---+---+     | +---+         |
+                +---------------+---------------+
+                | x             | y             |
+                +---------------+---------------+
+                """),
+            [(5, 11), (6, 8), (6, 8)],
+            id="two-first-row-grid-starts",
+        ),
+        pytest.param(
+            textwrap.dedent("""\
+                #######
+                Title
+                #######
+
+                +-----+----------------+
+                | Key | Details        |
+                +=====+================+
+                | one | ===  ===       |
+                |     | A    B         |
+                |     | ===  ===       |
+                |     | 1    2         |
+                |     | ===  ===       |
+                +-----+----------------+
+                """),
+            [(5, 13), (8, 12)],
+            id="simple-in-grid-stays-exact",
+        ),
+    ],
+)
+def test_nested_table_ranges_follow_each_parser_proven_cell(
+    tmp_path: Path,
+    table_source: str,
+    expected_ranges: list[tuple[int, int]],
+) -> None:
+    """CR-53: each nesting level owns its parser-proven physical range."""
+    document = tmp_path / "tables.rst"
+    document.write_text(table_source, encoding="utf-8")
+
+    report = _run_cli(tmp_path, "--no-config", "check", "--format=json", document.name)
+    outline = _run_cli(tmp_path, "--no-config", "outline", document.name)
+
+    assert report.returncode == 0, report.stderr
+    assert report.stderr == ""
+    tables = json.loads(report.stdout)["files"][0]["tables"]
+    assert [(table["lineno"], table["end"]) for table in tables] == expected_ranges
+    assert outline.returncode == 0, outline.stderr
+    assert outline.stderr == ""
+    for start, end in expected_ranges:
+        assert f"{start}-{end}: Table" in outline.stdout
+
+
+@pytest.mark.integration
 def test_black_box_list_table_result_survives_compare_outline_and_check(
     black_box_project: Path,
 ) -> None:
