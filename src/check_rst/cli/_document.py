@@ -1271,6 +1271,24 @@ def _captionless_csv_marker_lines(path: pathlib.Path, lines: list[str]) -> list[
     return marker_lines
 
 
+def _table_owned_text(node: docutils.nodes.Node) -> str:
+    """Render *node* like Docutils, excluding descendant table subtrees.
+
+    A cell's ``astext()`` recursively includes a table nested in that cell.
+    That text belongs to the nested table's own preview, not to its ancestor.
+    Preserve each Docutils element's normal child separator so inline markup
+    keeps the same text geometry while an entire nested table contributes no
+    text.
+    """
+    if isinstance(node, docutils.nodes.table):
+        return ""
+    if isinstance(node, docutils.nodes.Text):
+        return node.astext()
+    if isinstance(node, docutils.nodes.Element):
+        return node.child_text_separator.join(_table_owned_text(child) for child in node.children)
+    return node.astext()
+
+
 def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEntry]:
     """Return every table in *path*, in document order.
 
@@ -1344,14 +1362,22 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
 
         tgroup = next(table.findall(docutils.nodes.tgroup), None)
         cols = tgroup.get("cols", 0) if tgroup is not None else 0
-        table_rows = list(table.findall(docutils.nodes.row))
+        table_rows = [
+            row for row in table.findall(docutils.nodes.row) if _nearest_ancestor(row, docutils.nodes.table) is table
+        ]
         rows = len(table_rows)
 
-        # Chain every row's cells in document order (header row first when
-        # one exists, via thead-before-tbody document order) into one
-        # string, THEN collapse+truncate — the whole table is the input,
-        # same as a code-block's whole body feeding its own preview.
-        all_cells = [c.astext() for row in table_rows for c in row.children if isinstance(c, docutils.nodes.entry)]
+        # Chain this table's own cells in document order (header row first
+        # when one exists, via thead-before-tbody document order) into one
+        # string, THEN collapse+truncate.  A nested table has its own entry;
+        # neither its rows nor its text belong to this ancestor's shape or
+        # preview.
+        all_cells = [
+            _table_owned_text(cell)
+            for row in table_rows
+            for cell in row.children
+            if isinstance(cell, docutils.nodes.entry)
+        ]
         preview = _outline_preview(" ".join(all_cells))
 
         if rescued_csv_marker_idx is not None:
@@ -1363,10 +1389,21 @@ def find_tables(path: pathlib.Path, doc: Document | None = None) -> list[TableEn
             physical_content_lines = [
                 document.composition.physical_line(n, n.line)
                 for n in table.findall()
-                if isinstance(n.line, int) and document.composition.provenance(n) == provenance
+                if isinstance(n.line, int)
+                and document.composition.provenance(n) == provenance
+                and (n is table or _nearest_ancestor(n, docutils.nodes.table) is table)
             ]
             last_content_line = max(physical_content_lines) if physical_content_lines else start
-            end = _table_end(lines, last_content_line, start)
+            cell_view = document._table_cell_view(table, lines)
+            if cell_view is None:
+                end_lines = lines
+            else:
+                view, cell_range, _cursor_key = cell_view
+                # The view uses physical line numbers.  Bound it to the
+                # parser-proven containing-cell range so the ancestor's next
+                # border cannot look like this nested table's own bottom.
+                end_lines = view[: cell_range.stop - 1]
+            end = _table_end(end_lines, last_content_line, start)
         csv_table_search_from[source_key] = max(csv_table_search_from.get(source_key, 0), end)
 
         entries.append(TableEntry(start, depth, kind, (rows, cols), caption, preview, end, provenance))
