@@ -216,7 +216,8 @@ def _generated_scenarios(projects: dict[str, GeneratedProject]) -> list[Scenario
         ):
             for command in ("context", "outline"):
                 for mode in ("verified-cold", "verified-warm", "heuristic"):
-                    for no_toctree in (False, True):
+                    recursion_modes = (False,) if mode == "heuristic" else (False, True)
+                    for no_toctree in recursion_modes:
                         recursion = "no-toctree" if no_toctree else "toctree"
                         scenarios.append(
                             Scenario(
@@ -249,15 +250,17 @@ def _generated_scenarios(projects: dict[str, GeneratedProject]) -> list[Scenario
 def _public_scenarios(repository: pathlib.Path, commit: str) -> list[Scenario]:
     scenarios: list[Scenario] = []
     for mode in ("verified-cold", "verified-warm", "heuristic"):
+        no_toctree = mode != "heuristic"
+        recursion = "no-toctree" if no_toctree else "toctree"
         scenarios.append(
             Scenario(
-                name=f"public-context-no-toctree-{mode}",
+                name=f"public-context-{recursion}-{mode}",
                 command=_reader_command(
                     command="context",
                     title="Piping anti-patterns",
                     target="docs/guide.rst",
                     mode=mode,
-                    no_toctree=True,
+                    no_toctree=no_toctree,
                 ),
                 cwd=repository,
                 parameters={
@@ -267,7 +270,7 @@ def _public_scenarios(repository: pathlib.Path, commit: str) -> list[Scenario]:
                     "target_size": "small",
                     "command": "context",
                     "mode": mode,
-                    "no_toctree": True,
+                    "no_toctree": no_toctree,
                 },
                 build_mode=("cold" if mode == "verified-cold" else "warm" if mode == "verified-warm" else "none"),
                 sphinx_source=repository / "docs" if mode != "heuristic" else None,

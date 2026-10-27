@@ -239,8 +239,10 @@ def test_dry_run_lists_full_reader_matrix_without_running(
 
     output = capsys.readouterr()
     assert status == 0
-    assert len(output.out.splitlines()) == 51
+    assert len(output.out.splitlines()) == 43
     assert "public-context-no-toctree-verified-cold" in output.out
+    assert "public-context-toctree-heuristic" in output.out
+    assert "heuristic-no-toctree" not in output.out
     assert output.err == ""
     assert not (tmp_git_repo / "artifact.json").exists()
 
