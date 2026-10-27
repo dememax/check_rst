@@ -8,12 +8,16 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 
 import pytest
 
 if TYPE_CHECKING:
-    from pathlib import Path
     from types import ModuleType
 
 
@@ -245,6 +249,72 @@ def test_dry_run_lists_full_reader_matrix_without_running(
     assert "heuristic-no-toctree" not in output.out
     assert output.err == ""
     assert not (tmp_git_repo / "artifact.json").exists()
+
+
+@pytest.mark.integration
+def test_module_invocation_records_worktree_version_despite_decoy(
+    tmp_git_repo: Path,
+) -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    decoy_root = tmp_git_repo.parent / f"{tmp_git_repo.name}-decoy"
+    decoy_package = decoy_root / "check_rst"
+    decoy_package.mkdir(parents=True)
+    (decoy_package / "__init__.py").write_text('__version__ = "9.9.9"\n', encoding="utf-8")
+    artifact = tmp_git_repo.parent / f"{tmp_git_repo.name}-performance.json"
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = os.pathsep.join((str(decoy_root), str(project_root)))
+
+    help_result = subprocess.run(
+        [sys.executable, "-m", "tools.perf_record", "--help"],
+        cwd=project_root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert help_result.returncode == 0, help_result.stderr
+
+    worktree_environment = environment.copy()
+    worktree_environment["PYTHONPATH"] = str(project_root / "src")
+    version_result = subprocess.run(
+        [sys.executable, "-c", "import check_rst; print(check_rst.__version__)"],
+        cwd=project_root,
+        env=worktree_environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    harness = textwrap.dedent(
+        """
+        import sys
+        from tools import perf_record
+
+        def fake_runner(_command, _cwd, _counts_file):
+            return perf_record.RunResult(0.1, 0.05, 0.01, 1024, 0, b"stable\\n", {"_parse_rst": 1})
+
+        raise SystemExit(perf_record.main([
+            "--artifact", sys.argv[1],
+            "--host-label", "test-host",
+            "--repetitions", "1",
+            "--small-project-unrelated", "0",
+            "--large-project-unrelated", "0",
+            "--large-page-sections", "1",
+            "--fragment-includers", "2",
+        ], runner=fake_runner))
+        """
+    )
+    record_result = subprocess.run(
+        [sys.executable, "-c", harness, str(artifact)],
+        cwd=tmp_git_repo,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert record_result.returncode == 0, record_result.stderr
+    recorded = json.loads(artifact.read_text(encoding="utf-8"))
+    assert {record["check_rst_version"] for record in recorded["records"]} == {version_result.stdout.strip()}
 
 
 @pytest.mark.integration
