@@ -14,11 +14,7 @@ if TYPE_CHECKING:
 
 
 def _snapshot(root: Path) -> dict[str, bytes]:
-    return {
-        path.relative_to(root).as_posix(): path.read_bytes()
-        for path in sorted(root.rglob("*"))
-        if path.is_file()
-    }
+    return {path.relative_to(root).as_posix(): path.read_bytes() for path in sorted(root.rglob("*")) if path.is_file()}
 
 
 @pytest.mark.integration
@@ -37,9 +33,7 @@ def test_generated_performance_corpus_is_byte_deterministic_and_has_reader_shape
     assert len(list(first.root.glob("*.rst"))) == 11
     assert (first.root / "large.rst").read_text(encoding="utf-8").count("Large section ") == 3
     for number in range(1, 4):
-        assert ".. include:: fragment.rst" in (first.root / f"includer-{number:02d}.rst").read_text(
-            encoding="utf-8"
-        )
+        assert ".. include:: fragment.rst" in (first.root / f"includer-{number:02d}.rst").read_text(encoding="utf-8")
 
 
 @pytest.mark.integration
