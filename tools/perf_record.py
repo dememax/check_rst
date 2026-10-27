@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Maxime P. DEMENTYEV
 # SPDX-License-Identifier: GPL-3.0-only
 # Serial subprocess performance recorder for generated reader scenarios — check_rst project
-"""Record repeatable PF-6 reader measurements in a host-scoped JSON artifact."""
+"""Record a repeatable reader-latency matrix in a host-scoped JSON artifact."""
 
 from __future__ import annotations
 
@@ -141,7 +141,7 @@ def _non_negative_integer(value: str) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Record PF-6 reader performance with the worktree CLI.")
+    parser = argparse.ArgumentParser(description="Record the reader-latency matrix with the worktree CLI.")
     parser.add_argument("--artifact", required=True, type=pathlib.Path, help="host-scoped JSON artifact path")
     parser.add_argument("--host-label", required=True, help="public label supplied by the user; never a hostname")
     parser.add_argument("--repetitions", type=_positive_integer, default=3)
