@@ -557,3 +557,23 @@ vacuous-pass assertion; follow-up tracing corrected an unreachable
 ``OutputBudgetSink`` example.  Earlier dogfooding supplied the zero-count and
 modeled-position parallels.  Independent agreement mattered only after those
 claims survived direct probes, source tracing, and executable tests.
+
+**********************
+Performance recorder
+**********************
+
+``python3.14 -m tools.perf_record --artifact /absolute/path.json
+--host-label LABEL --repetitions 3`` runs the worktree command serially and
+records PF-6's ``context`` and ``outline`` matrix.  It compares small and large
+targets in generated small and large Sphinx projects, plus the repository's
+public ``context --no-toctree`` reproduction.  ``--dry-run`` lists all commands
+without generating a corpus or measuring; ``--replace`` is required to replace
+an existing record for the same host label, commit and scenario.
+
+The recorder requires a clean Git worktree.  Generated corpora and Sphinx build
+directories exist only below a temporary directory.  Each subprocess exports
+its structural call counts alongside wall, user and system time, peak RSS, exit
+status and a standard-output hash.  Repetitions that disagree on exit status,
+output or counts are rejected.  The host label is always an explicit option;
+the recorder never obtains a machine hostname.  Project and page sizes can be
+changed with the recorder's size options for later scaling work.

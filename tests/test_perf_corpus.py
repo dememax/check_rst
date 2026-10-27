@@ -30,6 +30,7 @@ def test_generated_performance_corpus_is_byte_deterministic_and_has_reader_shape
     assert first.large_target == first.root / "large.rst"
     assert first.small_title == "Small target"
     assert first.large_title == "Large target"
+    assert first.small_target.read_text(encoding="utf-8").startswith("##############\nSmall target\n##############")
     assert len(list(first.root.glob("*.rst"))) == 11
     assert (first.root / "large.rst").read_text(encoding="utf-8").count("Large section ") == 3
     for number in range(1, 4):

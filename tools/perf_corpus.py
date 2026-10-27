@@ -41,7 +41,7 @@ class GeneratedProject:
 
 
 def _title(text: str, adornment: str) -> str:
-    line = adornment * len(text)
+    line = adornment * (len(text) + 2)
     return f"{line}\n{text}\n{line}\n\n"
 
 
@@ -50,12 +50,12 @@ def _write(path: Path, text: str) -> None:
 
 
 def _large_page(section_count: int) -> str:
-    parts = [_title("Large target", "*"), "A generated page with many sections.\n\n"]
+    parts = [_title("Large target", "#"), "A generated page with many sections.\n\n"]
     for number in range(1, section_count + 1):
         title = f"Large section {number:04d}"
         parts.extend(
             (
-                _title(title, "="),
+                _title(title, "*"),
                 f"Generated paragraph {number:04d} keeps page size independent of project size.\n\n",
             )
         )
@@ -73,11 +73,11 @@ def generate_project(destination: Path, size: CorpusSize) -> GeneratedProject:
 
     small_target = destination / "small.rst"
     large_target = destination / "large.rst"
-    _write(small_target, _title("Small target", "*") + "A generated small target page.\n")
+    _write(small_target, _title("Small target", "#") + "A generated small target page.\n")
     _write(large_target, _large_page(size.large_page_sections))
     _write(
         destination / "fragment.rst",
-        _title("Shared fragment", "=") + "Generated content included from several documents.\n",
+        _title("Shared fragment", "*") + "Generated content included from several documents.\n",
     )
 
     toctree_entries = ["small", "large"]
@@ -86,7 +86,7 @@ def generate_project(destination: Path, size: CorpusSize) -> GeneratedProject:
         toctree_entries.append(stem)
         _write(
             destination / f"{stem}.rst",
-            _title(f"Fragment includer {number:02d}", "*") + ".. include:: fragment.rst\n",
+            _title(f"Fragment includer {number:02d}", "#") + ".. include:: fragment.rst\n",
         )
 
     for number in range(1, size.unrelated_documents + 1):
@@ -94,12 +94,12 @@ def generate_project(destination: Path, size: CorpusSize) -> GeneratedProject:
         toctree_entries.append(stem)
         _write(
             destination / f"{stem}.rst",
-            _title(f"Unrelated document {number:04d}", "*") + f"Generated unrelated project content {number:04d}.\n",
+            _title(f"Unrelated document {number:04d}", "#") + f"Generated unrelated project content {number:04d}.\n",
         )
 
     entries = "".join(f"   {entry}\n" for entry in toctree_entries)
     _write(
         destination / "index.rst",
-        _title("Performance corpus", "*") + ".. toctree::\n   :maxdepth: 2\n\n" + entries,
+        _title("Performance corpus", "#") + ".. toctree::\n   :maxdepth: 2\n\n" + entries,
     )
     return GeneratedProject(root=destination, small_target=small_target, large_target=large_target)

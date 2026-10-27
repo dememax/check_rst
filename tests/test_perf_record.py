@@ -8,13 +8,22 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, cast
 
 import pytest
 
 if TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
+
+
+class _RunResultLike(Protocol):
+    elapsed_seconds: float
+    user_cpu_seconds: float
+    system_cpu_seconds: float
+    peak_rss_bytes: int
+    exit_status: int
+    stdout: bytes
 
 
 def _module() -> ModuleType:
@@ -57,15 +66,18 @@ def _result(
     elapsed: float = 2.0,
     stdout: bytes = b"stable\n",
     exit_status: int = 0,
-) -> object:
-    return module.RunResult(
-        elapsed_seconds=elapsed,
-        user_cpu_seconds=1.5,
-        system_cpu_seconds=0.25,
-        peak_rss_bytes=12_345_678,
-        exit_status=exit_status,
-        stdout=stdout,
-        structural_counts={"_parse_rst": 2, "_read_source": 1},
+) -> _RunResultLike:
+    return cast(
+        "_RunResultLike",
+        module.RunResult(
+            elapsed_seconds=elapsed,
+            user_cpu_seconds=1.5,
+            system_cpu_seconds=0.25,
+            peak_rss_bytes=12_345_678,
+            exit_status=exit_status,
+            stdout=stdout,
+            structural_counts={"_parse_rst": 2, "_read_source": 1},
+        ),
     )
 
 
