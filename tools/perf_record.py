@@ -234,6 +234,9 @@ def _generated_scenarios(projects: dict[str, GeneratedProject]) -> list[Scenario
                                     "corpus": "generated",
                                     "project_size": project_size,
                                     "target_size": target_size,
+                                    "unrelated_documents": project.size.unrelated_documents,
+                                    "large_page_sections": project.size.large_page_sections,
+                                    "fragment_includers": project.size.fragment_includers,
                                     "command": command,
                                     "mode": mode,
                                     "no_toctree": no_toctree,
@@ -284,6 +287,11 @@ def _dry_run_scenarios(repository: pathlib.Path) -> list[Scenario]:
         root=pathlib.Path("<temporary-generated-project>"),
         small_target=pathlib.Path("<temporary-generated-project>/small.rst"),
         large_target=pathlib.Path("<temporary-generated-project>/large.rst"),
+        size=CorpusSize(
+            unrelated_documents=DEFAULT_SMALL_UNRELATED,
+            large_page_sections=DEFAULT_LARGE_PAGE_SECTIONS,
+            fragment_includers=DEFAULT_FRAGMENT_INCLUDERS,
+        ),
     )
     return _generated_scenarios({"small": placeholder, "large": placeholder}) + _public_scenarios(
         repository, "<measured-commit>"

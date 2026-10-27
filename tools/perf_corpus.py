@@ -36,6 +36,7 @@ class GeneratedProject:
     root: Path
     small_target: Path
     large_target: Path
+    size: CorpusSize
     small_title: str = "Small target"
     large_title: str = "Large target"
 
@@ -102,4 +103,4 @@ def generate_project(destination: Path, size: CorpusSize) -> GeneratedProject:
         destination / "index.rst",
         _title("Performance corpus", "#") + ".. toctree::\n   :maxdepth: 2\n\n" + entries,
     )
-    return GeneratedProject(root=destination, small_target=small_target, large_target=large_target)
+    return GeneratedProject(root=destination, small_target=small_target, large_target=large_target, size=size)

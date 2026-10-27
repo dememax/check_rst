@@ -247,6 +247,29 @@ def test_dry_run_lists_full_reader_matrix_without_running(
     assert not (tmp_git_repo / "artifact.json").exists()
 
 
+@pytest.mark.integration
+def test_generated_scenarios_retain_concrete_corpus_sizes(tmp_path: Path) -> None:
+    from tools.perf_corpus import CorpusSize, generate_project
+
+    module = _module()
+    projects = {
+        "small": generate_project(tmp_path / "small", CorpusSize(2, 5, 4)),
+        "large": generate_project(tmp_path / "large", CorpusSize(7, 5, 4)),
+    }
+
+    scenarios = module._generated_scenarios(projects)
+    small = next(
+        scenario for scenario in scenarios if scenario.name == "generated-small-small-context-heuristic-toctree"
+    )
+    large = next(
+        scenario for scenario in scenarios if scenario.name == "generated-large-small-context-heuristic-toctree"
+    )
+    assert small.parameters["unrelated_documents"] == 2
+    assert large.parameters["unrelated_documents"] == 7
+    assert small.parameters["large_page_sections"] == large.parameters["large_page_sections"] == 5
+    assert small.parameters["fragment_includers"] == large.parameters["fragment_includers"] == 4
+
+
 @pytest.mark.unit
 def test_host_label_comes_only_from_the_option(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _module()

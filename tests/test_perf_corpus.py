@@ -28,6 +28,7 @@ def test_generated_performance_corpus_is_byte_deterministic_and_has_reader_shape
     assert _snapshot(first.root) == _snapshot(second.root)
     assert first.small_target == first.root / "small.rst"
     assert first.large_target == first.root / "large.rst"
+    assert first.size == size
     assert first.small_title == "Small target"
     assert first.large_title == "Large target"
     assert first.small_target.read_text(encoding="utf-8").startswith("##############\nSmall target\n##############")
