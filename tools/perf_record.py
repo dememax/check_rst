@@ -194,6 +194,13 @@ def _worktree_version(source_root: pathlib.Path) -> str:
     raise RecorderError(f"worktree version is missing from {metadata_path}")
 
 
+def _external_artifact_path(path: pathlib.Path, repository: pathlib.Path) -> pathlib.Path:
+    resolved = path.expanduser().resolve()
+    if resolved.is_relative_to(repository):
+        raise RecorderError(f"artifact path must be outside the measured worktree: {resolved}")
+    return resolved
+
+
 def _reader_command(
     *,
     command: Literal["context", "outline"],
@@ -590,6 +597,7 @@ def main(arguments: list[str] | None = None, *, runner: Runner = _run_command) -
         if not args.host_label.strip():
             raise RecorderError("--host-label must not be empty")
         _require_clean_worktree(repository)
+        artifact_path = _external_artifact_path(args.artifact, repository)
         if args.dry_run:
             for scenario in _dry_run_scenarios(repository):
                 print(f"{scenario.name}: cwd={scenario.cwd} command={_display_command(scenario)}")
@@ -616,7 +624,7 @@ def main(arguments: list[str] | None = None, *, runner: Runner = _run_command) -
             }
             scenarios = _generated_scenarios(projects) + _public_scenarios(repository, commit)
             artifact = record_scenarios(
-                artifact_path=args.artifact.expanduser(),
+                artifact_path=artifact_path,
                 host=host,
                 commit=commit,
                 check_rst_version=check_rst_version,
