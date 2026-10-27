@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import dataclasses
 import hashlib
 import json
@@ -23,8 +24,6 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import docutils
 import sphinx
-
-from check_rst import __version__
 
 if TYPE_CHECKING or __package__:
     from tools.perf_corpus import CorpusSize, GeneratedProject, generate_project
@@ -177,6 +176,22 @@ def _require_clean_worktree(repository: pathlib.Path) -> None:
     if status:
         entries = len(status.splitlines())
         raise RecorderError(f"worktree is dirty ({entries} status entr{'y' if entries == 1 else 'ies'})")
+
+
+def _worktree_version(source_root: pathlib.Path) -> str:
+    metadata_path = source_root / "src" / "check_rst" / "__init__.py"
+    try:
+        metadata = ast.parse(metadata_path.read_text(encoding="utf-8"), filename=str(metadata_path))
+    except (OSError, SyntaxError) as exc:
+        raise RecorderError(f"cannot read worktree version from {metadata_path}") from exc
+    for statement in metadata.body:
+        if not isinstance(statement, ast.Assign):
+            continue
+        if not any(isinstance(target, ast.Name) and target.id == "__version__" for target in statement.targets):
+            continue
+        if isinstance(statement.value, ast.Constant) and isinstance(statement.value.value, str):
+            return statement.value.value
+    raise RecorderError(f"worktree version is missing from {metadata_path}")
 
 
 def _reader_command(
@@ -581,6 +596,7 @@ def main(arguments: list[str] | None = None, *, runner: Runner = _run_command) -
             return 0
 
         commit = _git(repository, "rev-parse", "HEAD")
+        check_rst_version = _worktree_version(SOURCE_ROOT)
         host = collect_host_facts(args.host_label)
         with tempfile.TemporaryDirectory(prefix="check-rst-perf-") as temporary_name:
             temporary = pathlib.Path(temporary_name)
@@ -603,7 +619,7 @@ def main(arguments: list[str] | None = None, *, runner: Runner = _run_command) -
                 artifact_path=args.artifact.expanduser(),
                 host=host,
                 commit=commit,
-                check_rst_version=__version__,
+                check_rst_version=check_rst_version,
                 scenarios=scenarios,
                 repetitions=args.repetitions,
                 replace=args.replace,
