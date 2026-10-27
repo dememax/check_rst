@@ -235,9 +235,10 @@ def test_dry_run_lists_full_reader_matrix_without_running(
     module = _module()
     monkeypatch.chdir(tmp_git_repo)
     monkeypatch.setattr(module, "generate_project", lambda *_args, **_kwargs: pytest.fail("generated a corpus"))
+    artifact = tmp_git_repo.parent / f"{tmp_git_repo.name}-artifact.json"
 
     status = module.main(
-        ["--artifact", str(tmp_git_repo / "artifact.json"), "--host-label", "chosen-label", "--dry-run"],
+        ["--artifact", str(artifact), "--host-label", "chosen-label", "--dry-run"],
         runner=lambda *_args: pytest.fail("ran a scenario"),
     )
 
@@ -248,6 +249,22 @@ def test_dry_run_lists_full_reader_matrix_without_running(
     assert "public-context-toctree-heuristic" in output.out
     assert "heuristic-no-toctree" not in output.out
     assert output.err == ""
+    assert not artifact.exists()
+
+
+@pytest.mark.integration
+def test_artifact_inside_measured_worktree_is_refused(
+    tmp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _module()
+    monkeypatch.chdir(tmp_git_repo)
+
+    status = module.main(["--artifact", "artifact.json", "--host-label", "chosen-label", "--dry-run"])
+
+    assert status == 1
+    assert "artifact path must be outside the measured worktree" in capsys.readouterr().err
     assert not (tmp_git_repo / "artifact.json").exists()
 
 
