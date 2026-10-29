@@ -188,6 +188,26 @@ def test_context_verb_carries_no_toctree() -> None:
     assert args.no_toctree is True
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("command", ["check", "outline", "context"])
+def test_no_toctree_help_states_output_only_contract(command: str, capsys: pytest.CaptureFixture[str]) -> None:
+    parser = cli._build_cli_parser()
+
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args([command, "--help"])
+
+    assert exc.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "reported structure only" in help_text
+    assert "verified setup" in help_text
+    assert "include contexts" in help_text
+    assert "incoming references" in help_text
+    assert "remain complete" in help_text
+    assert "not a performance option" in help_text
+    if command == "check":
+        assert "requires --format=json" in help_text
+
+
 # ---------------------------------------------------------------------------
 # Stage 2 — Tier 1 mode verbs: check, fix, diff.
 # ---------------------------------------------------------------------------
