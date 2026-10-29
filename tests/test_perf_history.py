@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 import importlib
+import io
 import json
 from typing import TYPE_CHECKING
 
+import docutils.core
+import docutils.nodes
 import pytest
 
 if TYPE_CHECKING:
@@ -136,6 +139,32 @@ def test_history_is_chronological_and_renders_compact_safe_cells() -> None:
     assert "f" * 40 not in rendered
     assert "0" * 40 not in rendered
     assert r"\|public-host\_" in rendered
+
+
+@pytest.mark.unit
+def test_list_table_cells_preserve_literal_text_without_rst_messages() -> None:
+    values = (
+        "a_ b",
+        "a |b| c",
+        "x__",
+        "- bullet",
+        "+ bullet",
+        "* bullet",
+        ".. note::",
+        "| line",
+        "1. enumerated",
+    )
+    source = "\n".join(_module()._list_table("Literal cells", ("Value",), [(value,) for value in values]))
+    warnings = io.StringIO()
+
+    document = docutils.core.publish_doctree(
+        source,
+        settings_overrides={"halt_level": 6, "report_level": 1, "warning_stream": warnings},
+    )
+
+    assert list(document.findall(docutils.nodes.system_message)) == []
+    assert warnings.getvalue() == ""
+    assert [entry.astext() for entry in document.findall(docutils.nodes.entry)] == ["Value", *values]
 
 
 @pytest.mark.unit
