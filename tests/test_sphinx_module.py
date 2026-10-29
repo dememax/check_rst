@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import collections
+import io
 import json
 import os
 import re
@@ -870,6 +871,46 @@ def test_cli_version_reports_release_identity(
     assert exc.value.code == 0
     assert capsys.readouterr().out == (
         "check_rst 0.7.4\nCopyright (C) 2026 Maxime P. DEMENTYEV\nLicense: GPL-3.0-only\n"
+    )
+
+
+@pytest.mark.integration
+def test_planning_facts_snapshot_ignores_tool_listeners_and_keeps_project_facts(tmp_path: Path) -> None:
+    from sphinx.application import Sphinx
+    from sphinx.util.docutils import docutils_namespace
+
+    (tmp_path / "conf.py").write_text(
+        'project = "facts"\nsource_suffix = {".rst": "restructuredtext", ".txt": "restructuredtext"}\n',
+        encoding="utf-8",
+    )
+    index = tmp_path / "index.rst"
+    extra = tmp_path / "extra.txt"
+    index.write_text("Index\n=====\n", encoding="utf-8")
+    extra.write_text("Extra\n=====\n", encoding="utf-8")
+
+    with docutils_namespace():
+        app = Sphinx(
+            srcdir=str(tmp_path),
+            confdir=str(tmp_path),
+            outdir=str(tmp_path / "_facts" / "out"),
+            doctreedir=str(tmp_path / "_facts" / "doctrees"),
+            buildername="dummy",
+            status=io.StringIO(),
+            warning=io.StringIO(),
+        )
+        app.connect("include-read", _sphinx.mark_include_read_before)
+        app.connect("include-read", _sphinx.mark_include_read_after)
+        app.connect("source-read", _sphinx.mark_source_read_before)
+        app.connect("source-read", _sphinx.mark_source_read_after)
+        snapshot = getattr(_sphinx, "_planning_facts_from_app", None)
+
+        assert callable(snapshot)
+        facts = snapshot(app)
+
+    assert facts == _sphinx.PlanningFacts(
+        frozenset({index.resolve(), extra.resolve()}),
+        (".rst", ".txt"),
+        None,
     )
 
 
