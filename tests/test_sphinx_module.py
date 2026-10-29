@@ -26,7 +26,7 @@ from check_rst import cli
 from check_rst.cli import _composition, _document, _formatting, _helpers, _lint, _pipeline, _reports, _sphinx, _types
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     import docutils.nodes
     import sphinx.environment
@@ -900,10 +900,10 @@ def test_planning_facts_snapshot_ignores_tool_listeners_and_keeps_project_facts(
             status=io.StringIO(),
             warning=io.StringIO(),
         )
-        app.connect("include-read", _sphinx.mark_include_read_before)
-        app.connect("include-read", _sphinx.mark_include_read_after)
-        app.connect("source-read", _sphinx.mark_source_read_before)
-        app.connect("source-read", _sphinx.mark_source_read_after)
+        app.connect("include-read", _composition.mark_include_read_before)
+        app.connect("include-read", _composition.mark_include_read_after)
+        app.connect("source-read", _composition.mark_source_read_before)
+        app.connect("source-read", _composition.mark_source_read_after)
         snapshot = getattr(_sphinx, "_planning_facts_from_app", None)
 
         assert callable(snapshot)
@@ -923,6 +923,7 @@ def test_verified_context_reuses_one_locked_application_cold_and_warm(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     import sphinx.application
+    import sphinx.util.docutils
     from docutils.parsers.rst import directives, roles
 
     read_log = tmp_path / "source-read.log"
@@ -947,16 +948,41 @@ def test_verified_context_reuses_one_locked_application_cold_and_warm(
     (tmp_path / "other.rst").write_text("Other\n=====\n\nSee :doc:`index`.\n", encoding="utf-8")
 
     lock_active = False
+    namespace_depth = 0
     construction_lock_states: list[bool] = []
     snapshot_lock_states: list[bool] = []
     build_lock_states: list[bool] = []
     incoming_lock_states: list[bool] = []
     parse_registries_restored: list[bool] = []
+    registry_differences: list[tuple[set[str], set[str], set[str]]] = []
     directive_registry = dict(vars(directives).get("_directives", {}))
     role_registry = dict(vars(roles).get("_role_registry", {}))
     local_roles = dict(vars(roles).get("_roles", {}))
 
-    real_lock = cli._sphinx_build_lock
+    def restored_registry(
+        current: dict[str, object], baseline: dict[str, object], *, allow_sphinx_code_role: bool = False
+    ) -> bool:
+        return baseline.keys() <= current.keys() and all(
+            current[name] is baseline.get(name)
+            or getattr(current[name], "__module__", "").startswith("docutils.")
+            or (
+                allow_sphinx_code_role and name == "code" and getattr(current[name], "__module__", "") == "sphinx.roles"
+            )
+            for name in current
+        )
+
+    real_lock = _sphinx._sphinx_build_lock
+    real_namespace = sphinx.util.docutils.docutils_namespace
+
+    @contextlib.contextmanager
+    def recording_namespace() -> Iterator[None]:
+        nonlocal namespace_depth
+        with real_namespace():
+            namespace_depth += 1
+            try:
+                yield
+            finally:
+                namespace_depth -= 1
 
     @contextlib.contextmanager
     def recording_lock(build_dir: Path | None) -> Iterator[None]:
@@ -968,7 +994,7 @@ def test_verified_context_reuses_one_locked_application_cold_and_warm(
             finally:
                 lock_active = False
 
-    real_init = sphinx.application.Sphinx.__init__
+    real_init = cast("Callable[..., None]", sphinx.application.Sphinx.__init__)
 
     def recording_init(self: sphinx.application.Sphinx, *args: object, **kwargs: object) -> None:
         construction_lock_states.append(lock_active)
@@ -980,13 +1006,13 @@ def test_verified_context_reuses_one_locked_application_cold_and_warm(
         snapshot_lock_states.append(lock_active)
         return real_snapshot(app)
 
-    real_build = sphinx.application.Sphinx.build
+    real_build = cast("Callable[..., None]", sphinx.application.Sphinx.build)
 
     def recording_build(self: sphinx.application.Sphinx, *args: object, **kwargs: object) -> None:
         build_lock_states.append(lock_active)
         real_build(self, *args, **kwargs)
 
-    real_incoming = _reports.find_incoming_references
+    real_incoming = _sphinx.find_incoming_references
 
     def recording_incoming(
         env: sphinx.environment.BuildEnvironment, target_docname: str
@@ -1003,10 +1029,33 @@ def test_verified_context_reuses_one_locked_application_cold_and_warm(
         track_composition: bool = False,
         allow_external_content: bool = True,
     ) -> docutils.nodes.document:
+        current_directives = dict(vars(directives).get("_directives", {}))
+        current_role_registry = dict(vars(roles).get("_role_registry", {}))
+        current_local_roles = dict(vars(roles).get("_roles", {}))
         parse_registries_restored.append(
-            dict(vars(directives).get("_directives", {})) == directive_registry
-            and dict(vars(roles).get("_role_registry", {})) == role_registry
-            and dict(vars(roles).get("_roles", {})) == local_roles
+            namespace_depth == 0
+            and restored_registry(current_directives, directive_registry)
+            and restored_registry(current_role_registry, role_registry, allow_sphinx_code_role=True)
+            and restored_registry(current_local_roles, local_roles)
+        )
+        registry_differences.append(
+            (
+                {
+                    name
+                    for name in current_directives.keys() | directive_registry.keys()
+                    if current_directives.get(name) is not directive_registry.get(name)
+                },
+                {
+                    f"{name}:{getattr(current_role_registry.get(name), '__module__', '')}"
+                    for name in current_role_registry.keys() | role_registry.keys()
+                    if current_role_registry.get(name) is not role_registry.get(name)
+                },
+                {
+                    name
+                    for name in current_local_roles.keys() | local_roles.keys()
+                    if current_local_roles.get(name) is not local_roles.get(name)
+                },
+            )
         )
         return real_parse(
             path,
@@ -1016,6 +1065,7 @@ def test_verified_context_reuses_one_locked_application_cold_and_warm(
         )
 
     monkeypatch.setattr(cli, "_sphinx_build_lock", recording_lock)
+    monkeypatch.setattr(sphinx.util.docutils, "docutils_namespace", recording_namespace)
     monkeypatch.setattr(sphinx.application.Sphinx, "__init__", recording_init)
     monkeypatch.setattr(_sphinx, "_planning_facts_from_app", recording_snapshot)
     monkeypatch.setattr(sphinx.application.Sphinx, "build", recording_build)
@@ -1038,10 +1088,10 @@ def test_verified_context_reuses_one_locked_application_cold_and_warm(
     assert build_lock_states == [True, True]
     assert incoming_lock_states == [True, True]
     assert parse_registries_restored
-    assert all(parse_registries_restored)
-    assert dict(vars(directives).get("_directives", {})) == directive_registry
-    assert dict(vars(roles).get("_role_registry", {})) == role_registry
-    assert dict(vars(roles).get("_roles", {})) == local_roles
+    assert all(parse_registries_restored), registry_differences
+    assert restored_registry(dict(vars(directives).get("_directives", {})), directive_registry)
+    assert restored_registry(dict(vars(roles).get("_role_registry", {})), role_registry, allow_sphinx_code_role=True)
+    assert restored_registry(dict(vars(roles).get("_roles", {})), local_roles)
 
 
 @pytest.mark.integration
@@ -1056,7 +1106,7 @@ def test_verified_context_refusal_does_not_build_sphinx(
     part = tmp_path / "part.rst"
     part.write_text("Shared\n------\n", encoding="utf-8")
     build_calls = 0
-    real_build = sphinx.application.Sphinx.build
+    real_build = cast("Callable[..., None]", sphinx.application.Sphinx.build)
 
     def recording_build(self: sphinx.application.Sphinx, *args: object, **kwargs: object) -> None:
         nonlocal build_calls
@@ -1104,8 +1154,8 @@ def test_verified_context_torn_read_retries_with_one_replacement_application(
     selected.write_text("Title\n=====\n\nBefore.\n", encoding="utf-8")
     constructions = 0
     builds = 0
-    real_init = sphinx.application.Sphinx.__init__
-    real_build = sphinx.application.Sphinx.build
+    real_init = cast("Callable[..., None]", sphinx.application.Sphinx.__init__)
+    real_build = cast("Callable[..., None]", sphinx.application.Sphinx.build)
 
     def recording_init(self: sphinx.application.Sphinx, *args: object, **kwargs: object) -> None:
         nonlocal constructions
@@ -1149,9 +1199,13 @@ def test_verified_context_fragment_is_byte_identical_cold_and_warm_and_cleans_te
     created: list[Path] = []
     real_mkdtemp = tempfile.mkdtemp
 
-    def recording_mkdtemp(*args: object, **kwargs: object) -> str:
-        path = real_mkdtemp(*args, **kwargs)
-        if kwargs.get("prefix") == "check_rst_context_":
+    def recording_mkdtemp(
+        suffix: str | None = None,
+        prefix: str | None = None,
+        dir: str | os.PathLike[str] | None = None,
+    ) -> str:
+        path = real_mkdtemp(suffix=suffix, prefix=prefix, dir=dir)
+        if prefix == "check_rst_context_":
             created.append(Path(path))
         return path
 

@@ -988,6 +988,7 @@ def _run_context_query(
     contextual_line_depths: dict[tuple[pathlib.Path, int], int] | None = None,
     contextual_structure_findings: list[Finding] | None = None,
     reader_refusal: tuple[int, str] | None = None,
+    prepared_sphinx: tuple[sphinx.environment.BuildEnvironment, str] | None = None,
 ) -> int:
     """Run the self-contained, read-only context query."""
     if reader_refusal is not None:
@@ -1023,8 +1024,11 @@ def _run_context_query(
             conditional_entries: list[ConditionalEntry] = []
             title_findings = check_single_top_level(path, doc=document)
         else:
-            with _timing.PHASE_TIMINGS.phase(_timing.VERIFIED_ENVIRONMENT):
-                env, warning_text = _build_sphinx_env_checked(sphinx_src, actual_build_dir, files=[path])
+            if prepared_sphinx is None:
+                with _timing.PHASE_TIMINGS.phase(_timing.VERIFIED_ENVIRONMENT):
+                    env, warning_text = _build_sphinx_env_checked(sphinx_src, actual_build_dir, files=[path])
+            else:
+                env, warning_text = prepared_sphinx
             local = _docname_for(env, path)
             if local is None:
                 if contextual_depths is None:

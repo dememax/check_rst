@@ -1777,6 +1777,13 @@ def _main() -> None:
     args.declared_roles, args.role_record = (
         _resolve_declared_roles(args, loaded_config, files) if args.command in _ROLE_COMMANDS else (None, None)
     )
+    if (
+        args.command == "context"
+        and args.sphinx_src is not None
+        and not args.no_adornments
+        and files[0].resolve().is_relative_to(args.sphinx_src.resolve())
+    ):
+        _run_prepared_context(args, loaded_config, files, project_root)
     # CR-43: check, full fix and full diff judge each file in its include
     # contexts, and check also judges a selected fragment's includers.
     if (
@@ -1788,34 +1795,7 @@ def _main() -> None:
             args.include_planning, joined = _full_include_planning(args, loaded_config, files)
     else:
         args.include_planning, joined = {}, []
-    args.contextual_outline_depths = {}
-    args.contextual_line_depths = {}
-    args.contextual_structure_findings = {}
-    args.outline_refusals = {}
-    if args.command in {"outline", "context"}:
-        for path in files:
-            planning = args.include_planning.get(pathlib.Path(os.path.abspath(path)))
-            if planning is None:
-                continue
-            depths, line_depths, refusal = (
-                planning.stage.reader_result(args.command) if planning.stage is not None else ({}, {}, None)
-            )
-            if planning.guard_text is not None:
-                line = planning.anchor or 1
-                text = f"{args.command} cannot report one structure: {planning.guard_text}"
-            elif refusal is not None:
-                line, text = refusal.lineno, refusal.text
-            else:
-                args.contextual_outline_depths[pathlib.Path(os.path.abspath(path))] = depths
-                args.contextual_line_depths[pathlib.Path(os.path.abspath(path))] = line_depths
-                if args.command == "context" and planning.stage is not None:
-                    lines = planning.stage.composer.disk_lines(planning.stage.own)
-                    if lines is not None:
-                        args.contextual_structure_findings[pathlib.Path(os.path.abspath(path))] = planning.stage.check(
-                            lines, None
-                        )
-                continue
-            args.outline_refusals[pathlib.Path(os.path.abspath(path))] = (line, text)
+    _populate_reader_contexts(args, files)
     args.whole_file_paths = frozenset(pathlib.Path(os.path.abspath(includer)) for includer, _fragment in joined)
     for includer, fragment in joined:
         files.append(includer)
@@ -2058,6 +2038,8 @@ def _full_include_planning(
     args: argparse.Namespace,
     loaded_config: LoadedConfig,
     files: list[pathlib.Path],
+    *,
+    prepared_facts: _sphinx.PlanningFacts | None = None,
 ) -> tuple[dict[pathlib.Path, IncludePlanning], list[tuple[pathlib.Path, str]]]:
     """Return, by canonical path, each file's full-mode include planning
     (CR-43 P4 and P5), and for check the includers that join the run.
@@ -2071,8 +2053,11 @@ def _full_include_planning(
     # Verified mode reads the project's own facts (P4c): its documents,
     # its source suffixes, and whether it may transform an include.
     if args.sphinx_src is not None:
-        with _timing.PHASE_TIMINGS.phase(_timing.PLANNING_FACTS):
-            facts = _sphinx.planning_facts(args.sphinx_src)
+        if prepared_facts is None:
+            with _timing.PHASE_TIMINGS.phase(_timing.PLANNING_FACTS):
+                facts = _sphinx.planning_facts(args.sphinx_src)
+        else:
+            facts = prepared_facts
     else:
         facts = None
     # Which files Sphinx reads as documents decides how a joined includer's
@@ -2115,6 +2100,105 @@ def _full_include_planning(
             anchor,
         )
     return planning, joined
+
+
+def _populate_reader_contexts(
+    args: argparse.Namespace,
+    files: list[pathlib.Path],
+    *,
+    materialize_structure_findings: bool = True,
+) -> None:
+    """Materialize contextual reader inputs and fail-closed refusals."""
+    args.contextual_outline_depths = {}
+    args.contextual_line_depths = {}
+    args.contextual_structure_findings = {}
+    args.outline_refusals = {}
+    if args.command not in {"outline", "context"}:
+        return
+    for path in files:
+        absolute = pathlib.Path(os.path.abspath(path))
+        planning = args.include_planning.get(absolute)
+        if planning is None:
+            continue
+        depths, line_depths, refusal = (
+            planning.stage.reader_result(args.command) if planning.stage is not None else ({}, {}, None)
+        )
+        if planning.guard_text is not None:
+            line = planning.anchor or 1
+            text = f"{args.command} cannot report one structure: {planning.guard_text}"
+        elif refusal is not None:
+            line, text = refusal.lineno, refusal.text
+        else:
+            args.contextual_outline_depths[absolute] = depths
+            args.contextual_line_depths[absolute] = line_depths
+            if materialize_structure_findings and args.command == "context" and planning.stage is not None:
+                lines = planning.stage.composer.disk_lines(planning.stage.own)
+                if lines is not None:
+                    args.contextual_structure_findings[absolute] = planning.stage.check(lines, None)
+            continue
+        args.outline_refusals[absolute] = (line, text)
+
+
+def _run_prepared_context(
+    args: argparse.Namespace,
+    loaded_config: LoadedConfig,
+    files: list[pathlib.Path],
+    project_root: pathlib.Path,
+) -> NoReturn:
+    """Run one verified context query from one command-scoped Sphinx app."""
+    assert args.context is not None
+    assert args.sphinx_src is not None
+    path = files[0]
+    absolute = pathlib.Path(os.path.abspath(path))
+    keep_build = args.build_dir is not None
+    actual_build_dir = (
+        args.build_dir if args.build_dir is not None else pathlib.Path(tempfile.mkdtemp(prefix="check_rst_context_"))
+    )
+    prepared_result: tuple[Any, str] | None = None
+    with _sphinx_build_lock(args.build_dir):
+        try:
+            with contextlib.ExitStack() as app_stack:
+                with _timing.PHASE_TIMINGS.phase(_timing.PLANNING_FACTS):
+                    prepared = app_stack.enter_context(
+                        _sphinx.prepared_sphinx_application(args.sphinx_src, actual_build_dir)
+                    )
+                with _timing.PHASE_TIMINGS.phase(_timing.INCLUDE_UNIVERSE):
+                    args.include_planning, joined = _full_include_planning(
+                        args,
+                        loaded_config,
+                        files,
+                        prepared_facts=prepared.facts,
+                    )
+                _populate_reader_contexts(args, files, materialize_structure_findings=False)
+                args.whole_file_paths = frozenset(
+                    pathlib.Path(os.path.abspath(includer)) for includer, _fragment in joined
+                )
+                refusal = args.outline_refusals.get(absolute)
+                if refusal is None:
+                    with _timing.PHASE_TIMINGS.phase(_timing.VERIFIED_ENVIRONMENT):
+                        prepared_result = prepared.build_checked(files=[path])
+            # Leaving the prepared context restores Sphinx's process-global
+            # Docutils namespace before _run_context_query constructs Document.
+            _populate_reader_contexts(args, files)
+            refusal = args.outline_refusals.get(absolute)
+            sys.exit(
+                _run_context_query(
+                    args.context,
+                    path,
+                    project_root,
+                    args.sphinx_src,
+                    actual_build_dir,
+                    args.no_toctree,
+                    args.contextual_outline_depths.get(absolute),
+                    args.contextual_line_depths.get(absolute),
+                    args.contextual_structure_findings.get(absolute),
+                    refusal,
+                    prepared_result,
+                )
+            )
+        finally:
+            if not keep_build:
+                shutil.rmtree(actual_build_dir, ignore_errors=True)
 
 
 def _fast_include_refusals(

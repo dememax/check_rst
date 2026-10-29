@@ -10,6 +10,7 @@ import copy
 import dataclasses
 import difflib
 import fcntl
+import io
 import pathlib
 import re
 import subprocess
@@ -19,7 +20,7 @@ from typing import TYPE_CHECKING, cast
 import docutils.nodes
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
 
     import sphinx.application
     import sphinx.environment
@@ -128,6 +129,94 @@ def _sphinx_build_lock(build_dir: pathlib.Path | None) -> Iterator[None]:
             fcntl.flock(lock_stream.fileno(), fcntl.LOCK_UN)
 
 
+def _construct_sphinx_application(
+    sphinx_src: pathlib.Path,
+    build_dir: pathlib.Path,
+    warning_stream: io.StringIO,
+) -> sphinx.application.Sphinx:
+    """Construct the unbuilt application shared by planning and a build."""
+    from sphinx.application import Sphinx
+
+    return Sphinx(
+        srcdir=str(sphinx_src),
+        confdir=str(sphinx_src),
+        outdir=str(build_dir / "_dummy"),
+        doctreedir=str(build_dir / ".doctrees"),
+        buildername="dummy",
+        status=io.StringIO(),
+        warning=warning_stream,
+    )
+
+
+def _build_sphinx_application(
+    app: sphinx.application.Sphinx,
+    warning_stream: io.StringIO,
+    files: list[pathlib.Path] | None = None,
+    *,
+    torn_out: set[pathlib.Path] | None = None,
+) -> tuple[sphinx.environment.BuildEnvironment, str]:
+    """Instrument and build one already-constructed Sphinx application."""
+    CALL_COUNTS["_build_sphinx_env"] += 1
+    # The real Include directive erases its own control point while inserting
+    # parsed input.  Wrap it only inside Sphinx's registry namespace and leave
+    # standard comment markers in the doctree.
+    instrument_sphinx_include()
+    app.connect("include-read", mark_include_read_before, priority=-sys.maxsize)
+    app.connect("include-read", mark_include_read_after, priority=sys.maxsize)
+    app.connect("source-read", mark_source_read_before, priority=-sys.maxsize)
+    app.connect("source-read", mark_source_read_after, priority=sys.maxsize)
+    checked_paths = tuple(path.resolve() for path in files) if files else ()
+    reread_snapshot: dict[pathlib.Path, tuple[int, int, int, int, int]] = {}
+
+    def source_signature(path: pathlib.Path) -> tuple[int, int, int, int, int]:
+        stat = path.stat()
+        return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+    def env_get_outdated(
+        _app: sphinx.application.Sphinx,
+        env: sphinx.environment.BuildEnvironment,
+        added: set[str],
+        changed: set[str],
+        _removed: set[str],
+    ) -> list[str]:
+        docnames = []
+        for path in checked_paths:
+            docname = env.path2doc(str(path))
+            if docname is not None and docname in env.found_docs:
+                docnames.append(docname)
+        return docnames
+
+    def snapshot_reread_docs(
+        _app: sphinx.application.Sphinx,
+        env: sphinx.environment.BuildEnvironment,
+        docnames: list[str],
+    ) -> None:
+        # env-before-read-docs receives the final set after native staleness,
+        # every listener, globbed toctrees, and removals.
+        for docname in docnames:
+            try:
+                doc_path = pathlib.Path(env.doc2path(docname)).resolve()
+                reread_snapshot[doc_path] = source_signature(doc_path)
+            except OSError:
+                continue
+
+    if checked_paths:
+        app.connect("env-get-outdated", env_get_outdated)
+    if torn_out is not None:
+        app.connect("env-before-read-docs", snapshot_reread_docs, priority=sys.maxsize)
+    app.build()
+    if torn_out is not None:
+        for doc_path, before in reread_snapshot.items():
+            try:
+                after = source_signature(doc_path)
+            except OSError:
+                torn_out.add(doc_path)
+                continue
+            if after != before:
+                torn_out.add(doc_path)
+    return app.env, warning_stream.getvalue()
+
+
 def _build_sphinx_env(
     sphinx_src: pathlib.Path,
     build_dir: pathlib.Path,
@@ -196,89 +285,12 @@ def _build_sphinx_env(
     Sphinx's supported hook for adding selected docnames to the incremental
     read set.
     """
-    CALL_COUNTS["_build_sphinx_env"] += 1
-    import io
-
-    from sphinx.application import Sphinx
     from sphinx.util.docutils import docutils_namespace
 
     warning_stream = io.StringIO()
     with docutils_namespace():
-        app = Sphinx(
-            srcdir=str(sphinx_src),
-            confdir=str(sphinx_src),
-            outdir=str(build_dir / "_dummy"),
-            doctreedir=str(build_dir / ".doctrees"),
-            buildername="dummy",
-            status=io.StringIO(),
-            warning=warning_stream,
-        )
-        # The real Include directive erases its own control point while
-        # inserting parsed input.  Wrap the class only inside Sphinx's own
-        # registry namespace and leave standard comment markers in the
-        # doctree; this preserves exact repeated/nested invocation order
-        # without changing rendered output.
-        instrument_sphinx_include()
-        app.connect("include-read", mark_include_read_before, priority=-sys.maxsize)
-        app.connect("include-read", mark_include_read_after, priority=sys.maxsize)
-        app.connect("source-read", mark_source_read_before, priority=-sys.maxsize)
-        app.connect("source-read", mark_source_read_after, priority=sys.maxsize)
-        checked_paths = tuple(path.resolve() for path in files) if files else ()
-        # Identity plus high-resolution change metadata for every doc in
-        # Sphinx's final read set.  st_ctime_ns closes the ordinary
-        # same-size/restored-mtime gap; device and inode catch an atomic
-        # replacement even when the editor preserves timestamps.
-        reread_snapshot: dict[pathlib.Path, tuple[int, int, int, int, int]] = {}
-
-        def source_signature(path: pathlib.Path) -> tuple[int, int, int, int, int]:
-            stat = path.stat()
-            return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
-
-        def env_get_outdated(
-            _app: Sphinx,
-            env: sphinx.environment.BuildEnvironment,
-            added: set[str],
-            changed: set[str],
-            _removed: set[str],
-        ) -> list[str]:
-            docnames = []
-            for path in checked_paths:
-                docname = env.path2doc(str(path))
-                if docname is not None and docname in env.found_docs:
-                    docnames.append(docname)
-            return docnames
-
-        def snapshot_reread_docs(
-            _app: Sphinx,
-            env: sphinx.environment.BuildEnvironment,
-            docnames: list[str],
-        ) -> None:
-            # env-before-read-docs receives the final set after native
-            # staleness, every env-get-outdated listener, globbed toctree
-            # expansion, and removals.  Run after project listeners so any
-            # supported reordering or additions are visible too.
-            for docname in docnames:
-                try:
-                    doc_path = pathlib.Path(env.doc2path(docname)).resolve()
-                    reread_snapshot[doc_path] = source_signature(doc_path)
-                except OSError:
-                    continue
-
-        if checked_paths:
-            app.connect("env-get-outdated", env_get_outdated)
-        if torn_out is not None:
-            app.connect("env-before-read-docs", snapshot_reread_docs, priority=sys.maxsize)
-        app.build()
-        if torn_out is not None:
-            for doc_path, before in reread_snapshot.items():
-                try:
-                    after = source_signature(doc_path)
-                except OSError:
-                    torn_out.add(doc_path)
-                    continue
-                if after != before:
-                    torn_out.add(doc_path)
-    return app.env, warning_stream.getvalue()
+        app = _construct_sphinx_application(sphinx_src, build_dir, warning_stream)
+        return _build_sphinx_application(app, warning_stream, files, torn_out=torn_out)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -339,6 +351,54 @@ def _planning_facts_from_app(app: sphinx.application.Sphinx) -> PlanningFacts:
     return PlanningFacts(documents, suffixes, transform)
 
 
+@dataclasses.dataclass(slots=True)
+class PreparedSphinxApplication:
+    """One command-scoped app, snapshotted before build instrumentation."""
+
+    sphinx_src: pathlib.Path
+    build_dir: pathlib.Path
+    app: sphinx.application.Sphinx
+    warning_stream: io.StringIO
+    facts: PlanningFacts
+
+    def build_checked(self, files: list[pathlib.Path] | None = None) -> tuple[sphinx.environment.BuildEnvironment, str]:
+        """Build this app once; reconstruct only for a genuine torn retry."""
+
+        def first_build(torn: set[pathlib.Path]) -> tuple[sphinx.environment.BuildEnvironment, str]:
+            return _build_sphinx_application(self.app, self.warning_stream, files, torn_out=torn)
+
+        return _checked_sphinx_build(first_build, self.sphinx_src, self.build_dir, files)
+
+
+@contextlib.contextmanager
+def prepared_sphinx_application(
+    sphinx_src: pathlib.Path, build_dir: pathlib.Path
+) -> Iterator[PreparedSphinxApplication]:
+    """Keep Sphinx's public registry namespace alive through planning/build.
+
+    The caller exits this context before any bare ``Document`` parse.  Include
+    planning may temporarily narrow the process registries through
+    ``_builtins_only``; that context restores this Sphinx namespace each time.
+    """
+    from sphinx.util.docutils import docutils_namespace
+
+    warning_stream = io.StringIO()
+    with docutils_namespace():
+        try:
+            app = _construct_sphinx_application(sphinx_src, build_dir, warning_stream)
+        except Exception as exc:
+            detail = " ".join(str(exc).splitlines())
+            print(f"check_rst: Sphinx environment build failed: {type(exc).__name__}: {detail}")
+            raise SystemExit(1) from exc
+        yield PreparedSphinxApplication(
+            sphinx_src,
+            build_dir,
+            app,
+            warning_stream,
+            _planning_facts_from_app(app),
+        )
+
+
 def planning_facts(sphinx_src: pathlib.Path) -> PlanningFacts:
     """Read the project's include facts from a constructed, unbuilt app.
 
@@ -375,27 +435,16 @@ def planning_facts(sphinx_src: pathlib.Path) -> PlanningFacts:
         return _planning_facts_from_app(app)
 
 
-def _build_sphinx_env_checked(
+def _checked_sphinx_build(
+    first_build: Callable[[set[pathlib.Path]], tuple[sphinx.environment.BuildEnvironment, str]],
     sphinx_src: pathlib.Path,
     build_dir: pathlib.Path,
     files: list[pathlib.Path] | None = None,
 ) -> tuple[sphinx.environment.BuildEnvironment, str]:
-    """CLI boundary for _build_sphinx_env: one diagnostic, never a traceback.
-
-    Also retries the build exactly once, transparently, if *torn_out* came
-    back non-empty — a source file this build read genuinely changed while
-    it was running (see _build_sphinx_env's own docstring). Confirmed
-    dogfooding evidence (2026-09-14, 6 parallel agents sharing one
-    --build-dir) showed this clears on an immediate re-run every time it
-    was observed, so the common case self-heals silently rather than
-    surfacing a result the caller has no reason to distrust. Still torn
-    after that one retry is a different, persistent signal — reported by
-    name rather than silently trusted, but still returned rather than
-    raised: a torn read is not a build failure.
-    """
+    """Run one supplied build and reconstruct once only after a torn read."""
     try:
         torn: set[pathlib.Path] = set()
-        env, warning_text = _build_sphinx_env(sphinx_src, build_dir, files, torn_out=torn)
+        env, warning_text = first_build(torn)
         if torn:
             retry_files = list(files or [])
             retry_identities = {path.resolve() for path in retry_files}
@@ -415,6 +464,31 @@ def _build_sphinx_env_checked(
         detail = " ".join(str(exc).splitlines())
         print(f"check_rst: Sphinx environment build failed: {type(exc).__name__}: {detail}")
         raise SystemExit(1) from exc
+
+
+def _build_sphinx_env_checked(
+    sphinx_src: pathlib.Path,
+    build_dir: pathlib.Path,
+    files: list[pathlib.Path] | None = None,
+) -> tuple[sphinx.environment.BuildEnvironment, str]:
+    """CLI boundary for _build_sphinx_env: one diagnostic, never a traceback.
+
+    Also retries the build exactly once, transparently, if *torn_out* came
+    back non-empty — a source file this build read genuinely changed while
+    it was running (see _build_sphinx_env's own docstring). Confirmed
+    dogfooding evidence (2026-09-14, 6 parallel agents sharing one
+    --build-dir) showed this clears on an immediate re-run every time it
+    was observed, so the common case self-heals silently rather than
+    surfacing a result the caller has no reason to distrust. Still torn
+    after that one retry is a different, persistent signal — reported by
+    name rather than silently trusted, but still returned rather than
+    raised: a torn read is not a build failure.
+    """
+
+    def first_build(torn: set[pathlib.Path]) -> tuple[sphinx.environment.BuildEnvironment, str]:
+        return _build_sphinx_env(sphinx_src, build_dir, files, torn_out=torn)
+
+    return _checked_sphinx_build(first_build, sphinx_src, build_dir, files)
 
 
 def _source_was_transformed(env: sphinx.environment.BuildEnvironment, docname: str) -> bool:
