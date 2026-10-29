@@ -597,10 +597,13 @@ with deterministic further tie-breakers.  It collapses identical
 host/commit/scenario rows, refuses conflicting duplicates, and assigns a
 separate environment identifier whenever any recorded host fact changes.
 Tables show a 12-character commit abbreviation; artifacts retain the full
-commit.  Generated cells escape RST reference and substitution boundaries.
-Times have six decimal places; RAM and peak RSS have two, in GiB and MiB
-respectively.  With no artifacts, or only empty artifacts, it renders the valid
-no-measurements page committed before the first controlled run.
+commit.  Generated cells escape RST reference, substitution, literal-block and
+single-line block-entry syntax so recorded text remains literal.  Times have
+six decimal places; RAM and peak RSS have two, in GiB and MiB respectively.
+With no artifacts, or only empty artifacts, the renderer produces the valid
+no-measurements page used before the first controlled run.  Once a controlled
+artifact exists, the committed page carries its rendered rows and names the
+measured commit; the JSON artifact remains host-local.
 
 Check that the committed page is exactly reproducible without writing it::
 
