@@ -94,7 +94,7 @@ python3.14 -m venv ~/opt/check_rst-ubuntu
 ~/opt/check_rst-ubuntu/bin/python -m pip check
 ```
 
-Ruff is not installed into this environment. Use the system Ruff 0.16.9
+Ruff is not installed into this environment. Use the system Ruff 0.17.3
 executable pinned by `[tool.ruff].required-version` in `pyproject.toml`.
 
 The two validation hosts also differ by locale, not only by versions. An
