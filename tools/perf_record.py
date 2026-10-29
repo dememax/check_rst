@@ -625,9 +625,9 @@ def record_scenarios(
 
 
 def _display_command(scenario: Scenario) -> str:
-    command = [sys.executable, str(SUBPROCESS_RUNNER), "--counts-file", "<counts.json>", "--"]
-    command.extend(_command_for(scenario, pathlib.Path("<build-dir>")))
-    return shlex.join(command)
+    scenario_command = _command_for(scenario, pathlib.Path("<build-dir>"))
+    dispatched_command, _exports_counts = _subprocess_command(scenario_command, pathlib.Path("<counts.json>"))
+    return shlex.join(dispatched_command)
 
 
 def _print_summary(artifact: dict[str, object], commit: str, scenario_names: set[str]) -> None:
