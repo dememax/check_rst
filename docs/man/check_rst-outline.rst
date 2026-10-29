@@ -27,8 +27,10 @@ DESCRIPTION
 Print complete physical section ranges and structural entries without
 requiring a linear read.  A section range starts at its overline when present;
 the title line remains a separate anchor.  The structure view is always
-whole-document.  In verified Sphinx mode,
-``toctree`` children are traversed unless ``--no-toctree`` is given.  Use this
+whole-document.  In verified Sphinx mode, ``toctree`` children are traversed
+unless ``--no-toctree`` is given.  That flag omits toctree expansion from the
+reported structure only: verified setup, include contexts, and incoming
+references remain complete, so it is not a performance option.  Use this
 command when the target structure is unknown; use ``check_rst context`` when
 one exact entry or explicit label is already known.  Explicit labels attached
 to headings appear beside their sections; other internal labels appear as

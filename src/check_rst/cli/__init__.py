@@ -465,9 +465,14 @@ def _add_no_toctree_flag(parser: argparse.ArgumentParser, *, check: bool = False
         "--no-toctree",
         action="store_true",
         help=(
-            "don't recurse .. toctree:: directives in verified mode; requires --format=json"
+            "omit toctree expansion from reported structure only in verified mode; "
+            "verified setup, include contexts, and incoming references remain complete; "
+            "not a performance option; requires --format=json because text reports "
+            "cannot mark the omission"
             if check
-            else "don't recurse .. toctree:: directives in verified mode; default recurses fully"
+            else "omit toctree expansion from reported structure only in verified mode; "
+            "verified setup, include contexts, and incoming references remain complete; "
+            "not a performance option"
         ),
     )
 

@@ -37,8 +37,9 @@ For a label, the report distinguishes its definition line from the destination.
 A known heading is the reason to use this query instead of raw ``grep``: the
 result verifies its physical range, title anchor, uniqueness, parent, depth,
 and source owner.  Ambiguous exact matches are reported rather than guessed.
-Verified mode can follow ``toctree`` entries; ``--no-toctree`` keeps the query
-local.
+In verified mode, ``--no-toctree`` omits toctree expansion from the reported
+structure only.  Verified setup, include contexts, and incoming references
+remain complete; the flag is not a performance option.
 
 When ``FILE`` is a fragment, ``context`` resolves and projects the entry in
 every effective include context, retaining its physical source range while

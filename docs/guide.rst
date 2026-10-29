@@ -1921,6 +1921,10 @@ information is either irrelevant to that question or explicitly counted.
      - The documented whole-file or changed-line contract for selected files
      - Unselected files; this changes audit scope, not just presentation
 
+In verified mode, ``--no-toctree`` changes reported navigation expansion
+only.  Verified setup, include contexts, and incoming references remain
+complete; the flag is not a performance option.
+
 The safest escalation order is therefore semantic before positional:
 
 1. Ask only for the needed product.  Use ``outline`` for structure,
@@ -1930,11 +1934,12 @@ The safest escalation order is therefore semantic before positional:
    from a complete ``check`` report.
 2. Remove narration with ``--quiet``.  This is the only general reduction
    that preserves every diagnostic line and the complete status.
-3. Bound structural breadth with ``--sections-only``, ``--outline-depth``, or
-   ``--no-toctree`` when the omitted branch is outside the question.  For an
-   index page whose toctree reaches a whole documentation set, the last flag
-   is the difference between "this file" and "the effective navigation
-   subtree" — neither answer is universally correct.
+3. Bound reported structural breadth with ``--sections-only``,
+   ``--outline-depth``, or ``--no-toctree`` when the omitted branch is outside
+   the question.  For an index page whose toctree reaches a whole
+   documentation set, the last flag changes the output from "the effective
+   navigation subtree" to "this file" without reducing verified work —
+   neither answer is universally correct.
 4. Use ``--max-output-lines`` only when the caller has a hard context budget.
    It is safe as a validation result, not lossless as a transcript: inspect
    the reported suppressed classes and rerun with the stated full-output

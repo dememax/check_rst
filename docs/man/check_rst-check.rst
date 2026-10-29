@@ -69,9 +69,10 @@ IMPORTANT OPTIONS
    homoglyph warnings stay.
 
 ``--no-toctree``
-   Do not recurse through ``toctree`` directives in verified mode.  Requires
-   ``--format json``, since a text report has no equivalent flag to signal
-   that navigation expansion was suppressed.
+   Omit toctree expansion from the reported structure only.  Verified setup,
+   include contexts, and incoming references remain complete; this is not a
+   performance option.  Requires ``--format json``, since a text report has
+   no equivalent flag to signal that navigation expansion was suppressed.
 
 ``--max-output-lines N``
    Bound the human report without changing the exit status.  The final status
