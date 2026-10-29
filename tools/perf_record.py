@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import ast
 import dataclasses
+import datetime
 import hashlib
 import json
 import os
@@ -33,7 +34,7 @@ else:
 
 SOURCE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SUBPROCESS_RUNNER = SOURCE_ROOT / "tools" / "perf_subprocess.py"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 TEST_SUITE_SCENARIO = "project-test-suite"
 DEFAULT_SMALL_UNRELATED = 4
 DEFAULT_LARGE_UNRELATED = 64
@@ -90,6 +91,10 @@ class RunResult:
 
 def host_facts_json(facts: HostFacts) -> dict[str, str | int]:
     return dataclasses.asdict(facts)
+
+
+def _utc_measurement_time() -> str:
+    return datetime.datetime.now(datetime.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _cpu_model() -> str:
@@ -567,8 +572,14 @@ def record_scenarios(
     replace: bool,
     temporary_root: pathlib.Path,
     runner: Runner,
+    measured_at: str | None = None,
 ) -> dict[str, object]:
     """Measure scenarios serially and atomically update one host artifact."""
+    run_measured_at = measured_at if measured_at is not None else _utc_measurement_time()
+    try:
+        datetime.datetime.strptime(run_measured_at, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise RecorderError("measurement time must be a UTC ISO 8601 timestamp without subseconds") from exc
     artifact = _load_artifact(artifact_path, host)
     records = cast("list[object]", artifact["records"])
     requested_keys = {(commit, scenario.name) for scenario in scenarios}
@@ -589,6 +600,7 @@ def record_scenarios(
             record, stdout_hash = _record_one(scenario, scenario_repetitions, run_root, runner, ordinal=ordinal)
             record["commit"] = commit
             record["check_rst_version"] = check_rst_version
+            record["measured_at"] = run_measured_at
             record["host_facts"] = host_facts_json(host)
             new_records.append(record)
             hashes[scenario.name] = stdout_hash

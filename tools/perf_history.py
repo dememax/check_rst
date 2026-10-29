@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 from typing import TYPE_CHECKING, cast
@@ -16,7 +18,8 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
+MEASURED_AT_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 HOST_FIELDS = (
     "label",
     "os",
@@ -72,6 +75,17 @@ def _number(value: object, context: str) -> float:
     return float(value)
 
 
+def _measured_at(value: object, context: str) -> str:
+    measured_at = _string(value, context)
+    if MEASURED_AT_PATTERN.fullmatch(measured_at) is None:
+        raise HistoryError(f"{context} must be a UTC ISO 8601 timestamp without subseconds")
+    try:
+        datetime.datetime.strptime(measured_at, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise HistoryError(f"{context} must be a valid UTC timestamp") from exc
+    return measured_at
+
+
 def _host_facts(value: object, context: str) -> HostFacts:
     raw = _object(value, context)
     if set(raw) != set(HOST_FIELDS):
@@ -112,6 +126,7 @@ def _summary(value: object, context: str) -> None:
 def _validate_record(value: object, context: str) -> JsonObject:
     record = _object(value, context)
     _string(record.get("commit"), f"{context}.commit")
+    _measured_at(record.get("measured_at"), f"{context}.measured_at")
     _string(record.get("check_rst_version"), f"{context}.check_rst_version")
     _host_facts(record.get("host_facts"), f"{context}.host_facts")
     scenario = _object(record.get("scenario"), f"{context}.scenario")
@@ -183,7 +198,19 @@ def _deduplicated_records(artifacts: Sequence[JsonObject]) -> list[JsonObject]:
             if previous is not None and previous[0] != canonical:
                 raise HistoryError(f"conflicting duplicate performance row for commit {key[0]}, scenario {key[1]}")
             by_key[key] = (canonical, record)
-    return [item[1] for _key, item in sorted(by_key.items())]
+    records = [item[1] for item in by_key.values()]
+
+    def chronology(record: JsonObject) -> tuple[str, str, HostKey, str]:
+        scenario = cast("JsonObject", record["scenario"])
+        host = _host_facts(record["host_facts"], "record.host_facts")
+        return (
+            cast("str", record["measured_at"]),
+            cast("str", scenario["name"]),
+            _host_key(host),
+            cast("str", record["commit"]),
+        )
+
+    return sorted(records, key=chronology)
 
 
 def _heading(title: str, character: str) -> list[str]:
@@ -193,7 +220,12 @@ def _heading(title: str, character: str) -> list[str]:
 
 def _cell(value: object) -> str:
     text = " ".join(str(value).split()) or "—"
-    return text.replace("\\", "\\\\").replace("*", "\\*").replace("`", "\\`")
+    text = text.replace("\\", "\\\\").replace("*", "\\*").replace("`", "\\`")
+    if text.startswith("|"):
+        text = f"\\{text}"
+    if text.endswith("_"):
+        text = f"{text[:-1]}\\_"
+    return text
 
 
 def _list_table(title: str, headers: Sequence[str], rows: Sequence[Sequence[object]]) -> list[str]:
@@ -221,7 +253,8 @@ def _summary_values(record: JsonObject) -> tuple[str, ...]:
 def _record_prefix(record: JsonObject, environment_id: str) -> tuple[object, ...]:
     scenario = cast("JsonObject", record["scenario"])
     return (
-        record["commit"],
+        record["measured_at"],
+        cast("str", record["commit"])[:12],
         record["check_rst_version"],
         environment_id,
         scenario["name"],
@@ -297,6 +330,7 @@ def render_page(artifacts: Sequence[JsonObject]) -> str:
             _list_table(
                 "Project test-suite measurements",
                 (
+                    "Measured (UTC)",
                     "Commit",
                     "Version",
                     "Environment",
@@ -341,6 +375,7 @@ def render_page(artifacts: Sequence[JsonObject]) -> str:
             _list_table(
                 "Reader and transformation benchmarks",
                 (
+                    "Measured (UTC)",
                     "Commit",
                     "Version",
                     "Environment",
