@@ -13,6 +13,7 @@ import shlex
 import subprocess
 import sys
 import textwrap
+import types
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 
@@ -29,6 +30,7 @@ class _RunResultLike(Protocol):
     peak_rss_bytes: int
     exit_status: int
     stdout: bytes
+    structural_counts: dict[str, int]
 
 
 def _module() -> ModuleType:
@@ -86,6 +88,33 @@ def _result(
     )
 
 
+def _phase_result(
+    module: ModuleType,
+    *,
+    total: tuple[float, float],
+    phases: dict[str, tuple[float, float]],
+) -> _RunResultLike:
+    result = _result(module)
+    return cast(
+        "_RunResultLike",
+        types.SimpleNamespace(
+            elapsed_seconds=result.elapsed_seconds,
+            user_cpu_seconds=result.user_cpu_seconds,
+            system_cpu_seconds=result.system_cpu_seconds,
+            peak_rss_bytes=result.peak_rss_bytes,
+            exit_status=result.exit_status,
+            stdout=result.stdout,
+            structural_counts=result.structural_counts,
+            phase_timings={
+                "total": {"wall_seconds": total[0], "cpu_seconds": total[1]},
+                "phases": {
+                    name: {"wall_seconds": values[0], "cpu_seconds": values[1]} for name, values in phases.items()
+                },
+            },
+        ),
+    )
+
+
 @pytest.mark.integration
 def test_recorder_writes_complete_artifact_and_timing_summary(tmp_path: Path) -> None:
     module = _module()
@@ -133,6 +162,76 @@ def test_recorder_writes_complete_artifact_and_timing_summary(tmp_path: Path) ->
         hashlib.sha256(b"stable\n").hexdigest()
     }
     assert json.loads((tmp_path / "performance.json").read_text(encoding="utf-8")) == artifact
+
+
+@pytest.mark.integration
+def test_recorder_summarizes_reader_phase_timings(tmp_path: Path) -> None:
+    module = _module()
+    results = [
+        _phase_result(
+            module,
+            total=(2.8, 2.5),
+            phases={"configuration-discovery": (0.1, 0.08), "query-formatting": (0.2, 0.18)},
+        ),
+        _phase_result(
+            module,
+            total=(3.0, 2.7),
+            phases={"configuration-discovery": (0.2, 0.1), "query-formatting": (0.4, 0.3)},
+        ),
+    ]
+
+    artifact = module.record_scenarios(
+        artifact_path=tmp_path / "performance.json",
+        host=_host(module),
+        commit="2" * 40,
+        check_rst_version="0.7.4",
+        measured_at="2026-10-29T12:00:00Z",
+        scenarios=[_scenario(module, tmp_path)],
+        repetitions=2,
+        replace=False,
+        temporary_root=tmp_path / "runs",
+        runner=lambda _command, _cwd, _counts: results.pop(0),
+    )
+
+    [record] = artifact["records"]
+    assert record["phase_timings"] == {
+        "total": {
+            "wall_seconds": {"median": 2.9, "minimum": 2.8},
+            "cpu_seconds": {"median": 2.6, "minimum": 2.5},
+        },
+        "phases": {
+            "configuration-discovery": {
+                "wall_seconds": {"median": 0.15, "minimum": 0.1},
+                "cpu_seconds": {"median": 0.09, "minimum": 0.08},
+            },
+            "query-formatting": {
+                "wall_seconds": {"median": 0.3, "minimum": 0.2},
+                "cpu_seconds": {"median": 0.24, "minimum": 0.18},
+            },
+        },
+    }
+
+
+@pytest.mark.integration
+def test_repetition_phase_name_disagreement_is_an_error(tmp_path: Path) -> None:
+    module = _module()
+    results = [
+        _phase_result(module, total=(2.8, 2.5), phases={"configuration-discovery": (0.1, 0.08)}),
+        _phase_result(module, total=(2.9, 2.6), phases={"query-formatting": (0.2, 0.18)}),
+    ]
+
+    with pytest.raises(module.RecorderError, match="phase names"):
+        module.record_scenarios(
+            artifact_path=tmp_path / "performance.json",
+            host=_host(module),
+            commit="3" * 40,
+            check_rst_version="0.7.4",
+            scenarios=[_scenario(module, tmp_path)],
+            repetitions=2,
+            replace=False,
+            temporary_root=tmp_path / "runs",
+            runner=lambda _command, _cwd, _counts: results.pop(0),
+        )
 
 
 @pytest.mark.integration
@@ -301,6 +400,7 @@ def test_test_suite_option_records_one_injected_run_and_outcome_counts(
         "xfailed": 5,
         "xpassed": 3,
     }
+    assert "phase_timings" not in record
     assert record["measurements"] == [
         {
             "elapsed_seconds": 4.0,
