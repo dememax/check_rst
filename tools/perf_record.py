@@ -22,7 +22,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
 import docutils
 import sphinx
@@ -37,6 +37,14 @@ SUBPROCESS_RUNNER = SOURCE_ROOT / "tools" / "perf_subprocess.py"
 FORMAT_VERSION = 2
 TEST_SUITE_SCENARIO = "project-test-suite"
 TEST_OUTCOMES = ("passed", "failed", "skipped", "errors", "xfailed", "xpassed")
+PHASE_NAMES = (
+    "configuration-discovery",
+    "planning-facts",
+    "include-universe",
+    "verified-environment",
+    "doctree-relationships",
+    "query-formatting",
+)
 PYTEST_SUMMARY_PATTERN = re.compile(r"^=+\s+(?P<body>.+?)\s+in\s+\d+(?:\.\d+)?s(?:\s+\([^)]*\))?\s+=+$")
 PYTEST_OUTCOME_PATTERN = re.compile(r"(?P<count>\d+)\s+(?P<outcome>passed|failed|skipped|errors?|xfailed|xpassed)\b")
 DEFAULT_SMALL_UNRELATED = 4
@@ -45,6 +53,20 @@ DEFAULT_LARGE_PAGE_SECTIONS = 64
 DEFAULT_FRAGMENT_INCLUDERS = 3
 type ParameterValue = str | int | bool
 type Runner = Callable[[Sequence[str], pathlib.Path, pathlib.Path], "RunResult"]
+
+
+class DurationSample(TypedDict):
+    """One subprocess phase's wall and process-CPU sample."""
+
+    wall_seconds: float
+    cpu_seconds: float
+
+
+class PhaseTimingSamples(TypedDict):
+    """One subprocess run's inclusive total and exclusive named phases."""
+
+    total: DurationSample
+    phases: dict[str, DurationSample]
 
 
 class RecorderError(RuntimeError):
@@ -90,6 +112,7 @@ class RunResult:
     exit_status: int
     stdout: bytes
     structural_counts: dict[str, int]
+    phase_timings: PhaseTimingSamples | None = None
 
 
 def host_facts_json(facts: HostFacts) -> dict[str, str | int]:
@@ -351,7 +374,15 @@ def _command_for(scenario: Scenario, build_dir: pathlib.Path | None) -> tuple[st
     return tuple(replacements.get(argument, argument) for argument in scenario.command)
 
 
-def _read_counts(path: pathlib.Path) -> dict[str, int]:
+def _duration_sample(value: object, context: str) -> DurationSample:
+    if not isinstance(value, dict) or set(value) != {"wall_seconds", "cpu_seconds"}:
+        raise RecorderError(f"subprocess {context} is not a wall/process-CPU object")
+    if not all(isinstance(value[field], int | float) and not isinstance(value[field], bool) for field in value):
+        raise RecorderError(f"subprocess {context} contains a non-numeric duration")
+    return {"wall_seconds": float(value["wall_seconds"]), "cpu_seconds": float(value["cpu_seconds"])}
+
+
+def _read_counts(path: pathlib.Path) -> tuple[dict[str, int], PhaseTimingSamples]:
     try:
         raw: object = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -361,7 +392,20 @@ def _read_counts(path: pathlib.Path) -> dict[str, int]:
         isinstance(key, str) and isinstance(value, int) for key, value in counts.items()
     ):
         raise RecorderError("subprocess structural counts are not a string-to-integer object")
-    return cast("dict[str, int]", counts)
+    timings = raw.get("phase_timings") if isinstance(raw, dict) else None
+    if not isinstance(timings, dict) or set(timings) != {"total", "phases"}:
+        raise RecorderError("subprocess phase timings are malformed")
+    raw_phases = timings["phases"]
+    if not isinstance(raw_phases, dict) or not all(isinstance(name, str) for name in raw_phases):
+        raise RecorderError("subprocess phase timings have malformed phase names")
+    unknown = set(raw_phases) - set(PHASE_NAMES)
+    if unknown:
+        raise RecorderError(f"subprocess phase timings have unknown phase names: {', '.join(sorted(unknown))}")
+    phases = {name: _duration_sample(value, f"phase {name!r}") for name, value in raw_phases.items()}
+    return cast("dict[str, int]", counts), {
+        "total": _duration_sample(timings["total"], "phase total"),
+        "phases": phases,
+    }
 
 
 def _subprocess_command(command: Sequence[str], counts_file: pathlib.Path) -> tuple[tuple[str, ...], bool]:
@@ -390,6 +434,7 @@ def _run_command(command: Sequence[str], cwd: pathlib.Path, counts_file: pathlib
         stdout_file.seek(0)
         stdout = stdout_file.read()
     peak_rss_bytes = int(usage.ru_maxrss) if sys.platform == "darwin" else int(usage.ru_maxrss) * 1024
+    structural_counts, phase_timings = _read_counts(counts_file) if exports_counts else ({}, None)
     return RunResult(
         elapsed_seconds=elapsed,
         user_cpu_seconds=usage.ru_utime,
@@ -397,7 +442,8 @@ def _run_command(command: Sequence[str], cwd: pathlib.Path, counts_file: pathlib
         peak_rss_bytes=peak_rss_bytes,
         exit_status=exit_status,
         stdout=stdout,
-        structural_counts=_read_counts(counts_file) if exports_counts else {},
+        structural_counts=structural_counts,
+        phase_timings=phase_timings,
     )
 
 
@@ -439,6 +485,36 @@ def _verify_repetitions(scenario: Scenario, results: Sequence[RunResult]) -> Non
         raise RecorderError(f"{scenario.name}: repetitions disagree on stdout hash")
     if any(result.structural_counts != first.structural_counts for result in results[1:]):
         raise RecorderError(f"{scenario.name}: repetitions disagree on structural counts")
+    first_phase_names = None if first.phase_timings is None else frozenset(first.phase_timings["phases"])
+    if any(
+        (None if result.phase_timings is None else frozenset(result.phase_timings["phases"])) != first_phase_names
+        for result in results[1:]
+    ):
+        raise RecorderError(f"{scenario.name}: repetitions disagree on phase names")
+
+
+def _duration_summary(samples: Sequence[DurationSample]) -> dict[str, object]:
+    return {
+        field: {
+            "median": statistics.median(sample[field] for sample in samples),
+            "minimum": min(sample[field] for sample in samples),
+        }
+        for field in ("wall_seconds", "cpu_seconds")
+    }
+
+
+def _phase_summary(results: Sequence[RunResult]) -> dict[str, object] | None:
+    if results[0].phase_timings is None:
+        return None
+    timings = [result.phase_timings for result in results]
+    if any(timing is None for timing in timings):
+        raise RuntimeError("phase-name verification accepted a missing timing payload")
+    complete = cast("list[PhaseTimingSamples]", timings)
+    names = sorted(complete[0]["phases"])
+    return {
+        "total": _duration_summary([timing["total"] for timing in complete]),
+        "phases": {name: _duration_summary([timing["phases"][name] for timing in complete]) for name in names},
+    }
 
 
 def _pytest_counts(stdout: bytes) -> dict[str, int]:
@@ -502,6 +578,9 @@ def _record_one(
         "summary": _summary(results),
         "verified_cold_warm_output_agreement": None,
     }
+    phase_summary = _phase_summary(results)
+    if phase_summary is not None:
+        record["phase_timings"] = phase_summary
     if scenario.name == TEST_SUITE_SCENARIO:
         record["test_counts"] = _pytest_counts(results[0].stdout)
     return record, stdout_hash

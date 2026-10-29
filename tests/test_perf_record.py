@@ -170,13 +170,13 @@ def test_recorder_summarizes_reader_phase_timings(tmp_path: Path) -> None:
     results = [
         _phase_result(
             module,
-            total=(2.8, 2.5),
-            phases={"configuration-discovery": (0.1, 0.08), "query-formatting": (0.2, 0.18)},
+            total=(2.5, 2.0),
+            phases={"configuration-discovery": (0.125, 0.0625), "query-formatting": (0.25, 0.125)},
         ),
         _phase_result(
             module,
-            total=(3.0, 2.7),
-            phases={"configuration-discovery": (0.2, 0.1), "query-formatting": (0.4, 0.3)},
+            total=(3.0, 2.5),
+            phases={"configuration-discovery": (0.25, 0.125), "query-formatting": (0.5, 0.25)},
         ),
     ]
 
@@ -196,17 +196,17 @@ def test_recorder_summarizes_reader_phase_timings(tmp_path: Path) -> None:
     [record] = artifact["records"]
     assert record["phase_timings"] == {
         "total": {
-            "wall_seconds": {"median": 2.9, "minimum": 2.8},
-            "cpu_seconds": {"median": 2.6, "minimum": 2.5},
+            "wall_seconds": {"median": 2.75, "minimum": 2.5},
+            "cpu_seconds": {"median": 2.25, "minimum": 2.0},
         },
         "phases": {
             "configuration-discovery": {
-                "wall_seconds": {"median": 0.15, "minimum": 0.1},
-                "cpu_seconds": {"median": 0.09, "minimum": 0.08},
+                "wall_seconds": {"median": 0.1875, "minimum": 0.125},
+                "cpu_seconds": {"median": 0.09375, "minimum": 0.0625},
             },
             "query-formatting": {
-                "wall_seconds": {"median": 0.3, "minimum": 0.2},
-                "cpu_seconds": {"median": 0.24, "minimum": 0.18},
+                "wall_seconds": {"median": 0.375, "minimum": 0.25},
+                "cpu_seconds": {"median": 0.1875, "minimum": 0.125},
             },
         },
     }
