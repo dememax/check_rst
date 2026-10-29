@@ -569,7 +569,9 @@ Run a non-measuring preview from the repository root first::
 The recorder runs the worktree command serially and records the
 ``context``/``outline`` reader-latency matrix.  It compares small and large
 targets in generated small and large Sphinx projects, plus the repository's
-public ``context --no-toctree`` reproduction.  Omit ``--dry-run`` to measure;
+public ``context --no-toctree`` reproduction.  Add ``--test-suite`` to the
+preview and measurement commands to include one run of the project's own test
+suite, with passed, failed and skipped counts.  Omit ``--dry-run`` to measure;
 ``--replace`` is required to replace an existing record for the same host
 label, commit and scenario.
 
@@ -581,3 +583,24 @@ standard-output hash.  Repetitions that disagree on exit status, output or
 counts are rejected.  The host label is always an explicit option; the recorder
 never obtains a machine hostname.  Project and page sizes can be changed with
 the recorder's size options for later scaling work.
+
+Render the complete versioned page from one or more host artifacts, in any
+order::
+
+   python3.14 -m tools.perf_history --output docs/performance-history.rst /tmp/check-rst-performance.json
+
+The renderer sorts environments, scenarios and rows deterministically.  It
+collapses identical host/commit/scenario rows, refuses conflicting duplicates,
+and assigns a separate environment identifier whenever any recorded host fact
+changes.  Times have six decimal places; RAM and peak RSS have two, in GiB and
+MiB respectively.  With no artifacts, or only empty artifacts, it renders the
+valid no-measurements page committed before the first controlled run.
+
+Check that the committed page is exactly reproducible without writing it::
+
+   python3.14 -m tools.perf_history --output docs/performance-history.rst --check /tmp/check-rst-performance.json
+
+Malformed artifacts and format versions other than 1 are refused.  The
+renderer reports elapsed wall time, user and system CPU medians and minima,
+maximum peak RSS and structural counts for each benchmark.  Test-suite rows
+carry the same resource fields plus their passed, failed and skipped counts.

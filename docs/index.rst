@@ -22,6 +22,7 @@ and Sphinx documentation.
    example
    rules
    development
+   performance-history
    releasing
    roadmap
    integration
