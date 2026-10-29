@@ -5,12 +5,14 @@
 from __future__ import annotations
 
 import collections
+import contextlib
 import io
 import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import textwrap
 import types
 from pathlib import Path
@@ -24,7 +26,7 @@ from check_rst import cli
 from check_rst.cli import _composition, _document, _formatting, _helpers, _lint, _pipeline, _reports, _sphinx, _types
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
 
     import docutils.nodes
     import sphinx.environment
@@ -912,6 +914,268 @@ def test_planning_facts_snapshot_ignores_tool_listeners_and_keeps_project_facts(
         (".rst", ".txt"),
         None,
     )
+
+
+@pytest.mark.integration
+def test_verified_context_reuses_one_locked_application_cold_and_warm(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import sphinx.application
+    from docutils.parsers.rst import directives, roles
+
+    read_log = tmp_path / "source-read.log"
+    (tmp_path / "conf.py").write_text(
+        textwrap.dedent(f"""\
+            from pathlib import Path
+
+            project = "prepared-context"
+            root_doc = "index"
+
+            def record_source_read(app, docname, source):
+                with Path({str(read_log)!r}).open("a", encoding="utf-8") as stream:
+                    stream.write(docname + "\\n")
+
+            def setup(app):
+                app.connect("source-read", record_source_read)
+            """),
+        encoding="utf-8",
+    )
+    selected = tmp_path / "index.rst"
+    selected.write_text(_INCONSISTENT_TITLE_STYLE_RST, encoding="utf-8")
+    (tmp_path / "other.rst").write_text("Other\n=====\n\nSee :doc:`index`.\n", encoding="utf-8")
+
+    lock_active = False
+    construction_lock_states: list[bool] = []
+    snapshot_lock_states: list[bool] = []
+    build_lock_states: list[bool] = []
+    incoming_lock_states: list[bool] = []
+    parse_registries_restored: list[bool] = []
+    directive_registry = dict(vars(directives).get("_directives", {}))
+    role_registry = dict(vars(roles).get("_role_registry", {}))
+    local_roles = dict(vars(roles).get("_roles", {}))
+
+    real_lock = cli._sphinx_build_lock
+
+    @contextlib.contextmanager
+    def recording_lock(build_dir: Path | None) -> Iterator[None]:
+        nonlocal lock_active
+        with real_lock(build_dir):
+            lock_active = True
+            try:
+                yield
+            finally:
+                lock_active = False
+
+    real_init = sphinx.application.Sphinx.__init__
+
+    def recording_init(self: sphinx.application.Sphinx, *args: object, **kwargs: object) -> None:
+        construction_lock_states.append(lock_active)
+        real_init(self, *args, **kwargs)
+
+    real_snapshot = _sphinx._planning_facts_from_app
+
+    def recording_snapshot(app: sphinx.application.Sphinx) -> _sphinx.PlanningFacts:
+        snapshot_lock_states.append(lock_active)
+        return real_snapshot(app)
+
+    real_build = sphinx.application.Sphinx.build
+
+    def recording_build(self: sphinx.application.Sphinx, *args: object, **kwargs: object) -> None:
+        build_lock_states.append(lock_active)
+        real_build(self, *args, **kwargs)
+
+    real_incoming = _reports.find_incoming_references
+
+    def recording_incoming(
+        env: sphinx.environment.BuildEnvironment, target_docname: str
+    ) -> list[_types.ReferenceEntry]:
+        incoming_lock_states.append(lock_active)
+        return real_incoming(env, target_docname)
+
+    real_parse = _helpers._parse_rst
+
+    def recording_parse(
+        path: Path,
+        text: str | None = None,
+        *,
+        track_composition: bool = False,
+        allow_external_content: bool = True,
+    ) -> docutils.nodes.document:
+        parse_registries_restored.append(
+            dict(vars(directives).get("_directives", {})) == directive_registry
+            and dict(vars(roles).get("_role_registry", {})) == role_registry
+            and dict(vars(roles).get("_roles", {})) == local_roles
+        )
+        return real_parse(
+            path,
+            text,
+            track_composition=track_composition,
+            allow_external_content=allow_external_content,
+        )
+
+    monkeypatch.setattr(cli, "_sphinx_build_lock", recording_lock)
+    monkeypatch.setattr(sphinx.application.Sphinx, "__init__", recording_init)
+    monkeypatch.setattr(_sphinx, "_planning_facts_from_app", recording_snapshot)
+    monkeypatch.setattr(sphinx.application.Sphinx, "build", recording_build)
+    monkeypatch.setattr(_reports, "find_incoming_references", recording_incoming)
+    monkeypatch.setattr(_helpers, "_parse_rst", recording_parse)
+
+    cold_code, cold = _verified_run(tmp_path, monkeypatch, capsys, "context", "Title", str(selected))
+    read_log.write_text("", encoding="utf-8")
+    warm_code, warm = _verified_run(tmp_path, monkeypatch, capsys, "context", "Title", str(selected))
+
+    assert (cold_code, warm_code) == (0, 0)
+    assert cold == warm
+    assert "Inconsistent title style" in cold
+    assert "incoming (document-level):" in cold
+    assert "other:" in cold
+    assert read_log.read_text(encoding="utf-8").splitlines() == ["index"]
+    assert len(construction_lock_states) == 2
+    assert all(construction_lock_states)
+    assert snapshot_lock_states == [True, True]
+    assert build_lock_states == [True, True]
+    assert incoming_lock_states == [True, True]
+    assert parse_registries_restored
+    assert all(parse_registries_restored)
+    assert dict(vars(directives).get("_directives", {})) == directive_registry
+    assert dict(vars(roles).get("_role_registry", {})) == role_registry
+    assert dict(vars(roles).get("_roles", {})) == local_roles
+
+
+@pytest.mark.integration
+def test_verified_context_refusal_does_not_build_sphinx(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import sphinx.application
+
+    (tmp_path / "conf.py").write_text('project = "refused-context"\n', encoding="utf-8")
+    part = tmp_path / "part.rst"
+    part.write_text("Shared\n------\n", encoding="utf-8")
+    build_calls = 0
+    real_build = sphinx.application.Sphinx.build
+
+    def recording_build(self: sphinx.application.Sphinx, *args: object, **kwargs: object) -> None:
+        nonlocal build_calls
+        build_calls += 1
+        real_build(self, *args, **kwargs)
+
+    monkeypatch.setattr(sphinx.application.Sphinx, "build", recording_build)
+    monkeypatch.chdir(tmp_path)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "check_rst",
+            "--sphinx-src",
+            str(tmp_path),
+            "--build-dir",
+            str(tmp_path / "_build"),
+            "--fragment",
+            "part.rst",
+            "context",
+            "Shared",
+            str(part),
+        ],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    code = int(exc.value.code or 0)
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert "context cannot report one structure" in out
+    assert build_calls == 0
+
+
+@pytest.mark.integration
+def test_verified_context_torn_read_retries_with_one_replacement_application(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import sphinx.application
+
+    (tmp_path / "conf.py").write_text('project = "torn-context"\nroot_doc = "index"\n', encoding="utf-8")
+    selected = tmp_path / "index.rst"
+    selected.write_text("Title\n=====\n\nBefore.\n", encoding="utf-8")
+    constructions = 0
+    builds = 0
+    real_init = sphinx.application.Sphinx.__init__
+    real_build = sphinx.application.Sphinx.build
+
+    def recording_init(self: sphinx.application.Sphinx, *args: object, **kwargs: object) -> None:
+        nonlocal constructions
+        constructions += 1
+        real_init(self, *args, **kwargs)
+
+    def first_build_changes_source(self: sphinx.application.Sphinx, *args: object, **kwargs: object) -> None:
+        nonlocal builds
+        builds += 1
+        real_build(self, *args, **kwargs)
+        if builds == 1:
+            selected.write_text("Title\n=====\n\nChanged after read.\n", encoding="utf-8")
+
+    monkeypatch.setattr(sphinx.application.Sphinx, "__init__", recording_init)
+    monkeypatch.setattr(sphinx.application.Sphinx, "build", first_build_changes_source)
+
+    code, out = _verified_run(tmp_path, monkeypatch, capsys, "context", "Title", str(selected))
+
+    assert code == 0, out
+    assert builds == 2
+    assert constructions == 2
+    assert "stayed unstable after one retry" not in out
+
+
+@pytest.mark.integration
+def test_verified_context_fragment_is_byte_identical_cold_and_warm_and_cleans_temporary_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "conf.py").write_text(
+        'project = "fragment-context"\nroot_doc = "index"\nexclude_patterns = ["part.rst"]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "index.rst").write_text(
+        "Index\n=====\n\nSection\n-------\n\n.. include:: part.rst\n",
+        encoding="utf-8",
+    )
+    part = tmp_path / "part.rst"
+    part.write_text("Shared\n~~~~~~\n\nBody.\n", encoding="utf-8")
+    created: list[Path] = []
+    real_mkdtemp = tempfile.mkdtemp
+
+    def recording_mkdtemp(*args: object, **kwargs: object) -> str:
+        path = real_mkdtemp(*args, **kwargs)
+        if kwargs.get("prefix") == "check_rst_context_":
+            created.append(Path(path))
+        return path
+
+    monkeypatch.setattr(tempfile, "mkdtemp", recording_mkdtemp)
+    monkeypatch.chdir(tmp_path)
+
+    def run() -> tuple[int, str]:
+        monkeypatch.setattr(
+            "sys.argv",
+            ["check_rst", "--no-config", "--sphinx-src", ".", "context", "part:Shared", "part.rst"],
+        )
+        with pytest.raises(SystemExit) as exc:
+            cli.main()
+        return int(exc.value.code or 0), capsys.readouterr().out
+
+    cold_code, cold = run()
+    warm_code, warm = run()
+
+    assert (cold_code, warm_code) == (0, 0)
+    assert cold == warm
+    assert "selector: part:Shared" in cold
+    assert "depth: 3" in cold
+    assert len(created) == 2
+    assert not any(path.exists() for path in created)
 
 
 @pytest.mark.integration
