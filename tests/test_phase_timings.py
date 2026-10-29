@@ -179,3 +179,46 @@ def test_reader_phase_names_are_stable_and_export_does_not_change_output(
     assert [result.returncode for result in exported] == [plain.returncode, plain.returncode] == [0, 0]
     assert [result.stdout for result in exported] == [plain.stdout, plain.stdout]
     assert [result.stderr for result in exported] == [plain.stderr, plain.stderr]
+
+
+@pytest.mark.integration
+def test_verified_outline_without_adornments_attributes_fallback_planning_facts(tmp_path: Path) -> None:
+    (tmp_path / "conf.py").write_text('project = "phase-test"\nextensions = []\n', encoding="utf-8")
+    (tmp_path / "index.rst").write_text("########\nTarget\n########\n\nBody.\n", encoding="utf-8")
+    counts_file = tmp_path / "counts.json"
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(_SOURCE_ROOT / "src"), environment.get("PYTHONPATH")) if part
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_PERF_SUBPROCESS),
+            "--counts-file",
+            str(counts_file),
+            "--",
+            "--no-config",
+            "--sphinx-src",
+            str(tmp_path),
+            "--build-dir",
+            str(tmp_path / "_build"),
+            "outline",
+            "--no-adornments",
+            "index.rst",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+    )
+    payload = json.loads(counts_file.read_text(encoding="utf-8"))
+
+    assert result.returncode == 0
+    assert set(payload["phase_timings"]["phases"]) == {
+        "configuration-discovery",
+        "planning-facts",
+        "verified-environment",
+        "doctree-relationships",
+        "query-formatting",
+    }
