@@ -36,6 +36,9 @@ SOURCE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SUBPROCESS_RUNNER = SOURCE_ROOT / "tools" / "perf_subprocess.py"
 FORMAT_VERSION = 2
 TEST_SUITE_SCENARIO = "project-test-suite"
+TEST_OUTCOMES = ("passed", "failed", "skipped", "errors", "xfailed", "xpassed")
+PYTEST_SUMMARY_PATTERN = re.compile(r"^=+\s+(?P<body>.+?)\s+in\s+\d+(?:\.\d+)?s(?:\s+\([^)]*\))?\s+=+$")
+PYTEST_OUTCOME_PATTERN = re.compile(r"(?P<count>\d+)\s+(?P<outcome>passed|failed|skipped|errors?|xfailed|xpassed)\b")
 DEFAULT_SMALL_UNRELATED = 4
 DEFAULT_LARGE_UNRELATED = 64
 DEFAULT_LARGE_PAGE_SECTIONS = 64
@@ -439,13 +442,24 @@ def _verify_repetitions(scenario: Scenario, results: Sequence[RunResult]) -> Non
 
 def _pytest_counts(stdout: bytes) -> dict[str, int]:
     text = stdout.decode("utf-8", errors="replace")
-    counts = {"passed": 0, "failed": 0, "skipped": 0}
+    summary_body = next(
+        (
+            match.group("body")
+            for line in reversed(text.splitlines())
+            if (match := PYTEST_SUMMARY_PATTERN.fullmatch(line.strip())) is not None
+        ),
+        None,
+    )
+    if summary_body is None:
+        raise RecorderError("project-test-suite: pytest output has no final summary line")
+    counts = dict.fromkeys(TEST_OUTCOMES, 0)
     found = False
-    for match in re.finditer(r"(?P<count>\d+)\s+(?P<outcome>passed|failed|skipped)\b", text):
-        counts[match.group("outcome")] = int(match.group("count"))
+    for match in PYTEST_OUTCOME_PATTERN.finditer(summary_body):
+        outcome = match.group("outcome")
+        counts["errors" if outcome in {"error", "errors"} else outcome] = int(match.group("count"))
         found = True
     if not found:
-        raise RecorderError("project-test-suite: pytest output has no passed, failed or skipped counts")
+        raise RecorderError("project-test-suite: pytest final summary has no test outcomes")
     return counts
 
 

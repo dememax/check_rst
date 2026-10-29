@@ -31,6 +31,7 @@ HOST_FIELDS = (
     "docutils",
     "sphinx",
 )
+TEST_OUTCOMES = ("passed", "failed", "skipped", "errors", "xfailed", "xpassed")
 type JsonObject = dict[str, object]
 type HostValue = str | int
 type HostFacts = dict[str, HostValue]
@@ -152,9 +153,9 @@ def _validate_record(value: object, context: str) -> JsonObject:
         raise HistoryError(f"{context}.verified_cold_warm_output_agreement must be boolean or null")
     if "test_counts" in record:
         test_counts = _object(record["test_counts"], f"{context}.test_counts")
-        if set(test_counts) != {"passed", "failed", "skipped"}:
-            raise HistoryError(f"{context}.test_counts must contain passed, failed and skipped")
-        for field in ("passed", "failed", "skipped"):
+        if set(test_counts) != set(TEST_OUTCOMES):
+            raise HistoryError(f"{context}.test_counts must contain exactly the supported pytest outcomes")
+        for field in TEST_OUTCOMES:
             _integer(test_counts[field], f"{context}.test_counts.{field}")
     return record
 
@@ -323,6 +324,9 @@ def render_page(artifacts: Sequence[JsonObject]) -> str:
                     counts["passed"],
                     counts["failed"],
                     counts["skipped"],
+                    counts["errors"],
+                    counts["xfailed"],
+                    counts["xpassed"],
                     *_summary_values(record),
                 )
             )
@@ -339,6 +343,9 @@ def render_page(artifacts: Sequence[JsonObject]) -> str:
                     "Passed",
                     "Failed",
                     "Skipped",
+                    "Errors",
+                    "Xfailed",
+                    "Xpassed",
                     "Wall median (s)",
                     "Wall min (s)",
                     "User median (s)",
