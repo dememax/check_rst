@@ -187,7 +187,7 @@ def _deduplicated_records(artifacts: Sequence[JsonObject]) -> list[JsonObject]:
 
 
 def _heading(title: str, character: str) -> list[str]:
-    adornment = character * len(title)
+    adornment = character * (len(title) + 2)
     return [adornment, title, adornment, ""]
 
 
