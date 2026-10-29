@@ -21,6 +21,7 @@ import docutils.nodes
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
+    import sphinx.application
     import sphinx.environment
 
 
@@ -298,6 +299,46 @@ class PlanningFacts:
     loaded: bool = True
 
 
+def _planning_facts_from_app(app: sphinx.application.Sphinx) -> PlanningFacts:
+    """Snapshot immutable include-planning facts from a constructed app.
+
+    The caller takes this snapshot before instrumenting the application.  The
+    listener exclusions make that boundary explicit and fail safe if a future
+    caller snapshots after check_rst has connected its own observation hooks:
+    only a listener not owned by check_rst is project transform evidence.
+    """
+    from docutils.parsers.rst import directives
+    from sphinx.directives.other import Include as SphinxInclude
+
+    documents = frozenset(pathlib.Path(app.env.doc2path(name)).resolve() for name in app.env.found_docs)
+    suffixes = tuple(dict.fromkeys((".rst", *app.config.source_suffix)))
+    own_listeners = {
+        "include-read": frozenset({mark_include_read_before, mark_include_read_after}),
+        "source-read": frozenset({mark_source_read_before, mark_source_read_after}),
+    }
+
+    def has_project_listener(event: str) -> bool:
+        ignored = own_listeners[event]
+        return any(
+            getattr(listener, "handler", None) not in ignored for listener in app.events.listeners.get(event, ())
+        )
+
+    transform = None
+    # Sphinx adds these to every document it parses, where a title style in
+    # either shifts the first-encounter ranking the composition models.
+    if app.config.rst_prolog:
+        transform = "an rst_prolog"
+    elif app.config.rst_epilog:
+        transform = "an rst_epilog"
+    elif has_project_listener("include-read"):
+        transform = "an include-read handler"
+    elif has_project_listener("source-read"):
+        transform = "a source-read handler"
+    elif vars(directives).get("_directives", {}).get("include") is not SphinxInclude:
+        transform = "an extension's include directive"
+    return PlanningFacts(documents, suffixes, transform)
+
+
 def planning_facts(sphinx_src: pathlib.Path) -> PlanningFacts:
     """Read the project's include facts from a constructed, unbuilt app.
 
@@ -312,9 +353,7 @@ def planning_facts(sphinx_src: pathlib.Path) -> PlanningFacts:
     import io
     import tempfile
 
-    from docutils.parsers.rst import directives
     from sphinx.application import Sphinx
-    from sphinx.directives.other import Include as SphinxInclude
     from sphinx.util.docutils import docutils_namespace
 
     with tempfile.TemporaryDirectory(prefix="check-rst-facts-") as scratch, docutils_namespace():
@@ -333,22 +372,7 @@ def planning_facts(sphinx_src: pathlib.Path) -> PlanningFacts:
         # includes is known.
         except Exception:
             return PlanningFacts(frozenset(), (".rst",), "a configuration check_rst cannot load", loaded=False)
-        documents = frozenset(pathlib.Path(app.env.doc2path(name)).resolve() for name in app.env.found_docs)
-        suffixes = tuple(dict.fromkeys((".rst", *app.config.source_suffix)))
-        transform = None
-        # Sphinx adds these to every document it parses, where a title style
-        # in either shifts the first-encounter ranking the composition models.
-        if app.config.rst_prolog:
-            transform = "an rst_prolog"
-        elif app.config.rst_epilog:
-            transform = "an rst_epilog"
-        elif app.events.listeners.get("include-read"):
-            transform = "an include-read handler"
-        elif app.events.listeners.get("source-read"):
-            transform = "a source-read handler"
-        elif vars(directives).get("_directives", {}).get("include") is not SphinxInclude:
-            transform = "an extension's include directive"
-        return PlanningFacts(documents, suffixes, transform)
+        return _planning_facts_from_app(app)
 
 
 def _build_sphinx_env_checked(
