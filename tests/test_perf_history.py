@@ -70,10 +70,14 @@ def _record(*, name: str, host: dict[str, str | int], commit: str) -> dict[str, 
 def test_empty_history_renders_complete_page() -> None:
     rendered = _module().render_page([])
 
-    assert "Performance history" in rendered
-    assert "Host environments" in rendered
-    assert "Test suite" in rendered
-    assert "Benchmarks" in rendered
+    for title, character in (
+        ("Performance history", "#"),
+        ("Host environments", "*"),
+        ("Test suite", "*"),
+        ("Benchmarks", "*"),
+    ):
+        adornment = character * (len(title) + 2)
+        assert f"{adornment}\n{title}\n{adornment}" in rendered
     assert "No measurements are recorded yet." in rendered
     assert "seconds" in rendered
     assert "MiB" in rendered
