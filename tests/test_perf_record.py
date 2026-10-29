@@ -321,6 +321,22 @@ def test_test_suite_dry_run_lists_command_without_running(
     assert not artifact.exists()
 
 
+@pytest.mark.unit
+def test_test_suite_uses_direct_subprocess_instead_of_check_rst_runner(tmp_path: Path) -> None:
+    module = _module()
+    suite = module._test_suite_scenario(tmp_path)
+
+    suite_command, suite_counts = module._subprocess_command(suite.command, tmp_path / "suite-counts.json")
+    reader_command, reader_counts = module._subprocess_command(
+        ("--no-config", "outline", "small.rst"), tmp_path / "reader-counts.json"
+    )
+
+    assert suite_command == suite.command
+    assert suite_counts is False
+    assert reader_command[:2] == (sys.executable, str(module.SUBPROCESS_RUNNER))
+    assert reader_counts is True
+
+
 @pytest.mark.integration
 def test_artifact_inside_measured_worktree_is_refused(
     tmp_git_repo: Path,
