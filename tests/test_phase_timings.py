@@ -132,7 +132,7 @@ def test_reader_phase_names_are_stable_and_export_does_not_change_output(
     expected_names: set[str],
 ) -> None:
     (tmp_path / "conf.py").write_text('project = "phase-test"\nextensions = []\n', encoding="utf-8")
-    (tmp_path / "index.rst").write_text("Target\n======\n\nBody.\n", encoding="utf-8")
+    (tmp_path / "index.rst").write_text("########\nTarget\n########\n\nBody.\n", encoding="utf-8")
     build_dir = tmp_path / "_build"
     if mode == "verified-context":
         command = [

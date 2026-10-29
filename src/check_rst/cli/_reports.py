@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     import sphinx.environment
 
 
-from . import _contexts, _helpers
+from . import _contexts, _helpers, _timing
 from ._composition import CompositionIndex
 from ._document import Document, build_outline
 from ._formatting import (
@@ -995,8 +995,9 @@ def _run_context_query(
         print(f"{path}:{line}: ERROR: {text}")
         return 1
     try:
-        document = Document(path, project_root)
-        _ = document.doctree
+        with _timing.PHASE_TIMINGS.phase(_timing.DOCTREE_RELATIONSHIPS):
+            document = Document(path, project_root)
+            _ = document.doctree
     except UnicodeDecodeError as exc:
         line = exc.object.count(b"\n", 0, exc.start) + 1
         print(f"check_rst: {path}:{line}: not valid UTF-8 ({exc.reason})")
@@ -1011,6 +1012,7 @@ def _run_context_query(
     actual_build_dir = (
         build_dir if build_dir is not None else pathlib.Path(tempfile.mkdtemp(prefix="check_rst_context_"))
     )
+    active_phase = _timing.PHASE_TIMINGS.begin(_timing.DOCTREE_RELATIONSHIPS)
     try:
         if sphinx_src is None or outside_sphinx:
             local_docname = _docname_id(path, project_root)
@@ -1021,7 +1023,8 @@ def _run_context_query(
             conditional_entries: list[ConditionalEntry] = []
             title_findings = check_single_top_level(path, doc=document)
         else:
-            env, warning_text = _build_sphinx_env_checked(sphinx_src, actual_build_dir, files=[path])
+            with _timing.PHASE_TIMINGS.phase(_timing.VERIFIED_ENVIRONMENT):
+                env, warning_text = _build_sphinx_env_checked(sphinx_src, actual_build_dir, files=[path])
             local = _docname_for(env, path)
             if local is None:
                 if contextual_depths is None:
@@ -1134,6 +1137,8 @@ def _run_context_query(
             entries.extend(_merge_toctree_clusters(local_entries, structural_clusters))
         else:
             entries.extend(local_entries)
+        active_phase.stop()
+        active_phase = _timing.PHASE_TIMINGS.begin(_timing.QUERY_FORMATTING)
         candidates = _context_candidates(entries, local_docname)
         matches = _resolve_context_matches(entries, query, local_docname)
         selected_label: LabelDefinition | None = None
@@ -1265,6 +1270,7 @@ def _run_context_query(
         )
         return 0
     finally:
+        active_phase.stop()
         if not keep_build:
             shutil.rmtree(actual_build_dir, ignore_errors=True)
 

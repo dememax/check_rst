@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from check_rst import DOCUMENTATION_URL, __copyright__, __license__, __version__
 
-from . import _comparison, _contexts, _formatting, _helpers, _includes, _output, _sphinx
+from . import _comparison, _contexts, _formatting, _helpers, _includes, _output, _sphinx, _timing
 from ._config import LoadedConfig, _load_config
 from ._formatting import _plan_fix, diff_entitle, fix_entitle, render_plan_diff
 from ._helpers import (
@@ -1655,9 +1655,10 @@ def _main() -> None:
     # never applied or checked for conf.py/directory existence. --no-config
     # skips discovery entirely — even a malformed committed file never gets
     # read, let alone validated, when the run explicitly opts out.
-    loaded_config = (
-        LoadedConfig("", _helpers.PROJECT_ROOT.resolve(), {}) if args.no_config else _load_config(args.config)
-    )
+    with _timing.PHASE_TIMINGS.phase(_timing.CONFIGURATION_DISCOVERY):
+        loaded_config = (
+            LoadedConfig("", _helpers.PROJECT_ROOT.resolve(), {}) if args.no_config else _load_config(args.config)
+        )
     config_source = loaded_config.source
     config = loaded_config.values
     project_root = loaded_config.root if args.config is not None else _helpers.PROJECT_ROOT
@@ -1766,19 +1767,22 @@ def _main() -> None:
     if args.command == "targets":
         _run_targets(args, runtime_metadata)
 
-    files, whole_file = _discover_and_validate_files(args, project_root)
+    with _timing.PHASE_TIMINGS.phase(_timing.CONFIGURATION_DISCOVERY):
+        files, whole_file = _discover_and_validate_files(args, project_root)
     args.declared_roles, args.role_record = (
         _resolve_declared_roles(args, loaded_config, files) if args.command in _ROLE_COMMANDS else (None, None)
     )
     # CR-43: check, full fix and full diff judge each file in its include
     # contexts, and check also judges a selected fragment's includers.
-    args.include_planning, joined = (
-        _full_include_planning(args, loaded_config, files)
-        if args.command in {"check", "fix", "diff", "outline", "context"}
+    if (
+        args.command in {"check", "fix", "diff", "outline", "context"}
         and not (args.fix_only or args.diff_only)
         and not args.no_adornments
-        else ({}, [])
-    )
+    ):
+        with _timing.PHASE_TIMINGS.phase(_timing.INCLUDE_UNIVERSE):
+            args.include_planning, joined = _full_include_planning(args, loaded_config, files)
+    else:
+        args.include_planning, joined = {}, []
     args.contextual_outline_depths = {}
     args.contextual_line_depths = {}
     args.contextual_structure_findings = {}
@@ -1870,21 +1874,27 @@ def _main() -> None:
         # unloadable configuration keeps the old scope, so Phase 2 reports it.
         facts = _sphinx.planning_facts(args.sphinx_src)
         args.sphinx_documents = facts.documents if facts.loaded else None
-    _run_check_pipeline(
-        args,
-        files,
-        whole_file,
-        project_root,
-        runtime_metadata,
-        word_samples,
-        suppress_findings,
-        config_source,
-        config_applied,
-        config_inactive,
-        # The sidecar is project configuration: discovered beside the selected
-        # config, and skipped by --no-config like the config itself.
-        None if args.no_config else load_retained(loaded_config.root),
+    pipeline_timing = (
+        _timing.PHASE_TIMINGS.phase(_timing.DOCTREE_RELATIONSHIPS)
+        if args.command == "outline"
+        else contextlib.nullcontext()
     )
+    with pipeline_timing:
+        _run_check_pipeline(
+            args,
+            files,
+            whole_file,
+            project_root,
+            runtime_metadata,
+            word_samples,
+            suppress_findings,
+            config_source,
+            config_applied,
+            config_inactive,
+            # The sidecar is project configuration: discovered beside the selected
+            # config, and skipped by --no-config like the config itself.
+            None if args.no_config else load_retained(loaded_config.root),
+        )
 
 
 def _requested_output_limit(argv: list[str]) -> int | None:
@@ -2054,7 +2064,11 @@ def _full_include_planning(
     """
     # Verified mode reads the project's own facts (P4c): its documents,
     # its source suffixes, and whether it may transform an include.
-    facts = _sphinx.planning_facts(args.sphinx_src) if args.sphinx_src is not None else None
+    if args.sphinx_src is not None:
+        with _timing.PHASE_TIMINGS.phase(_timing.PLANNING_FACTS):
+            facts = _sphinx.planning_facts(args.sphinx_src)
+    else:
+        facts = None
     # Which files Sphinx reads as documents decides how a joined includer's
     # effective structure is checked (P5c, Codex's three sets).
     args.sphinx_documents = facts.documents if facts is not None and facts.loaded else None

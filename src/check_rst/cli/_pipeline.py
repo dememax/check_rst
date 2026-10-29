@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from ._contexts import ContextStage
 
 
-from . import _contexts, _reports, _sphinx
+from . import _contexts, _reports, _sphinx, _timing
 from ._composition import CompositionIndex
 from ._document import Document, build_outline
 from ._formatting import (
@@ -865,7 +865,7 @@ def _run_sphinx_phases(
                         heuristic_root,
                         include_clusters,
                     )
-                    with _report_kind("outline"):
+                    with _timing.PHASE_TIMINGS.phase(_timing.QUERY_FORMATTING), _report_kind("outline"):
                         suffix = " (outside sphinx-src — Phase 0/1 only)" if outside_sphinx else ""
                         print(f"Outline: {path}{suffix}")
                         _print_outline_entries(
@@ -890,7 +890,8 @@ def _run_sphinx_phases(
                 print(f"Phase 2: Python Sphinx rules ({build_dir})")
                 print("-" * 40)
 
-            env, phase2_warning_text = _build_sphinx_env_checked(args.sphinx_src, build_dir, files=verified_files)
+            with _timing.PHASE_TIMINGS.phase(_timing.VERIFIED_ENVIRONMENT):
+                env, phase2_warning_text = _build_sphinx_env_checked(args.sphinx_src, build_dir, files=verified_files)
             unavailable = [path for path in verified_files if _docname_for(env, path) is None]
             if unavailable:
                 for path in unavailable:
@@ -1103,7 +1104,7 @@ def _run_sphinx_phases(
                         clusters = [*nested_includes, *root_toctrees]
                         clusters.sort(key=lambda cluster: cluster[0].lineno if cluster else 0)
                         combined = _merge_toctree_clusters(local_entries, clusters)
-                        with _report_kind("outline"):
+                        with _timing.PHASE_TIMINGS.phase(_timing.QUERY_FORMATTING), _report_kind("outline"):
                             if docname is None:
                                 print(f"Outline: {pstr} (not part of --sphinx-src project — code-blocks unavailable)")
                             else:
@@ -1129,12 +1130,13 @@ def _run_sphinx_phases(
                     print()
                     print(f"Phase 3: Sphinx build integrity ({build_dir})")
                     print("-" * 40)
-                sphinx_v = phase2_v + _sphinx.run_sphinx(
-                    [f for f in verified_files if f.exists()],
-                    build_dir,
-                    args.sphinx_src,
-                    project_root,
-                )
+                with _timing.PHASE_TIMINGS.phase(_timing.VERIFIED_ENVIRONMENT):
+                    sphinx_v = phase2_v + _sphinx.run_sphinx(
+                        [f for f in verified_files if f.exists()],
+                        build_dir,
+                        args.sphinx_src,
+                        project_root,
+                    )
             sphinx_v = [_attach_did_you_mean(f, env, state.pending_titles) for f in sphinx_v]
             # Sphinx's own warnings are scoped to the build targets: a joined
             # includer's are not this run's (P5c).
