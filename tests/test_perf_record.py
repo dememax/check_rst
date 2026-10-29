@@ -9,6 +9,7 @@ import hashlib
 import importlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 import textwrap
@@ -337,8 +338,10 @@ def test_test_suite_dry_run_lists_command_without_running(
 
     output = capsys.readouterr()
     assert status == 0
-    assert "project-test-suite" in output.out
-    assert "-m pytest" in output.out
+    suite_line = next(line for line in output.out.splitlines() if line.startswith("project-test-suite:"))
+    expected_command = shlex.join((sys.executable, "-m", "pytest"))
+    assert suite_line == f"project-test-suite: cwd={tmp_git_repo} command={expected_command}"
+    assert str(module.SUBPROCESS_RUNNER) not in suite_line
     assert output.err == ""
     assert not artifact.exists()
 
