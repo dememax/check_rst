@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 FORMAT_VERSION = 2
 MEASURED_AT_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+ENUMERATED_PREFIX_PATTERN = re.compile(r"(?:[0-9A-Za-z#]+[.)]|\([0-9A-Za-z#]+\))\s")
 HOST_FIELDS = (
     "label",
     "os",
@@ -221,12 +222,18 @@ def _heading(title: str, character: str) -> list[str]:
 
 def _cell(value: object) -> str:
     text = " ".join(str(value).split()) or "—"
-    text = text.replace("\\", "\\\\").replace("*", "\\*").replace("`", "\\`")
-    if text.startswith("|"):
-        text = f"\\{text}"
-    if text.endswith("_"):
-        text = f"{text[:-1]}\\_"
-    return text
+    starts_block_markup = not text[0].isalnum() or ENUMERATED_PREFIX_PATTERN.match(text) is not None
+    escaped = (
+        text.replace("\\", "\\\\")
+        .replace("*", "\\*")
+        .replace("`", "\\`")
+        .replace("::", "\\:\\:")
+        .replace("_", "\\_")
+        .replace("|", "\\|")
+    )
+    if starts_block_markup and not escaped.startswith("\\"):
+        escaped = f"\\{escaped}"
+    return escaped
 
 
 def _list_table(title: str, headers: Sequence[str], rows: Sequence[Sequence[object]]) -> list[str]:
