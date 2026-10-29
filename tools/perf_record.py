@@ -13,6 +13,7 @@ import json
 import os
 import pathlib
 import platform
+import re
 import shlex
 import statistics
 import subprocess
@@ -33,6 +34,7 @@ else:
 SOURCE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SUBPROCESS_RUNNER = SOURCE_ROOT / "tools" / "perf_subprocess.py"
 FORMAT_VERSION = 1
+TEST_SUITE_SCENARIO = "project-test-suite"
 DEFAULT_SMALL_UNRELATED = 4
 DEFAULT_LARGE_UNRELATED = 64
 DEFAULT_LARGE_PAGE_SECTIONS = 64
@@ -70,6 +72,7 @@ class Scenario:
     parameters: dict[str, ParameterValue]
     build_mode: Literal["none", "cold", "warm"]
     sphinx_source: pathlib.Path | None = None
+    repetitions: int | None = None
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -147,6 +150,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repetitions", type=_positive_integer, default=3)
     parser.add_argument("--replace", action="store_true", help="replace matching host/commit/scenario records")
     parser.add_argument("--dry-run", action="store_true", help="list commands without generating or running anything")
+    parser.add_argument("--test-suite", action="store_true", help="also measure one project test-suite run")
     parser.add_argument(
         "--small-project-unrelated", type=_non_negative_integer, default=DEFAULT_SMALL_UNRELATED, metavar="N"
     )
@@ -320,6 +324,17 @@ def _dry_run_scenarios(repository: pathlib.Path) -> list[Scenario]:
     )
 
 
+def _test_suite_scenario(repository: pathlib.Path) -> Scenario:
+    return Scenario(
+        name=TEST_SUITE_SCENARIO,
+        command=(sys.executable, "-m", "pytest"),
+        cwd=repository,
+        parameters={"kind": "test-suite"},
+        build_mode="none",
+        repetitions=1,
+    )
+
+
 def _command_for(scenario: Scenario, build_dir: pathlib.Path | None) -> tuple[str, ...]:
     replacements = {
         "{sphinx_src}": str(scenario.sphinx_source) if scenario.sphinx_source is not None else "",
@@ -408,6 +423,18 @@ def _verify_repetitions(scenario: Scenario, results: Sequence[RunResult]) -> Non
         raise RecorderError(f"{scenario.name}: repetitions disagree on structural counts")
 
 
+def _pytest_counts(stdout: bytes) -> dict[str, int]:
+    text = stdout.decode("utf-8", errors="replace")
+    counts = {"passed": 0, "failed": 0, "skipped": 0}
+    found = False
+    for match in re.finditer(r"(?P<count>\d+)\s+(?P<outcome>passed|failed|skipped)\b", text):
+        counts[match.group("outcome")] = int(match.group("count"))
+        found = True
+    if not found:
+        raise RecorderError("project-test-suite: pytest output has no passed, failed or skipped counts")
+    return counts
+
+
 def _record_one(
     scenario: Scenario,
     repetitions: int,
@@ -434,21 +461,21 @@ def _record_one(
         )
     _verify_repetitions(scenario, results)
     stdout_hash = hashlib.sha256(results[0].stdout).hexdigest()
-    return (
-        {
-            "scenario": {
-                "name": scenario.name,
-                "command": list(scenario.command),
-                "parameters": scenario.parameters,
-            },
-            "repetitions": repetitions,
-            "measurements": [_measurement_json(result) for result in results],
-            "structural_counts": results[0].structural_counts,
-            "summary": _summary(results),
-            "verified_cold_warm_output_agreement": None,
+    record: dict[str, object] = {
+        "scenario": {
+            "name": scenario.name,
+            "command": list(scenario.command),
+            "parameters": scenario.parameters,
         },
-        stdout_hash,
-    )
+        "repetitions": repetitions,
+        "measurements": [_measurement_json(result) for result in results],
+        "structural_counts": results[0].structural_counts,
+        "summary": _summary(results),
+        "verified_cold_warm_output_agreement": None,
+    }
+    if scenario.name == TEST_SUITE_SCENARIO:
+        record["test_counts"] = _pytest_counts(results[0].stdout)
+    return record, stdout_hash
 
 
 def _load_artifact(path: pathlib.Path, host: HostFacts) -> dict[str, object]:
@@ -487,7 +514,7 @@ def _set_output_agreement(records: Sequence[dict[str, object]], hashes: dict[str
     for record in records:
         scenario = cast("dict[str, object]", record["scenario"])
         parameters = cast("dict[str, ParameterValue]", scenario["parameters"])
-        mode = parameters["mode"]
+        mode = parameters.get("mode")
         if mode not in {"verified-cold", "verified-warm"}:
             continue
         signature = tuple(
@@ -549,7 +576,8 @@ def record_scenarios(
     with tempfile.TemporaryDirectory(prefix="record-", dir=temporary_root) as run_name:
         run_root = pathlib.Path(run_name)
         for ordinal, scenario in enumerate(scenarios, 1):
-            record, stdout_hash = _record_one(scenario, repetitions, run_root, runner, ordinal=ordinal)
+            scenario_repetitions = scenario.repetitions if scenario.repetitions is not None else repetitions
+            record, stdout_hash = _record_one(scenario, scenario_repetitions, run_root, runner, ordinal=ordinal)
             record["commit"] = commit
             record["check_rst_version"] = check_rst_version
             record["host_facts"] = host_facts_json(host)
@@ -585,7 +613,8 @@ def _print_summary(artifact: dict[str, object], commit: str, scenario_names: set
         counts = cast("dict[str, int]", item["structural_counts"])
         counts_text = ",".join(f"{key}={value}" for key, value in sorted(counts.items()))
         print(
-            f"{name}\t{parameters['mode']}\t{elapsed['median']:.6f}\t{elapsed['minimum']:.6f}"
+            f"{name}\t{parameters.get('mode', parameters.get('kind', ''))}"
+            f"\t{elapsed['median']:.6f}\t{elapsed['minimum']:.6f}"
             f"\t{user['median']:.6f}\t{rss['maximum']}\t{counts_text}"
         )
 
@@ -599,7 +628,10 @@ def main(arguments: list[str] | None = None, *, runner: Runner = _run_command) -
         _require_clean_worktree(repository)
         artifact_path = _external_artifact_path(args.artifact, repository)
         if args.dry_run:
-            for scenario in _dry_run_scenarios(repository):
+            scenarios = _dry_run_scenarios(repository)
+            if args.test_suite:
+                scenarios.append(_test_suite_scenario(repository))
+            for scenario in scenarios:
                 print(f"{scenario.name}: cwd={scenario.cwd} command={_display_command(scenario)}")
             return 0
 
@@ -623,6 +655,8 @@ def main(arguments: list[str] | None = None, *, runner: Runner = _run_command) -
                 ),
             }
             scenarios = _generated_scenarios(projects) + _public_scenarios(repository, commit)
+            if args.test_suite:
+                scenarios.append(_test_suite_scenario(repository))
             artifact = record_scenarios(
                 artifact_path=artifact_path,
                 host=host,
