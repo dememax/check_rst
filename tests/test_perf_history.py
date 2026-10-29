@@ -257,7 +257,7 @@ def test_phase_table_is_conditional_and_legacy_format_2_bytes_are_unchanged() ->
     ):
         assert heading in rendered
     assert "Medians of phase parts need not sum to the median of the whole." in rendered
-    assert rendered.count("     - —\n") >= 2
+    assert rendered.count("     - \\—\n") >= 2
     assert "     - 0.300000\n" in rendered
 
 

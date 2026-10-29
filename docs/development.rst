@@ -579,9 +579,15 @@ to replace an existing record for the same host label, commit and scenario.
 The recorder requires a clean Git worktree and an artifact path that resolves
 outside it.  Generated corpora and Sphinx build directories exist only below a
 temporary directory.  Each subprocess exports its structural call counts
-alongside wall, user and system time, peak RSS, exit status and a
-standard-output hash.  Repetitions that disagree on exit status, output or
-counts are rejected.  One UTC ISO 8601 measurement time, at one-second
+and reader phase timings alongside wall, user and system time, peak RSS, exit
+status and a standard-output hash.  Phase accounting is enabled only by the
+benchmark subprocess.  It uses exclusive wall and process-CPU time for the
+stable ``configuration-discovery``, ``planning-facts``, ``include-universe``,
+``verified-environment``, ``doctree-relationships`` and ``query-formatting``
+phases, plus an inclusive command total.  Heuristic readers omit phases they
+do not run instead of recording zero.  Repetitions that disagree on exit
+status, output, counts or the set of phase names are rejected.  One UTC ISO
+8601 measurement time, at one-second
 precision, is shared by every scenario in a recorder run.  The host label is
 always an explicit option; the recorder never obtains a machine hostname.
 Project and page sizes can be changed with the recorder's size options for
@@ -603,7 +609,12 @@ six decimal places; RAM and peak RSS have two, in GiB and MiB respectively.
 With no artifacts, or only empty artifacts, the renderer produces the valid
 no-measurements page used before the first controlled run.  Once a controlled
 artifact exists, the committed page carries its rendered rows and names the
-measured commit; the JSON artifact remains host-local.
+measured commit; the JSON artifact remains host-local.  Records carrying
+phase timings also produce the ``Reader phase attribution`` table.  It shows
+each phase's median wall time, the total median and their unattributed
+remainder; an absent phase appears as an em dash.  Because each median is
+computed independently, medians of the phase parts need not sum to the median
+of the whole.
 
 Check that the committed page is exactly reproducible without writing it::
 

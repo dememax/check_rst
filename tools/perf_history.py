@@ -33,6 +33,14 @@ HOST_FIELDS = (
     "sphinx",
 )
 TEST_OUTCOMES = ("passed", "failed", "skipped", "errors", "xfailed", "xpassed")
+PHASE_NAMES = (
+    "configuration-discovery",
+    "planning-facts",
+    "include-universe",
+    "verified-environment",
+    "doctree-relationships",
+    "query-formatting",
+)
 type JsonObject = dict[str, object]
 type HostValue = str | int
 type HostFacts = dict[str, HostValue]
@@ -125,6 +133,31 @@ def _summary(value: object, context: str) -> None:
     _integer(rss.get("maximum"), f"{context}.peak_rss_bytes.maximum")
 
 
+def _duration_summary(value: object, context: str) -> None:
+    raw = _object(value, context)
+    if set(raw) != {"wall_seconds", "cpu_seconds"}:
+        raise HistoryError(f"{context} must contain exactly wall_seconds and cpu_seconds")
+    for field in ("wall_seconds", "cpu_seconds"):
+        values = _object(raw[field], f"{context}.{field}")
+        if set(values) != {"median", "minimum"}:
+            raise HistoryError(f"{context}.{field} must contain exactly median and minimum")
+        _number(values["median"], f"{context}.{field}.median")
+        _number(values["minimum"], f"{context}.{field}.minimum")
+
+
+def _phase_timings(value: object, context: str) -> None:
+    raw = _object(value, context)
+    if set(raw) != {"total", "phases"}:
+        raise HistoryError(f"{context} must contain exactly total and phases")
+    _duration_summary(raw["total"], f"{context}.total")
+    phases = _object(raw["phases"], f"{context}.phases")
+    unknown = set(phases) - set(PHASE_NAMES)
+    if unknown:
+        raise HistoryError(f"{context}.phases has unknown phase {sorted(unknown)[0]!r}")
+    for name, phase in phases.items():
+        _duration_summary(phase, f"{context}.phases.{name}")
+
+
 def _validate_record(value: object, context: str) -> JsonObject:
     record = _object(value, context)
     _string(record.get("commit"), f"{context}.commit")
@@ -149,6 +182,8 @@ def _validate_record(value: object, context: str) -> JsonObject:
     if not all(isinstance(value, int) and not isinstance(value, bool) for value in counts.values()):
         raise HistoryError(f"{context}.structural_counts must contain integer values")
     _summary(record.get("summary"), f"{context}.summary")
+    if "phase_timings" in record:
+        _phase_timings(record["phase_timings"], f"{context}.phase_timings")
     agreement = record.get("verified_cold_warm_output_agreement")
     if agreement is not None and not isinstance(agreement, bool):
         raise HistoryError(f"{context}.verified_cold_warm_output_agreement must be boolean or null")
@@ -268,6 +303,12 @@ def _record_prefix(record: JsonObject, environment_id: str) -> tuple[object, ...
         scenario["name"],
         record["repetitions"],
     )
+
+
+def _median_wall(summary: object) -> float:
+    raw = cast("JsonObject", summary)
+    wall = cast("JsonObject", raw["wall_seconds"])
+    return float(cast("float | int", wall["median"]))
 
 
 def render_page(artifacts: Sequence[JsonObject]) -> str:
@@ -407,6 +448,57 @@ def render_page(artifacts: Sequence[JsonObject]) -> str:
                     "Cold/warm output",
                 ),
                 benchmark_rows,
+            )
+        )
+
+    phase_records = [record for record in records if "phase_timings" in record]
+    if phase_records:
+        lines.extend(_heading("Reader phase attribution", "*"))
+        lines.extend(
+            (
+                "Phase values are exclusive wall times recorded by the benchmark subprocess.",
+                "An absent phase is shown as —.",
+                "Medians of phase parts need not sum to the median of the whole.",
+                "The unattributed remainder is the total median minus the sum of the phase medians.",
+                "",
+            )
+        )
+        phase_rows = []
+        for record in phase_records:
+            host = _host_key(_host_facts(record["host_facts"], "record.host_facts"))
+            scenario = cast("JsonObject", record["scenario"])
+            parameters = cast("JsonObject", scenario["parameters"])
+            timing = cast("JsonObject", record["phase_timings"])
+            phases = cast("JsonObject", timing["phases"])
+            phase_medians = [_median_wall(phases[name]) if name in phases else None for name in PHASE_NAMES]
+            total_median = _median_wall(timing["total"])
+            remainder = total_median - sum(value for value in phase_medians if value is not None)
+            phase_rows.append(
+                (
+                    record["measured_at"],
+                    cast("str", record["commit"])[:12],
+                    environment_ids[host],
+                    scenario["name"],
+                    parameters.get("mode", "—"),
+                    *("—" if value is None else f"{value:.6f}" for value in phase_medians),
+                    f"{total_median:.6f}",
+                    f"{remainder:.6f}",
+                )
+            )
+        lines.extend(
+            _list_table(
+                "Reader phase attribution",
+                (
+                    "Measured (UTC)",
+                    "Commit",
+                    "Environment",
+                    "Scenario",
+                    "Mode",
+                    *(f"{name} median wall (s)" for name in PHASE_NAMES),
+                    "Total median wall (s)",
+                    "Unattributed median remainder (s)",
+                ),
+                phase_rows,
             )
         )
     return "\n".join(lines)
