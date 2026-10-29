@@ -355,13 +355,22 @@ def _read_counts(path: pathlib.Path) -> dict[str, int]:
     return cast("dict[str, int]", raw)
 
 
+def _subprocess_command(command: Sequence[str], counts_file: pathlib.Path) -> tuple[tuple[str, ...], bool]:
+    if tuple(command[:3]) == (sys.executable, "-m", "pytest"):
+        return tuple(command), False
+    return (
+        (sys.executable, str(SUBPROCESS_RUNNER), "--counts-file", str(counts_file), "--", *command),
+        True,
+    )
+
+
 def _run_command(command: Sequence[str], cwd: pathlib.Path, counts_file: pathlib.Path) -> RunResult:
     environment = os.environ.copy()
     existing_pythonpath = environment.get("PYTHONPATH")
     environment["PYTHONPATH"] = os.pathsep.join(
         part for part in (str(SOURCE_ROOT / "src"), existing_pythonpath) if part
     )
-    full_command = [sys.executable, str(SUBPROCESS_RUNNER), "--counts-file", str(counts_file), "--", *command]
+    full_command, exports_counts = _subprocess_command(command, counts_file)
     with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
         started = time.perf_counter()
         process = subprocess.Popen(full_command, cwd=cwd, env=environment, stdout=stdout_file, stderr=stderr_file)
@@ -379,7 +388,7 @@ def _run_command(command: Sequence[str], cwd: pathlib.Path, counts_file: pathlib
         peak_rss_bytes=peak_rss_bytes,
         exit_status=exit_status,
         stdout=stdout,
-        structural_counts=_read_counts(counts_file),
+        structural_counts=_read_counts(counts_file) if exports_counts else {},
     )
 
 
