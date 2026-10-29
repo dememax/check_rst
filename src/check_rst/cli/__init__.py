@@ -1872,7 +1872,8 @@ def _main() -> None:
         # CR-43 L6: which selected files Sphinx reads as documents decides
         # their build scope, also where no include planning ran.  An
         # unloadable configuration keeps the old scope, so Phase 2 reports it.
-        facts = _sphinx.planning_facts(args.sphinx_src)
+        with _timing.PHASE_TIMINGS.phase(_timing.PLANNING_FACTS):
+            facts = _sphinx.planning_facts(args.sphinx_src)
         args.sphinx_documents = facts.documents if facts.loaded else None
     pipeline_timing = (
         _timing.PHASE_TIMINGS.phase(_timing.DOCTREE_RELATIONSHIPS)
