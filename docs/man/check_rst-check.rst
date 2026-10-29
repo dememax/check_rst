@@ -69,9 +69,9 @@ IMPORTANT OPTIONS
    homoglyph warnings stay.
 
 ``--no-toctree``
-   Omit toctree expansion from the reported structure only.  Verified setup,
-   include contexts, and incoming references remain complete; this is not a
-   performance option.  Requires ``--format json``, since a text report has
+   Omit toctree expansion from the reported structure only; verified setup,
+   include contexts, and incoming references remain complete, so this is not
+   a performance option.  Requires ``--format json``, since a text report has
    no equivalent flag to signal that navigation expansion was suppressed.
 
 ``--max-output-lines N``
