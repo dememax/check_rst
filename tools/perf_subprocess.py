@@ -13,12 +13,17 @@ import sys
 
 from check_rst.cli import _helpers
 from check_rst.cli import main as check_rst_main
+from check_rst.cli._timing import PHASE_TIMINGS
 
 
 def _write_counts(path: pathlib.Path) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    payload = {
+        "call_counts": dict(sorted(_helpers.CALL_COUNTS.items())),
+        "phase_timings": PHASE_TIMINGS.snapshot(),
+    }
     temporary.write_text(
-        json.dumps(dict(sorted(_helpers.CALL_COUNTS.items())), sort_keys=True) + "\n",
+        json.dumps(payload, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     os.replace(temporary, path)
@@ -34,17 +39,22 @@ def main(arguments: list[str] | None = None) -> int:
         parser.error("a check_rst command is required after --")
 
     _helpers.CALL_COUNTS.clear()
+    PHASE_TIMINGS.enable()
     previous_argv = sys.argv
     sys.argv = ["check_rst", *command]
     exit_status = 0
     try:
-        try:
-            check_rst_main()
-        except SystemExit as exc:
-            exit_status = exc.code if isinstance(exc.code, int) else 1
+        with PHASE_TIMINGS.total():
+            try:
+                check_rst_main()
+            except SystemExit as exc:
+                exit_status = exc.code if isinstance(exc.code, int) else 1
     finally:
         sys.argv = previous_argv
-        _write_counts(args.counts_file)
+        try:
+            _write_counts(args.counts_file)
+        finally:
+            PHASE_TIMINGS.disable()
     return exit_status
 
 

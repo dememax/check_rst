@@ -356,11 +356,12 @@ def _read_counts(path: pathlib.Path) -> dict[str, int]:
         raw: object = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise RecorderError("subprocess did not write valid structural counts") from exc
-    if not isinstance(raw, dict) or not all(
-        isinstance(key, str) and isinstance(value, int) for key, value in raw.items()
+    counts: object = raw.get("call_counts") if isinstance(raw, dict) else None
+    if not isinstance(counts, dict) or not all(
+        isinstance(key, str) and isinstance(value, int) for key, value in counts.items()
     ):
         raise RecorderError("subprocess structural counts are not a string-to-integer object")
-    return cast("dict[str, int]", raw)
+    return cast("dict[str, int]", counts)
 
 
 def _subprocess_command(command: Sequence[str], counts_file: pathlib.Path) -> tuple[tuple[str, ...], bool]:
