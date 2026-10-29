@@ -34,9 +34,16 @@ def _host(*, os_name: str = "Test OS A") -> dict[str, str | int]:
     }
 
 
-def _record(*, name: str, host: dict[str, str | int], commit: str) -> dict[str, object]:
+def _record(
+    *,
+    name: str,
+    host: dict[str, str | int],
+    commit: str,
+    measured_at: str = "2026-10-29T12:00:00Z",
+) -> dict[str, object]:
     return {
         "commit": commit,
+        "measured_at": measured_at,
         "check_rst_version": "0.7.4",
         "host_facts": host,
         "scenario": {
@@ -105,6 +112,33 @@ def test_history_is_stably_ordered_deduplicated_and_keeps_changed_host_facts() -
 
 
 @pytest.mark.unit
+def test_history_is_chronological_and_renders_compact_safe_cells() -> None:
+    module = _module()
+    host = _host()
+    host["label"] = "|public-host_"
+    earlier = _record(
+        name="scenario-z",
+        host=host,
+        commit="f" * 40,
+        measured_at="2026-10-29T11:59:58Z",
+    )
+    later = _record(
+        name="scenario-a",
+        host=host,
+        commit="0" * 40,
+        measured_at="2026-10-29T12:00:00Z",
+    )
+
+    rendered = module.render_page([{"format_version": 1, "host": host, "records": [later, earlier]}])
+
+    assert rendered.index("2026-10-29T11:59:58Z") < rendered.index("2026-10-29T12:00:00Z")
+    assert rendered.index("ffffffffffff") < rendered.index("000000000000")
+    assert "f" * 40 not in rendered
+    assert "0" * 40 not in rendered
+    assert r"\|public-host\_" in rendered
+
+
+@pytest.mark.unit
 def test_conflicting_duplicate_history_rows_are_refused() -> None:
     module = _module()
     host = _host()
@@ -126,7 +160,7 @@ def test_conflicting_duplicate_history_rows_are_refused() -> None:
     ("contents", "message"),
     [
         pytest.param("not JSON\n", "cannot read artifact", id="malformed-json"),
-        pytest.param('{"format_version": 2, "host": {}, "records": []}\n', "unsupported format_version", id="version"),
+        pytest.param('{"format_version": 3, "host": {}, "records": []}\n', "unsupported format_version", id="version"),
     ],
 )
 def test_malformed_or_unsupported_artifact_is_refused(

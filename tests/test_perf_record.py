@@ -95,6 +95,7 @@ def test_recorder_writes_complete_artifact_and_timing_summary(tmp_path: Path) ->
         host=_host(module),
         commit="1" * 40,
         check_rst_version="0.7.4",
+        measured_at="2026-10-29T12:00:00Z",
         scenarios=[_scenario(module, tmp_path)],
         repetitions=2,
         replace=False,
@@ -102,7 +103,7 @@ def test_recorder_writes_complete_artifact_and_timing_summary(tmp_path: Path) ->
         runner=lambda _command, _cwd, _counts: results.pop(0),
     )
 
-    assert artifact["format_version"] == 1
+    assert artifact["format_version"] == 2
     assert artifact["host"] == {
         "label": "chosen-label",
         "os": "Test OS",
@@ -117,6 +118,7 @@ def test_recorder_writes_complete_artifact_and_timing_summary(tmp_path: Path) ->
     [record] = artifact["records"]
     assert record["commit"] == "1" * 40
     assert record["check_rst_version"] == "0.7.4"
+    assert record["measured_at"] == "2026-10-29T12:00:00Z"
     assert record["scenario"]["name"] == "generated-small-small-context-heuristic-toctree"
     assert record["repetitions"] == 2
     assert record["structural_counts"] == {"_parse_rst": 2, "_read_source": 1}
