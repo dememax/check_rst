@@ -156,6 +156,26 @@ def test_conflicting_duplicate_history_rows_are_refused() -> None:
 
 
 @pytest.mark.unit
+def test_test_suite_history_shows_every_recorded_pytest_outcome() -> None:
+    host = _host()
+    record = _record(name="project-test-suite", host=host, commit="a" * 40)
+    record["test_counts"] = {
+        "passed": 2375,
+        "failed": 2,
+        "skipped": 7,
+        "errors": 1,
+        "xfailed": 5,
+        "xpassed": 3,
+    }
+
+    rendered = _module().render_page([{"format_version": 2, "host": host, "records": [record]}])
+
+    for heading in ("Passed", "Failed", "Skipped", "Errors", "Xfailed", "Xpassed"):
+        assert heading in rendered
+    assert "     - 1\n     - 5\n     - 3\n" in rendered
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("contents", "message"),
     [

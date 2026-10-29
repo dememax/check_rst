@@ -267,12 +267,17 @@ def test_test_suite_option_records_one_injected_run_and_outcome_counts(
     monkeypatch.setattr(module, "_public_scenarios", lambda _repository, _commit: [])
     artifact = tmp_git_repo.parent / f"{tmp_git_repo.name}-artifact.json"
     commands: list[tuple[str, ...]] = []
+    pytest_stdout = (
+        b"1 passed in test output\n"
+        b"===== 1 error, 2 failed, 2375 passed, 7 skipped, 5 xfailed, 3 xpassed in 4.00s =====\n"
+        b"999 passed after the summary\n"
+    )
 
     def fake_runner(command: tuple[str, ...], _cwd: Path, _counts: Path) -> _RunResultLike:
         commands.append(command)
         return cast(
             "_RunResultLike",
-            module.RunResult(4.0, 3.0, 0.5, 20_000_000, 1, b"2 failed, 2375 passed, 7 skipped in 4.00s\n", {}),
+            module.RunResult(4.0, 3.0, 0.5, 20_000_000, 1, pytest_stdout, {}),
         )
 
     status = module.main(
@@ -287,17 +292,32 @@ def test_test_suite_option_records_one_injected_run_and_outcome_counts(
     [record] = recorded["records"]
     assert record["scenario"]["name"] == "project-test-suite"
     assert record["repetitions"] == 1
-    assert record["test_counts"] == {"passed": 2375, "failed": 2, "skipped": 7}
+    assert record["test_counts"] == {
+        "passed": 2375,
+        "failed": 2,
+        "skipped": 7,
+        "errors": 1,
+        "xfailed": 5,
+        "xpassed": 3,
+    }
     assert record["measurements"] == [
         {
             "elapsed_seconds": 4.0,
             "exit_status": 1,
             "peak_rss_bytes": 20_000_000,
-            "stdout_sha256": hashlib.sha256(b"2 failed, 2375 passed, 7 skipped in 4.00s\n").hexdigest(),
+            "stdout_sha256": hashlib.sha256(pytest_stdout).hexdigest(),
             "system_cpu_seconds": 0.5,
             "user_cpu_seconds": 3.0,
         }
     ]
+
+
+@pytest.mark.unit
+def test_pytest_counts_refuses_outcome_phrases_without_a_final_summary() -> None:
+    module = _module()
+
+    with pytest.raises(module.RecorderError, match="final summary"):
+        module._pytest_counts(b"2 failed, 2375 passed, 7 skipped in ordinary output\n")
 
 
 @pytest.mark.integration
