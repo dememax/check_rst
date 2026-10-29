@@ -571,36 +571,45 @@ The recorder runs the worktree command serially and records the
 targets in generated small and large Sphinx projects, plus the repository's
 public ``context --no-toctree`` reproduction.  Add ``--test-suite`` to the
 preview and measurement commands to include one run of the project's own test
-suite, with passed, failed and skipped counts.  Omit ``--dry-run`` to measure;
-``--replace`` is required to replace an existing record for the same host
-label, commit and scenario.
+suite.  The preview prints the command actually dispatched: reader commands
+use the structural-count wrapper, while the test suite runs ``python -m
+pytest`` directly.  Omit ``--dry-run`` to measure; ``--replace`` is required
+to replace an existing record for the same host label, commit and scenario.
 
 The recorder requires a clean Git worktree and an artifact path that resolves
 outside it.  Generated corpora and Sphinx build directories exist only below a
 temporary directory.  Each subprocess exports its structural call counts
 alongside wall, user and system time, peak RSS, exit status and a
 standard-output hash.  Repetitions that disagree on exit status, output or
-counts are rejected.  The host label is always an explicit option; the recorder
-never obtains a machine hostname.  Project and page sizes can be changed with
-the recorder's size options for later scaling work.
+counts are rejected.  One UTC ISO 8601 measurement time, at one-second
+precision, is shared by every scenario in a recorder run.  The host label is
+always an explicit option; the recorder never obtains a machine hostname.
+Project and page sizes can be changed with the recorder's size options for
+later scaling work.
 
 Render the complete versioned page from one or more host artifacts, in any
 order::
 
    python3.14 -m tools.perf_history --output docs/performance-history.rst /tmp/check-rst-performance.json
 
-The renderer sorts environments, scenarios and rows deterministically.  It
-collapses identical host/commit/scenario rows, refuses conflicting duplicates,
-and assigns a separate environment identifier whenever any recorded host fact
-changes.  Times have six decimal places; RAM and peak RSS have two, in GiB and
-MiB respectively.  With no artifacts, or only empty artifacts, it renders the
-valid no-measurements page committed before the first controlled run.
+The renderer orders rows by measurement time, then scenario and environment,
+with deterministic further tie-breakers.  It collapses identical
+host/commit/scenario rows, refuses conflicting duplicates, and assigns a
+separate environment identifier whenever any recorded host fact changes.
+Tables show a 12-character commit abbreviation; artifacts retain the full
+commit.  Generated cells escape RST reference and substitution boundaries.
+Times have six decimal places; RAM and peak RSS have two, in GiB and MiB
+respectively.  With no artifacts, or only empty artifacts, it renders the valid
+no-measurements page committed before the first controlled run.
 
 Check that the committed page is exactly reproducible without writing it::
 
    python3.14 -m tools.perf_history --output docs/performance-history.rst --check /tmp/check-rst-performance.json
 
-Malformed artifacts and format versions other than 1 are refused.  The
-renderer reports elapsed wall time, user and system CPU medians and minima,
-maximum peak RSS and structural counts for each benchmark.  Test-suite rows
-carry the same resource fields plus their passed, failed and skipped counts.
+Malformed artifacts and format versions other than 2 are refused.  There are
+no format-1 measurement artifacts to migrate; assigning them a synthetic time
+would create a false chronology.  The renderer reports elapsed wall time, user
+and system CPU medians and minima, maximum peak RSS and structural counts for
+each benchmark.  Test-suite rows carry the same resource fields plus passed,
+failed, skipped, errors, xfailed and xpassed counts parsed only from pytest's
+final summary line.  Output without that line is refused.

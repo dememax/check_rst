@@ -161,7 +161,7 @@ def _validate_record(value: object, context: str) -> JsonObject:
 
 
 def load_artifact(path: pathlib.Path) -> JsonObject:
-    """Load and validate one format-version-1 recorder artifact."""
+    """Load and validate one format-version-2 recorder artifact."""
     try:
         raw: object = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -277,6 +277,7 @@ def render_page(artifacts: Sequence[JsonObject]) -> str:
         *_heading("Performance history", "#"),
         "This page is rendered deterministically from host-scoped JSON artifacts.",
         "Times are seconds and peak resident set size (RSS) is MiB.",
+        "Measurement timestamps use UTC with one-second precision.",
         "User CPU beside elapsed wall time distinguishes computation from waiting.",
         "",
         *_heading("Host environments", "*"),

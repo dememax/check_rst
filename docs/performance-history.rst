@@ -8,6 +8,7 @@ Performance history
 
 This page is rendered deterministically from host-scoped JSON artifacts.
 Times are seconds and peak resident set size (RSS) is MiB.
+Measurement timestamps use UTC with one-second precision.
 User CPU beside elapsed wall time distinguishes computation from waiting.
 
 *******************
