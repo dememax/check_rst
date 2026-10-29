@@ -253,6 +253,75 @@ def test_dry_run_lists_full_reader_matrix_without_running(
 
 
 @pytest.mark.integration
+def test_test_suite_option_records_one_injected_run_and_outcome_counts(
+    tmp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _module()
+    monkeypatch.chdir(tmp_git_repo)
+    monkeypatch.setattr(module, "collect_host_facts", lambda label: _host(module, label))
+    monkeypatch.setattr(module, "generate_project", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(module, "_generated_scenarios", lambda _projects: [])
+    monkeypatch.setattr(module, "_public_scenarios", lambda _repository, _commit: [])
+    artifact = tmp_git_repo.parent / f"{tmp_git_repo.name}-artifact.json"
+    commands: list[tuple[str, ...]] = []
+
+    def fake_runner(command: tuple[str, ...], _cwd: Path, _counts: Path) -> _RunResultLike:
+        commands.append(command)
+        return cast(
+            "_RunResultLike",
+            module.RunResult(4.0, 3.0, 0.5, 20_000_000, 1, b"2 failed, 2375 passed, 7 skipped in 4.00s\n", {}),
+        )
+
+    status = module.main(
+        ["--artifact", str(artifact), "--host-label", "invented-host", "--test-suite"],
+        runner=fake_runner,
+    )
+
+    assert status == 0
+    assert len(commands) == 1
+    assert commands[0][1:3] == ("-m", "pytest")
+    recorded = json.loads(artifact.read_text(encoding="utf-8"))
+    [record] = recorded["records"]
+    assert record["scenario"]["name"] == "project-test-suite"
+    assert record["repetitions"] == 1
+    assert record["test_counts"] == {"passed": 2375, "failed": 2, "skipped": 7}
+    assert record["measurements"] == [
+        {
+            "elapsed_seconds": 4.0,
+            "exit_status": 1,
+            "peak_rss_bytes": 20_000_000,
+            "stdout_sha256": hashlib.sha256(b"2 failed, 2375 passed, 7 skipped in 4.00s\n").hexdigest(),
+            "system_cpu_seconds": 0.5,
+            "user_cpu_seconds": 3.0,
+        }
+    ]
+
+
+@pytest.mark.integration
+def test_test_suite_dry_run_lists_command_without_running(
+    tmp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _module()
+    monkeypatch.chdir(tmp_git_repo)
+    artifact = tmp_git_repo.parent / f"{tmp_git_repo.name}-artifact.json"
+
+    status = module.main(
+        ["--artifact", str(artifact), "--host-label", "invented-host", "--test-suite", "--dry-run"],
+        runner=lambda *_args: pytest.fail("ran the test suite"),
+    )
+
+    output = capsys.readouterr()
+    assert status == 0
+    assert "project-test-suite" in output.out
+    assert "-m pytest" in output.out
+    assert output.err == ""
+    assert not artifact.exists()
+
+
+@pytest.mark.integration
 def test_artifact_inside_measured_worktree_is_refused(
     tmp_git_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
