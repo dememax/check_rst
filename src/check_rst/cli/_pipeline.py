@@ -762,12 +762,13 @@ def _run_phase1(
                 state.byte_len_max = max(state.byte_len_max, b)
 
     # A Sphinx application loads project extensions into this Python process.
-    # docutils_namespace() restores Sphinx's directive/role/node registrations,
-    # but arbitrary extensions may mutate other process-global state.  When a
-    # later report will need the bare-docutils tree and Phase 1 did not already
-    # force it (notably --no-directives), materialize that cached tree BEFORE
-    # constructing Sphinx.  Derived outline/block/prose properties can then be
-    # evaluated later without running a parser in the extension-mutated process.
+    # _sphinx_docutils_namespace() restores Sphinx's directive/role/node
+    # registrations, including the canonical _role_registry, but arbitrary
+    # extensions may mutate other process-global state.  When a later report
+    # will need the bare-docutils tree and Phase 1 did not already force it
+    # (notably --no-directives), materialize that cached tree BEFORE constructing
+    # Sphinx.  Derived outline/block/prose properties can then be evaluated later
+    # without running a parser in the extension-mutated process.
     if args.sphinx_src is not None and (args.outline or args.json or word_samples):
         for document_model in state.documents.values():
             _ = document_model.doctree

@@ -302,10 +302,11 @@ def _build_sphinx_env(
     registration outlives the app — confirmed by direct testing: a bare
     docutils parse running later in the same process inherited Sphinx's
     "toctree" directive and crashed the exact self.env way this function
-    exists to avoid, breaking Phase 1 for the rest of the process. Sphinx's
-    own docutils_namespace() snapshots and restores that registry, so the
-    construction and build are scoped inside it; get_doctree() afterwards is
-    a pure unpickle of an already-built tree and needs no registry state.
+    exists to avoid, breaking Phase 1 for the rest of the process. check_rst's
+    _sphinx_docutils_namespace() wraps Sphinx's namespace and additionally
+    restores the canonical _role_registry, so the construction and build are
+    scoped inside it; get_doctree() afterwards is a pure unpickle of an
+    already-built tree and needs no registry state.
 
     When *files* is given, those checked documents are deliberately re-read
     even if Sphinx's incremental environment considers them unchanged.  This
