@@ -470,7 +470,7 @@ def _add_no_toctree_flag(parser: argparse.ArgumentParser, *, check: bool = False
             "not a performance option; requires --format=json because text reports "
             "cannot mark the omission"
             if check
-            else "omit toctree expansion from reported structure only in verified mode; "
+            else "default recurses fully; omit toctree expansion from reported structure only in verified mode; "
             "verified setup, include contexts, and incoming references remain complete; "
             "not a performance option"
         ),
