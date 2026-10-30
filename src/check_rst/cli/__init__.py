@@ -1505,9 +1505,14 @@ def _discover_and_validate_files(
                 _print_fix_only_status(0, 0, 0)
             sys.exit(0)
     else:
-        # Resolve the file list; silently drop non-.rst entries so that passing
-        # the raw output of "git diff --name-only HEAD" is safe.
+        # An existing directory is a scope request, not an ignorable non-RST
+        # file: fail before filtering so a mixed list cannot pass partially.
+        # Other non-.rst entries remain silent drops, which keeps the raw
+        # output of "git diff --name-only HEAD" safe.
         raw_files: list[pathlib.Path] = args.files or _helpers._changed_rst_files(project_root)
+        for path in args.files:
+            if path.is_dir():
+                _cli_fail(f"{path} is a directory: use --recursive to check the .rst files under it")
         files = [f for f in raw_files if f.suffix == ".rst"]
         if not files:
             msg = "no .rst files in the list" if args.files else "no changed .rst files"

@@ -27,7 +27,9 @@ NON-RST INPUT
 
 Explicit paths with another suffix, including ``.md``, are ignored with a
 clear “no .rst files” result.  They are not interpreted as RST and are never
-rewritten.  This is a format boundary, not a successful Markdown validation.
+rewritten.  An existing directory is refused unless ``--recursive`` selects
+it as a scope.  This is a format boundary, not a successful Markdown
+validation.
 
 *****************
 MARKDOWN BRIDGE

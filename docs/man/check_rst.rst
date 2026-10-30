@@ -94,7 +94,9 @@ Explicit files are processed in full.  With no files, Git selects changed and
 untracked ``.rst`` files and diagnostics are limited to changed lines where
 the command supports findings.  ``--recursive`` treats positional paths as
 directories and processes every matching file in full.  ``--git-scope``
-instead treats positional files as an allowlist over Git selection.
+instead treats positional files as an allowlist over Git selection.  An
+existing directory passed without ``--recursive`` is a usage error, even
+beside a valid RST file; it is never silently dropped as a non-RST operand.
 ``--exclude PATTERN`` (repeatable, valid only with ``--recursive``) skips a
 discovered file whose path matches ``PATTERN`` via ``pathlib.PurePath.match``
 — a bare filename with no slash matches that name at any depth under the

@@ -40,7 +40,9 @@ executable is deliberately format-specific.  It natively accepts ``.rst``
 files and understands Sphinx projects when verified mode is enabled.
 Explicit non-RST paths, including ``.md``, are ignored with a clear
 ``no .rst files in the list — nothing to do`` result; they are not parsed as
-RST and are never rewritten.
+RST and are never rewritten.  An existing directory is a scope request, not a
+non-RST file: without ``--recursive`` it is refused instead of being silently
+dropped, including when another operand is a valid RST file.
 
 Markdown can still use the documented Pandoc bridge: convert it to temporary
 RST, then run ``check_rst check --skip-fixable converted.rst``.  That is an
