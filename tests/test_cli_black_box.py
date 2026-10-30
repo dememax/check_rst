@@ -97,6 +97,55 @@ def _run_verified_context(
 
 
 @pytest.mark.integration
+def test_verified_check_keeps_nested_code_role_warning(tmp_path: Path) -> None:
+    (tmp_path / "conf.py").write_text(
+        'project = "nested-code-check"\nroot_doc = "index"\n',
+        encoding="utf-8",
+    )
+    document = tmp_path / "index.rst"
+    document.write_text("Some **outer :code:`value`** text.\n", encoding="utf-8")
+
+    verified = _run_cli(
+        tmp_path,
+        "--sphinx-src",
+        str(tmp_path),
+        "--build-dir",
+        str(tmp_path / "_build"),
+        "check",
+        str(document),
+    )
+    heuristic = _run_cli(tmp_path, "check", str(document))
+
+    expected = "WARNING: nested inline markup in bold span"
+    assert (verified.returncode, verified.stderr) == (0, "")
+    assert (heuristic.returncode, heuristic.stderr) == (0, "")
+    assert verified.stdout.count(expected) == heuristic.stdout.count(expected) == 1
+
+
+@pytest.mark.integration
+def test_verified_context_fragment_keeps_nested_code_role_warning(tmp_path: Path) -> None:
+    (tmp_path / "conf.py").write_text(
+        'project = "nested-code-context"\nroot_doc = "index"\nexclude_patterns = ["part.rst"]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "index.rst").write_text(
+        "Index\n=====\n\n.. include:: part.rst\n",
+        encoding="utf-8",
+    )
+    fragment = tmp_path / "part.rst"
+    fragment.write_text(
+        "=======\nSection\n=======\n\n**outer :code:`value`**\n",
+        encoding="utf-8",
+    )
+
+    result = _run_verified_context(tmp_path, tmp_path / "_build", "part:Section", fragment)
+
+    assert (result.returncode, result.stderr) == (0, "")
+    assert "WARNING: nested inline markup in bold span" in result.stdout
+    assert "WARNING: standalone bold line" not in result.stdout
+
+
+@pytest.mark.integration
 def test_verified_context_refreshes_document_added_since_warm_build(tmp_path: Path) -> None:
     """A new standalone document must not disappear behind a stale cache."""
     warm_build = tmp_path / "warm-build"

@@ -959,15 +959,9 @@ def test_verified_context_reuses_one_locked_application_cold_and_warm(
     role_registry = dict(vars(roles).get("_role_registry", {}))
     local_roles = dict(vars(roles).get("_roles", {}))
 
-    def restored_registry(
-        current: dict[str, object], baseline: dict[str, object], *, allow_sphinx_code_role: bool = False
-    ) -> bool:
+    def restored_registry(current: dict[str, object], baseline: dict[str, object]) -> bool:
         return baseline.keys() <= current.keys() and all(
-            current[name] is baseline.get(name)
-            or getattr(current[name], "__module__", "").startswith("docutils.")
-            or (
-                allow_sphinx_code_role and name == "code" and getattr(current[name], "__module__", "") == "sphinx.roles"
-            )
+            current[name] is baseline.get(name) or getattr(current[name], "__module__", "").startswith("docutils.")
             for name in current
         )
 
@@ -1035,7 +1029,7 @@ def test_verified_context_reuses_one_locked_application_cold_and_warm(
         parse_registries_restored.append(
             namespace_depth == 0
             and restored_registry(current_directives, directive_registry)
-            and restored_registry(current_role_registry, role_registry, allow_sphinx_code_role=True)
+            and current_role_registry == role_registry
             and restored_registry(current_local_roles, local_roles)
         )
         registry_differences.append(
@@ -1090,8 +1084,30 @@ def test_verified_context_reuses_one_locked_application_cold_and_warm(
     assert parse_registries_restored
     assert all(parse_registries_restored), registry_differences
     assert restored_registry(dict(vars(directives).get("_directives", {})), directive_registry)
-    assert restored_registry(dict(vars(roles).get("_role_registry", {})), role_registry, allow_sphinx_code_role=True)
+    assert dict(vars(roles).get("_role_registry", {})) == role_registry
     assert restored_registry(dict(vars(roles).get("_roles", {})), local_roles)
+
+
+@pytest.mark.integration
+def test_sphinx_entry_points_restore_canonical_role_registry(tmp_path: Path) -> None:
+    from docutils.parsers.rst import roles
+
+    (tmp_path / "conf.py").write_text('project = "role-restoration"\n', encoding="utf-8")
+    (tmp_path / "index.rst").write_text("Index\n=====\n", encoding="utf-8")
+    registry = roles._role_registry
+    entries = dict(registry)
+
+    def assert_restored() -> None:
+        assert roles._role_registry is registry
+        assert roles._role_registry == entries
+
+    _sphinx.planning_facts(tmp_path)
+    assert_restored()
+    with _sphinx.prepared_sphinx_application(tmp_path, tmp_path / "prepared-build"):
+        pass
+    assert_restored()
+    _sphinx._build_sphinx_env(tmp_path, tmp_path / "full-build")
+    assert_restored()
 
 
 @pytest.mark.integration
