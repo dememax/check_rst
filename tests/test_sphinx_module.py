@@ -958,6 +958,7 @@ def test_verified_context_reuses_one_locked_application_cold_and_warm(
     directive_registry = dict(vars(directives).get("_directives", {}))
     role_registry = dict(vars(roles).get("_role_registry", {}))
     local_roles = dict(vars(roles).get("_roles", {}))
+    assert role_registry.get("code") is roles.code_role
 
     def restored_registry(current: dict[str, object], baseline: dict[str, object]) -> bool:
         return baseline.keys() <= current.keys() and all(
@@ -1085,6 +1086,7 @@ def test_verified_context_reuses_one_locked_application_cold_and_warm(
     assert all(parse_registries_restored), registry_differences
     assert restored_registry(dict(vars(directives).get("_directives", {})), directive_registry)
     assert dict(vars(roles).get("_role_registry", {})) == role_registry
+    assert role_registry.get("code") is roles.code_role
     assert restored_registry(dict(vars(roles).get("_roles", {})), local_roles)
 
 
@@ -1101,7 +1103,9 @@ def test_sphinx_entry_points_restore_canonical_role_registry(tmp_path: Path) -> 
     def assert_restored() -> None:
         assert vars(roles).get("_role_registry") is registry
         assert registry == entries
+        assert registry.get("code") is roles.code_role
 
+    assert_restored()
     _sphinx.planning_facts(tmp_path)
     assert_restored()
     with _sphinx.prepared_sphinx_application(tmp_path, tmp_path / "prepared-build"):
