@@ -1155,8 +1155,12 @@ def test_verified_context_discovery_failure_is_clean_error_not_traceback(
     selected.write_text("Index\n=====\n", encoding="utf-8")
     real_construct = _sphinx._construct_sphinx_application
 
-    def construct_with_failed_discovery(*args: object, **kwargs: object) -> Sphinx:
-        app = real_construct(*args, **kwargs)
+    def construct_with_failed_discovery(
+        sphinx_src: Path,
+        build_dir: Path,
+        warning_stream: io.StringIO,
+    ) -> Sphinx:
+        app = real_construct(sphinx_src, build_dir, warning_stream)
         assert isinstance(app, Sphinx)
 
         def fail_discovery(*_args: object, **_kwargs: object) -> None:
