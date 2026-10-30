@@ -593,6 +593,9 @@ always an explicit option; the recorder never obtains a machine hostname.
 Project and page sizes can be changed with the recorder's size options for
 later scaling work.
 
+Phase boundaries can move between measured commits, so compare totals rather
+than individual phase values across commits.
+
 Render the complete versioned page from one or more host artifacts, in any
 order::
 
