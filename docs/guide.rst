@@ -715,7 +715,7 @@ tell which, and the rest of the fix can depend on it, so the file is refused
 whenever ``fix`` would otherwise change something.  The diagnostic names both
 safe remedies::
 
-   if it is a title, add a blank line before it; if it is text, mark the block as literal or break the title-like punctuation
+   if it is a title, add a blank line before it (before its overline, if it has one); if it is text, mark the block as literal or break the title-like punctuation
 
 A bullet item is the exception because an unindent ends it.  In this geometry,
 an enumerated item followed by an unindented line is ordinary text to Docutils,

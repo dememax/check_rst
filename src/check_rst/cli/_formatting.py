@@ -795,8 +795,8 @@ def _apply_hierarchy_remap(lines: list[str], remap: dict[_TitleStyle, _TitleStyl
 
 _BLOCKED_SUFFIX = "; title fixes for this file wait until this is resolved"
 _UNSEPARATED_TITLE_REMEDY = (
-    "if it is a title, add a blank line before it; if it is text, mark the block as literal or break the "
-    "title-like punctuation"
+    "if it is a title, add a blank line before it (before its overline, if it has one); if it is text, "
+    "mark the block as literal or break the title-like punctuation"
 )
 
 
