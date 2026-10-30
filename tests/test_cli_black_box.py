@@ -402,6 +402,68 @@ def test_black_box_runtime_argument_conflicts_use_stdout_and_status_1(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("command", ["check", "outline"])
+def test_black_box_directory_operand_requires_recursive(tmp_path: Path, command: str) -> None:
+    directory = tmp_path / "docs"
+    directory.mkdir()
+
+    result = _run_cli(tmp_path, "--no-config", command, str(directory))
+
+    assert result.returncode == 1
+    assert result.stdout == (
+        f"check_rst: {directory} is a directory: use --recursive to check the .rst files under it\n"
+    )
+    assert result.stderr == ""
+
+
+@pytest.mark.integration
+def test_black_box_json_directory_operand_uses_failure_document(tmp_path: Path) -> None:
+    directory = tmp_path / "docs"
+    directory.mkdir()
+    message = f"check_rst: {directory} is a directory: use --recursive to check the .rst files under it"
+
+    result = _run_cli(tmp_path, "--no-config", "check", "--format=json", str(directory))
+
+    assert result.returncode == 1
+    assert result.stderr == ""
+    payload = json.loads(result.stdout)
+    assert payload["mode"] == "unavailable"
+    assert payload["files"] == []
+    assert payload["errors"] == [{"kind": "command", "message": message}]
+    assert payload["summary"]["errors"] == 1
+
+
+@pytest.mark.integration
+def test_black_box_directory_operand_refuses_mixed_file_list(tmp_path: Path) -> None:
+    directory = tmp_path / "docs"
+    directory.mkdir()
+    document = tmp_path / "valid.rst"
+    document.write_text("Valid\n=====\n", encoding="utf-8")
+
+    result = _run_cli(tmp_path, "--no-config", "check", str(directory), str(document))
+
+    assert result.returncode == 1
+    assert result.stdout == (
+        f"check_rst: {directory} is a directory: use --recursive to check the .rst files under it\n"
+    )
+    assert result.stderr == ""
+
+
+@pytest.mark.integration
+def test_black_box_non_rst_file_list_remains_no_op(tmp_path: Path) -> None:
+    markdown = tmp_path / "README.md"
+    script = tmp_path / "tool.py"
+    markdown.write_text("# Notes\n", encoding="utf-8")
+    script.write_text("pass\n", encoding="utf-8")
+
+    result = _run_cli(tmp_path, "--no-config", "check", str(markdown), str(script))
+
+    assert result.returncode == 0
+    assert result.stdout == "check_rst: no .rst files in the list — nothing to do\n"
+    assert result.stderr == ""
+
+
+@pytest.mark.integration
 def test_black_box_diff_help_explains_complete_patch_contract(tmp_path: Path) -> None:
     """A cold reader must learn why report truncation is absent from diff."""
     result = _run_cli(tmp_path, "diff", "--help")
