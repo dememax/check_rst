@@ -1142,6 +1142,44 @@ def test_verified_context_refusal_does_not_build_sphinx(
 
 
 @pytest.mark.integration
+def test_verified_context_discovery_failure_is_clean_error_not_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from sphinx.application import Sphinx
+    from sphinx.errors import DocumentError
+
+    (tmp_path / "conf.py").write_text('project = "failed-discovery"\n', encoding="utf-8")
+    selected = tmp_path / "index.rst"
+    selected.write_text("Index\n=====\n", encoding="utf-8")
+    real_construct = _sphinx._construct_sphinx_application
+
+    def construct_with_failed_discovery(*args: object, **kwargs: object) -> Sphinx:
+        app = real_construct(*args, **kwargs)
+        assert isinstance(app, Sphinx)
+
+        def fail_discovery(*_args: object, **_kwargs: object) -> None:
+            raise DocumentError("invented discovery failure")
+
+        monkeypatch.setattr(app.env, "find_files", fail_discovery)
+        return app
+
+    monkeypatch.setattr(_sphinx, "_construct_sphinx_application", construct_with_failed_discovery)
+    outcome: tuple[int, str] | BaseException
+    try:
+        outcome = _verified_run(tmp_path, monkeypatch, capsys, "context", "Index", str(selected))
+    except BaseException as exc:
+        outcome = exc
+
+    assert not isinstance(outcome, BaseException), f"discovery escaped as {type(outcome).__name__}"
+    code, out = outcome
+    assert code == 1
+    assert out == "check_rst: Sphinx environment build failed: DocumentError: invented discovery failure\n"
+    assert "Traceback" not in out
+
+
+@pytest.mark.integration
 def test_verified_context_torn_read_retries_with_one_replacement_application(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
