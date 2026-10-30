@@ -1094,12 +1094,13 @@ def test_sphinx_entry_points_restore_canonical_role_registry(tmp_path: Path) -> 
 
     (tmp_path / "conf.py").write_text('project = "role-restoration"\n', encoding="utf-8")
     (tmp_path / "index.rst").write_text("Index\n=====\n", encoding="utf-8")
-    registry = roles._role_registry
+    registry = vars(roles).get("_role_registry")
+    assert isinstance(registry, dict)
     entries = dict(registry)
 
     def assert_restored() -> None:
-        assert roles._role_registry is registry
-        assert roles._role_registry == entries
+        assert vars(roles).get("_role_registry") is registry
+        assert registry == entries
 
     _sphinx.planning_facts(tmp_path)
     assert_restored()
