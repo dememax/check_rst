@@ -206,6 +206,8 @@ def test_no_toctree_help_states_output_only_contract(command: str, capsys: pytes
     assert "not a performance option" in help_text
     if command == "check":
         assert "requires --format=json" in help_text
+    else:
+        assert "default recurses fully" in help_text
 
 
 # ---------------------------------------------------------------------------
