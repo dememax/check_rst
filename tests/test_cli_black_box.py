@@ -77,6 +77,86 @@ def _start_cli(cwd: Path, *arguments: str) -> subprocess.Popen[str]:
     )
 
 
+def _run_verified_context(
+    source_dir: Path,
+    build_dir: Path,
+    selector: str,
+    document: Path,
+) -> subprocess.CompletedProcess[str]:
+    """Run one verified context query against an explicit Sphinx cache."""
+    return _run_cli(
+        source_dir,
+        "--sphinx-src",
+        str(source_dir),
+        "--build-dir",
+        str(build_dir),
+        "context",
+        selector,
+        str(document),
+    )
+
+
+@pytest.mark.integration
+def test_verified_context_refreshes_document_added_since_warm_build(tmp_path: Path) -> None:
+    """A new standalone document must not disappear behind a stale cache."""
+    warm_build = tmp_path / "warm-build"
+    cold_build = tmp_path / "cold-build"
+    (tmp_path / "conf.py").write_text('project = "added-document"\n', encoding="utf-8")
+    index = tmp_path / "index.rst"
+    index.write_text(
+        "Index\n=====\n\n.. toctree::\n\n   a\n",
+        encoding="utf-8",
+    )
+    includer = tmp_path / "a.rst"
+    includer.write_text("A\n=\n\nText.\n", encoding="utf-8")
+
+    warm_up = _run_verified_context(tmp_path, warm_build, "a:A", includer)
+    assert (warm_up.returncode, warm_up.stderr) == (0, "")
+
+    included = tmp_path / "part.rst"
+    included.write_text("Shared\n------\n\nBody.\n", encoding="utf-8")
+    includer.write_text("A\n=\n\nText.\n\n.. include:: part.rst\n", encoding="utf-8")
+
+    warm = _run_verified_context(tmp_path, warm_build, "part:Shared", included)
+    cold = _run_verified_context(tmp_path, cold_build, "part:Shared", included)
+
+    assert cold.returncode == 1
+    assert "a.rst reports depth 2 and standalone use reports depth 1" in cold.stdout
+    assert (warm.returncode, warm.stdout, warm.stderr) == (cold.returncode, cold.stdout, cold.stderr)
+
+
+@pytest.mark.integration
+def test_verified_context_refreshes_document_excluded_since_warm_build(tmp_path: Path) -> None:
+    """A newly excluded include must lose its stale standalone context."""
+    warm_build = tmp_path / "warm-build"
+    cold_build = tmp_path / "cold-build"
+    config = tmp_path / "conf.py"
+    config.write_text('project = "excluded-document"\n', encoding="utf-8")
+    index = tmp_path / "index.rst"
+    index.write_text(
+        "Index\n=====\n\n.. toctree::\n\n   a\n",
+        encoding="utf-8",
+    )
+    included = tmp_path / "part.rst"
+    included.write_text("Shared\n------\n\nBody.\n", encoding="utf-8")
+    includer = tmp_path / "a.rst"
+    includer.write_text("A\n=\n\nText.\n\n.. include:: part.rst\n", encoding="utf-8")
+
+    warm_up = _run_verified_context(tmp_path, warm_build, "index:Index", index)
+    assert (warm_up.returncode, warm_up.stderr) == (0, "")
+    config.write_text(
+        'project = "excluded-document"\nexclude_patterns = ["part.rst"]\n',
+        encoding="utf-8",
+    )
+
+    warm = _run_verified_context(tmp_path, warm_build, "part:Shared", included)
+    cold = _run_verified_context(tmp_path, cold_build, "part:Shared", included)
+
+    assert (cold.returncode, cold.stderr) == (0, "")
+    assert "selector: part:Shared" in cold.stdout
+    assert (warm.returncode, warm.stdout, warm.stderr) == (cold.returncode, cold.stdout, cold.stderr)
+
+
 @pytest.mark.integration
 def test_contract_version_is_stable_machine_readable_integer(tmp_path: Path) -> None:
     result = _run_cli(tmp_path, "--contract-version")
