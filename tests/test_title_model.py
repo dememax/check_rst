@@ -444,8 +444,8 @@ def test_enumerator_does_not_prove_a_fresh_markup_context(
 
 _CR46_NEEDS_FIX = "###\nLong title\n###\n\n"
 _CR46_REMEDY = (
-    "if it is a title, add a blank line before it; if it is text, mark the block as literal or break the "
-    "title-like punctuation"
+    "if it is a title, add a blank line before it (before its overline, if it has one); if it is text, "
+    "mark the block as literal or break the title-like punctuation"
 )
 
 

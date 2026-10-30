@@ -242,8 +242,13 @@ def test_guide_quotes_the_unseparated_title_remedy() -> None:
     from check_rst.cli._formatting import _UNSEPARATED_TITLE_REMEDY
 
     guide = _normalized_text(DOCS_DIR / "guide.rst")
+    expected = (
+        "if it is a title, add a blank line before it (before its overline, if it has one); if it is text, "
+        "mark the block as literal or break the title-like punctuation"
+    )
 
-    assert _UNSEPARATED_TITLE_REMEDY in guide
+    assert expected == _UNSEPARATED_TITLE_REMEDY
+    assert expected in guide
     assert "directly after a non-blank line that is not a bullet item" in guide
     assert "an enumerated item followed by an unindented line is ordinary text to Docutils" in guide
 
