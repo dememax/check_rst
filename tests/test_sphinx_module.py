@@ -879,7 +879,6 @@ def test_cli_version_reports_release_identity(
 @pytest.mark.integration
 def test_planning_facts_snapshot_ignores_tool_listeners_and_keeps_project_facts(tmp_path: Path) -> None:
     from sphinx.application import Sphinx
-    from sphinx.util.docutils import docutils_namespace
 
     (tmp_path / "conf.py").write_text(
         'project = "facts"\nsource_suffix = {".rst": "restructuredtext", ".txt": "restructuredtext"}\n',
@@ -890,7 +889,7 @@ def test_planning_facts_snapshot_ignores_tool_listeners_and_keeps_project_facts(
     index.write_text("Index\n=====\n", encoding="utf-8")
     extra.write_text("Extra\n=====\n", encoding="utf-8")
 
-    with docutils_namespace():
+    with _sphinx._sphinx_docutils_namespace():
         app = Sphinx(
             srcdir=str(tmp_path),
             confdir=str(tmp_path),
