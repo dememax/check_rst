@@ -386,15 +386,15 @@ def prepared_sphinx_application(
     with docutils_namespace():
         try:
             app = _construct_sphinx_application(sphinx_src, build_dir, warning_stream)
+            # A persistent environment restores the project discovered by its
+            # last build.  Repeat the builder's discovery step before freezing
+            # planning facts so document additions, removals, and current
+            # exclude/include patterns have the same meaning as in a fresh app.
+            app.env.find_files(app.config, app.builder)
         except Exception as exc:
             detail = " ".join(str(exc).splitlines())
             print(f"check_rst: Sphinx environment build failed: {type(exc).__name__}: {detail}")
             raise SystemExit(1) from exc
-        # A persistent environment restores the project discovered by its
-        # last build.  Repeat the builder's discovery step before freezing
-        # planning facts so document additions, removals, and current
-        # exclude/include patterns have the same meaning as in a fresh app.
-        app.env.find_files(app.config, app.builder)
         yield PreparedSphinxApplication(
             sphinx_src,
             build_dir,
