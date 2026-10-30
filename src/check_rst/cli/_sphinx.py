@@ -81,6 +81,35 @@ _WARNING_RE = re.compile(
 )
 
 
+@contextlib.contextmanager
+def _sphinx_docutils_namespace() -> Iterator[None]:
+    """Scope Sphinx's Docutils state, including the canonical role registry.
+
+    Sphinx's ``docutils_namespace`` restores the local directive and role
+    caches, but its ``code`` role registration mutates ``_role_registry``
+    permanently.  Restore that one omitted registry only after Sphinx has
+    finished, preserving the original mapping object as well as its entries.
+    The language importer caches remain warm: they are harmless import caches,
+    not dispatch registries.
+    """
+    from docutils.parsers.rst import roles
+    from sphinx.util.docutils import docutils_namespace
+
+    registry_object = vars(roles).get("_role_registry")
+    if not isinstance(registry_object, dict):
+        raise RuntimeError("Docutils canonical role registry is unavailable")
+    registry = cast("dict[str, object]", registry_object)
+    entries = dict(registry)
+    try:
+        with docutils_namespace():
+            yield
+    finally:
+        registry.clear()
+        registry.update(entries)
+        # types-docutils intentionally omits Docutils' private registry.
+        roles._role_registry = registry  # type: ignore[attr-defined]
+
+
 # Strips ANSI SGR escape codes (colored terminal output) before _WARNING_RE
 # matching.  Confirmed necessary (2026-07-20): Sphinx's IN-PROCESS build
 # colorizes its console stream even when the target is an io.StringIO()
@@ -285,10 +314,8 @@ def _build_sphinx_env(
     Sphinx's supported hook for adding selected docnames to the incremental
     read set.
     """
-    from sphinx.util.docutils import docutils_namespace
-
     warning_stream = io.StringIO()
-    with docutils_namespace():
+    with _sphinx_docutils_namespace():
         app = _construct_sphinx_application(sphinx_src, build_dir, warning_stream)
         return _build_sphinx_application(app, warning_stream, files, torn_out=torn_out)
 
@@ -380,10 +407,8 @@ def prepared_sphinx_application(
     planning may temporarily narrow the process registries through
     ``_builtins_only``; that context restores this Sphinx namespace each time.
     """
-    from sphinx.util.docutils import docutils_namespace
-
     warning_stream = io.StringIO()
-    with docutils_namespace():
+    with _sphinx_docutils_namespace():
         try:
             app = _construct_sphinx_application(sphinx_src, build_dir, warning_stream)
             # A persistent environment restores the project discovered by its
@@ -419,9 +444,8 @@ def planning_facts(sphinx_src: pathlib.Path) -> PlanningFacts:
     import tempfile
 
     from sphinx.application import Sphinx
-    from sphinx.util.docutils import docutils_namespace
 
-    with tempfile.TemporaryDirectory(prefix="check-rst-facts-") as scratch, docutils_namespace():
+    with tempfile.TemporaryDirectory(prefix="check-rst-facts-") as scratch, _sphinx_docutils_namespace():
         try:
             app = Sphinx(
                 srcdir=str(sphinx_src),
