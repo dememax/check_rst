@@ -702,6 +702,106 @@ def test_one_character_with_and_without_overline_is_refused(
     _assert_contract(rst_repo, case, scope, monkeypatch, capsys)
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class RefusalHygieneCase:
+    """An ordinary structural refusal with an independent hygiene edit."""
+
+    name: str
+    refusal: str
+    diagnostic: str
+    dirty: str
+    clean: str
+    title_lines: tuple[int, ...]
+
+
+REFUSAL_HYGIENE_CASES = (
+    RefusalHygieneCase(
+        name="ambiguous style",
+        refusal="hierarchy.ambiguous-style",
+        diagnostic="underline-only title 'Install' uses '=', which this document also uses with an overline",
+        dirty="=========\n Manual\n=========\n\nIntro.   \n\nInstall\n=======\n\nText.\n",
+        clean="=========\n Manual\n=========\n\nIntro.\n\nInstall\n=======\n\nText.\n",
+        title_lines=(1, 2, 3, 7, 8),
+    ),
+    RefusalHygieneCase(
+        name="shared adornment line",
+        refusal="adornment.shared-line",
+        diagnostic="line 2 is both the underline of 'Para.' and the overline of 'Title'",
+        dirty="Para.\n#######\nTitle\n#######\n\nText.   \n",
+        clean="Para.\n#######\nTitle\n#######\n\nText.\n",
+        title_lines=(1, 2, 3, 4),
+    ),
+)
+
+
+def _assert_title_lines_unchanged(case: RefusalHygieneCase, actual: str) -> None:
+    before = case.dirty.splitlines(keepends=True)
+    after = actual.splitlines(keepends=True)
+    assert [after[index - 1] for index in case.title_lines] == [before[index - 1] for index in case.title_lines]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("case", REFUSAL_HYGIENE_CASES, ids=lambda case: case.name)
+@pytest.mark.parametrize("fast", [False, True], ids=["full", "fast"])
+def test_fix_applies_hygiene_while_preserving_refused_title_lines(
+    case: RefusalHygieneCase,
+    fast: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = tmp_path / "doc.rst"
+    path.write_text(case.dirty, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    command = ("fix", "--fast", path.name) if fast else ("fix", path.name)
+
+    code, out = _run(monkeypatch, capsys, *command)
+
+    actual = path.read_text(encoding="utf-8")
+    assert code == 1, out
+    assert case.diagnostic in out
+    assert "ERROR" in out
+    assert actual == case.clean
+    _assert_title_lines_unchanged(case, actual)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("case", REFUSAL_HYGIENE_CASES, ids=lambda case: case.name)
+@pytest.mark.parametrize("fast", [False, True], ids=["full", "fast"])
+def test_diff_previews_only_hygiene_while_preserving_refused_title_lines(
+    case: RefusalHygieneCase,
+    fast: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = tmp_path / "doc.rst"
+    path.write_text(case.dirty, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    command = ("diff", "--fast", path.name) if fast else ("diff", path.name)
+
+    code, out = _run(monkeypatch, capsys, *command)
+
+    expected_changes = [
+        marked
+        for before, after in zip(case.dirty.splitlines(), case.clean.splitlines(), strict=True)
+        if before != after
+        for marked in (f"-{before}", f"+{after}")
+    ]
+    preview_changes = [
+        line
+        for line in out.splitlines()
+        if (line.startswith("-") and not line.startswith("---"))
+        or (line.startswith("+") and not line.startswith("+++"))
+    ]
+    assert code == 1, out
+    assert case.diagnostic in out
+    assert "ERROR" in out
+    assert preview_changes == expected_changes, out
+    assert path.read_text(encoding="utf-8") == case.dirty
+    _assert_title_lines_unchanged(case, case.clean)
+
+
 @pytest.mark.integration
 def test_ambiguous_style_finding_names_both_resolutions(
     rst_repo: Path,
