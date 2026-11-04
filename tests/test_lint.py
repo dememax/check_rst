@@ -805,6 +805,34 @@ def test_directives_rubric_verbose_shows_text_and_section(tmp_path: Path) -> Non
 
 
 @pytest.mark.integration
+def test_directives_multiline_rubric_verbose_stays_on_one_output_line(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A multiline rubric title must not split its verbose finding."""
+    monkeypatch.chdir(tmp_path)
+    path = _rst(
+        tmp_path,
+        """\
+        .. rubric:: Navigation notes
+           for operators
+
+        Body text.
+        """,
+    )
+    monkeypatch.setattr("sys.argv", ["check_rst.py", "--no-config", "check", "--verbose", str(path)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+
+    output_lines = capsys.readouterr().out.splitlines()
+    rubric_lines = [line for line in output_lines if "Navigation notes" in line or "for operators" in line]
+    assert len(rubric_lines) == 1
+    assert "'.. rubric:: Navigation notes for operators'" in rubric_lines[0]
+
+
+@pytest.mark.integration
 def test_directives_bold_standalone_verbose_shows_text(tmp_path: Path) -> None:
     """Verbose standalone-bold findings must include the actual bold text."""
     p = _rst(tmp_path, "**Section Heading**\n\nSome text.\n")
