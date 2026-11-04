@@ -138,7 +138,46 @@ def test_fix_fast_refuses_a_file_outside_every_discovery_root(
 
     assert code == 1, out
     assert "fix refused — this file lies outside every discovery root (" in out
-    assert "so check_rst cannot search for its includers — run from the project root or pass --config" in out
+    assert (
+        "so check_rst cannot search for its includers — without a configuration, select the file inside its "
+        "Git worktree, or outside Git run from a working directory that contains it"
+    ) in out
+    assert part.read_text(encoding="utf-8") == _PART
+
+
+@pytest.mark.integration
+def test_fix_fast_configured_uncovered_advice_names_only_the_configuration_route(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    project = tmp_path_factory.mktemp("project")
+    config = project / "check-rst.toml"
+    config.write_text('build-dir = "_build"\n', encoding="utf-8")
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    part = elsewhere / "part.rst"
+    part.write_text(_PART, encoding="utf-8")
+    monkeypatch.chdir(tmp_path_factory.mktemp("cwd"))
+
+    code, out = _run(
+        monkeypatch,
+        capsys,
+        "--config",
+        str(config),
+        "fix",
+        "--fast",
+        str(part),
+        no_config=False,
+    )
+
+    assert code == 1, out
+    assert (
+        "so check_rst cannot search for its includers — select the file inside the active configuration's "
+        "directory, or pass --config FILE for its project"
+    ) in out
+    assert "without a configuration" not in out
+    assert "Git worktree" not in out
+    assert "working directory" not in out
     assert part.read_text(encoding="utf-8") == _PART
 
 
@@ -580,7 +619,10 @@ def test_entitle_refuses_a_file_outside_every_discovery_root(
 
     assert code == 1, out
     assert "entitle refused — this file lies outside every discovery root (" in out
-    assert "run from the project root or pass --config" in out
+    assert (
+        "without a configuration, select the file inside its Git worktree, or outside Git run from a working "
+        "directory that contains it"
+    ) in out
     assert part.read_text(encoding="utf-8") == _PART
 
 
