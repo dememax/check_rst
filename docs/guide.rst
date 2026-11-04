@@ -640,6 +640,27 @@ whole-file ``fix`` chose the other reading and flattened pages whose titles
 used the two forms as real levels.  A refusal is visible, and it costs one
 edit.
 
+------------------------------
+Short punctuation title text
+------------------------------
+
+Docutils treats a line of one to three copies of one punctuation character
+as title text when a title underline immediately follows it.  Its Body state
+first considers bullets, fields, option lists, doctest prompts, line blocks,
+tables, explicit markup and anonymous targets; those constructs keep their
+usual meaning.  A repeated line of four or more characters remains a possible
+overline or transition, not title text, and repeated punctuation inside an
+overlined block is not its title.
+
+``check`` reports the underline-only and hierarchy findings for a short
+punctuation title.  ``fix`` cannot safely add the normally required overline:
+the overline would make Docutils stop treating the punctuation as a title and
+would change later section depths.  Full and fast fixes therefore refuse every
+structural change in that file, naming the title's line.  Rewrite a real title
+so its source is not one repeated punctuation character; if the punctuation
+was meant as prose or a divider, separate or mark it up so it is no longer in
+the title-and-underline shape.
+
 --------------------------------------------
 One character with and without an overline
 --------------------------------------------

@@ -330,6 +330,28 @@ def test_fix_preserves_docutils_section_depths_with_a_short_punctuation_title(
     assert after == before
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize("fast", [False, True], ids=["full", "fast"])
+def test_fix_refuses_structural_changes_at_the_short_punctuation_title_line(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    fast: bool,
+) -> None:
+    path = tmp_path / "doc.rst"
+    path.write_text(_PUNCTUATION_HIERARCHY, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    command = ["fix", *(["--fast"] if fast else []), "doc.rst"]
+
+    code, out = _run(monkeypatch, capsys, *command)
+
+    assert code == 1, out
+    assert "doc.rst:5: ERROR:" in out
+    assert "short punctuation title '::' cannot take the required overline" in out
+    assert path.read_text(encoding="utf-8") == _PUNCTUATION_HIERARCHY
+
+
 _NOTES_BASE = textwrap.dedent("""\
     #######
     Notes

@@ -794,14 +794,15 @@ def test_revalidation_proves_which_titles_became_sections(
 ) -> None:
     """Finding 5: equal depth sequences do not prove the same titles.
 
-    The parser-free model reads CR-45's comment above an adornment as a
-    title, which Docutils does not.  Docutils reads two backslashes over
-    "==" as a title, which the model does not.  Both give depths 1, 2, 3
-    and 4, but from different lines.  The planner is replaced by one that
-    makes a harmless edit of the file's own, so revalidation runs on exactly
-    that text and must compare each section's source line too."""
+    Replace the planner with one that makes a harmless body edit, then offset
+    one planned title line while keeping its depth.  Revalidation must compare
+    the section identity too, refuse that planned tree, and keep the source
+    unchanged.  This direct probe replaces the former dependency on the
+    short-punctuation mismatch, which T4/B1 deliberately removed."""
     from check_rst.cli import _contexts
     from check_rst.cli._formatting import _structure_plan as real_plan
+
+    real_planned_sections = _contexts._planned_sections
 
     def harmless(lines: list[str], ranges: list[tuple[int, int]] | None) -> tuple[list[str], tuple[()]]:
         if "Body." not in lines:
@@ -810,16 +811,22 @@ def test_revalidation_proves_which_titles_became_sections(
         edited[edited.index("Body.")] = "Body text."
         return edited, ()
 
+    def shifted_title_line(composition: _contexts._Composition) -> list[_contexts._Section]:
+        sections = real_planned_sections(composition)
+        path, line, depth = sections[-1]
+        sections[-1] = (path, None if line is None else line + 1, depth)
+        return sections
+
     monkeypatch.setattr(_contexts, "_structure_plan", harmless)
-    part = ".. a comment\n=======\n\n\\\\\n==\n\nBody.\n"
-    paths = _files(rst_repo, main=_MAIN, part=part)
+    monkeypatch.setattr(_contexts, "_planned_sections", shifted_title_line)
+    paths = _files(rst_repo, main=_MAIN, part=_PART)
     monkeypatch.chdir(rst_repo)
 
     code, out = _run(monkeypatch, capsys, "fix", "part.rst")
 
     assert code == 1, out
     assert "Docutils would read the planned titles as a different section tree" in out
-    assert paths["part"].read_text(encoding="utf-8") == part
+    assert paths["part"].read_text(encoding="utf-8") == _PART
 
 
 # ---------------------------------------------------------------------------

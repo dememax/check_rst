@@ -136,6 +136,21 @@ def _is_proven_non_title_construct(lines: list[str], index: int) -> bool:
     return option is not None and bool(line[option.end() :].strip())
 
 
+def _is_short_line_title_text(lines: list[str], index: int) -> bool:
+    """Whether Docutils rewinds a short ``Line`` as title text.
+
+    In Body state one repeated punctuation character first enters ``Line``.
+    When another adornment immediately follows, ``Line.underline`` rewinds a
+    one-to-three-character first line through ``short_overline``; Body then
+    reprocesses it as the title text consumed by ``Text.underline``.  Four or
+    more characters stay an invalid overline/transition marker, and outside
+    proven Body state the correction does not apply.  The caller still gives
+    higher-priority Body constructs their precedence before accepting it.
+    """
+    line = lines[index]
+    return _candidate_starts_body(lines, index) and _is_adornment(line) and len(line) < 4
+
+
 def _underline_candidates(
     lines: list[str],
     doctree: docutils.nodes.document | None = None,
@@ -168,7 +183,7 @@ def _underline_candidates(
             continue
         title_index = underline_index - 1
         title = lines[title_index]
-        if not title.strip() or _is_adornment(title):
+        if not title.strip() or (_is_adornment(title) and not _is_short_line_title_text(lines, title_index)):
             continue
         if _is_proven_non_title_construct(lines, title_index):
             continue
@@ -628,7 +643,9 @@ def hierarchy_findings(lines: list[str], ranges: list[tuple[int, int]] | None) -
     """check_hierarchy on *lines*, whose hierarchy is whole: *ranges* only
     scopes the titles another finding already reports.  CR-43 calls it on
     composed lines."""
-    if _structure_refusals(lines, ranges):
+    refusals = _structure_refusals(lines, ranges)
+    punctuation_refused = _has_short_punctuation_refusal(refusals)
+    if refusals and not punctuation_refused:
         # The remap depends on a reading fix refuses to choose; check_adornments
         # reports the ambiguity itself.
         return []
@@ -662,20 +679,44 @@ def hierarchy_findings(lines: list[str], ranges: list[tuple[int, int]] | None) -
                     # as underline-only; only titles outside the checked
                     # lines need this level-wide announcement.
                     continue
-                text = (
-                    f"underline-only {char!r} titles are this document's level {depth}, but the "
-                    f"hierarchy's level-{depth} style is {char!r} with an overline (fix adds the "
-                    f"overline to every {char!r} title of this level)"
-                )
+                if punctuation_refused:
+                    text = (
+                        f"underline-only {char!r} titles are this document's level {depth}, but the "
+                        f"hierarchy's level-{depth} style is {char!r} with an overline; adding that overline "
+                        "would hide a short punctuation title, so structural fixes for this file are refused"
+                    )
+                else:
+                    text = (
+                        f"underline-only {char!r} titles are this document's level {depth}, but the "
+                        f"hierarchy's level-{depth} style is {char!r} with an overline (fix adds the "
+                        f"overline to every {char!r} title of this level)"
+                    )
             else:
-                text = (
-                    f"adornment {char!r} is this document's level {depth}, but "
-                    f"hierarchy level {depth} is {target[0]!r} — established "
-                    f"nesting depth must follow the hierarchy from '#' down "
-                    f"(fix remaps {char!r} to {target[0]!r}"
-                    + (" and adds an overline)" if not style[1] and target[1] else ")")
+                if punctuation_refused:
+                    overline = " and add an overline" if not style[1] and target[1] else ""
+                    text = (
+                        f"adornment {char!r} is this document's level {depth}, but hierarchy level {depth} "
+                        f"is {target[0]!r} — established nesting depth must follow the hierarchy from '#' down; "
+                        f"remapping {char!r} to {target[0]!r}{overline} would hide a short punctuation title, "
+                        "so structural fixes for this file are refused"
+                    )
+                else:
+                    text = (
+                        f"adornment {char!r} is this document's level {depth}, but "
+                        f"hierarchy level {depth} is {target[0]!r} — established "
+                        f"nesting depth must follow the hierarchy from '#' down "
+                        f"(fix remaps {char!r} to {target[0]!r}"
+                        + (" and adds an overline)" if not style[1] and target[1] else ")")
+                    )
+            findings.append(
+                Finding(
+                    lineno,
+                    Severity.ERROR,
+                    text,
+                    fixable=not punctuation_refused,
+                    code=FindingCode.HIERARCHY_ORDER,
                 )
-            findings.append(Finding(lineno, Severity.ERROR, text, fixable=True, code=FindingCode.HIERARCHY_ORDER))
+            )
     return findings
 
 
@@ -794,10 +835,45 @@ def _apply_hierarchy_remap(lines: list[str], remap: dict[_TitleStyle, _TitleStyl
 
 
 _BLOCKED_SUFFIX = "; title fixes for this file wait until this is resolved"
+_SHORT_PUNCTUATION_REFUSAL = "short punctuation title"
 _UNSEPARATED_TITLE_REMEDY = (
     "if it is a title, add a blank line before it (before its overline, if it has one); if it is text, "
     "mark the block as literal or break the title-like punctuation"
 )
+
+
+def _short_punctuation_title_refusals(lines: list[str]) -> list[Finding]:
+    """Refuse the overline that would make a short punctuation title vanish.
+
+    Docutils recognizes the underline-only shape only by rewinding a short
+    potential overline into title text.  Wrapping that text in check_rst's
+    normal overline form instead returns it to ``Line.underline``, where it is
+    an invalid marker rather than a title.  No parser-free structural edit is
+    safe for a file whose requested fix depends on this shape.
+    """
+    findings: list[Finding] = []
+    for title_index, status in _underline_candidates(lines):
+        if status != "title" or not _is_short_line_title_text(lines, title_index):
+            continue
+        title = lines[title_index].strip()
+        findings.append(
+            Finding(
+                lineno=title_index + 1,
+                severity=Severity.ERROR,
+                text=(
+                    f"{_SHORT_PUNCTUATION_REFUSAL} {title!r} cannot take the required overline: "
+                    "Docutils would stop treating it as title text; structural fixes for this file are refused"
+                ),
+                fixable=False,
+                code=FindingCode.ADORNMENT_UNDERLINE_ONLY,
+            )
+        )
+    return findings
+
+
+def _has_short_punctuation_refusal(findings: tuple[Finding, ...]) -> bool:
+    """Return whether *findings* are the fail-closed punctuation refusal."""
+    return bool(findings) and all(finding.text.startswith(_SHORT_PUNCTUATION_REFUSAL) for finding in findings)
 
 
 def _mixed_style_findings(lines: list[str], ranges: list[tuple[int, int]] | None) -> list[Finding]:
@@ -980,6 +1056,9 @@ def _structure_plan(
         return list(lines), tuple(mixed)
     fixed = _unblocked_structure_fixes(lines, ranges)
     if fixed != lines:
+        short_punctuation = _short_punctuation_title_refusals(lines)
+        if short_punctuation:
+            return list(lines), tuple(short_punctuation)
         unseparated = _unseparated_title_findings(lines, doctree, blocking=True)
         if unseparated:
             return list(lines), tuple(unseparated)
