@@ -280,6 +280,9 @@ class FixPlan:
     # The plan still carries byte hygiene and the other stages; the caller
     # reports each refusal and exits 1.
     refusals: tuple[Finding, ...] = ()
+    # Present only when an include guard actually rejected the structural
+    # candidate, so callers need not parse the human diagnostic to summarize it.
+    include_refusal_kind: str | None = None
 
     @property
     def changed(self) -> bool:

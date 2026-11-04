@@ -556,3 +556,32 @@ def _print_findings(
 def _print_fix_only_status(processed: int, errors: int, fixed: int) -> None:
     """Print the mandatory final status line for ``fix --fast`` (was ``--fix-only``)."""
     _emit_final_status(f"check_rst: {processed} file(s) processed, {errors} error(s), {fixed} file(s) fixed [fast]")
+
+
+_INCLUDE_REFUSAL_LABELS = {
+    "fragment": "declared fragment",
+    "included": "possible includer",
+    "includes": "possible structural include",
+    "transformed": "Sphinx-transformed include context",
+    "uncomposable": "uncomposable include context",
+    "unresolved": "unresolved rooted include",
+    "uncovered": "outside every discovery root",
+    "unreadable": "unreadable include graph",
+}
+
+
+def _print_structural_refusal_status(reason_kinds: collections.Counter[str]) -> None:
+    """Name include-guard structural refusals immediately before fix status."""
+    refused = reason_kinds.total()
+    if not refused:
+        return
+    reasons = [
+        (
+            _INCLUDE_REFUSAL_LABELS.get(kind, kind.replace("-", " "))
+            if len(reason_kinds) == 1
+            else f"{_INCLUDE_REFUSAL_LABELS.get(kind, kind.replace('-', ' '))} ({count} file(s))"
+        )
+        for kind, count in sorted(reason_kinds.items())
+    ]
+    errors = "ERROR" if refused == 1 else "ERRORs"
+    print(f"check_rst: structural changes refused in {refused} file(s): {', '.join(reasons)} (see the {errors} above)")

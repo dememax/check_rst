@@ -45,6 +45,7 @@ from ._output import (
     _in_source_order,
     _print_findings,
     _print_outline_entries,
+    _print_structural_refusal_status,
     _report_kind,
 )
 from ._reports import _docname_id, _format_runtime, _json_file_model
@@ -113,6 +114,7 @@ class _PipelineState:
     byte_len_min: int = 0
     byte_len_max: int = 0
     fixed_files: set[str] = dataclasses.field(default_factory=set)
+    include_refusal_kinds: collections.Counter[str] = dataclasses.field(default_factory=collections.Counter)
     would_change: set[str] = dataclasses.field(default_factory=set)
     suppressed_fixable: collections.Counter[pathlib.Path] = dataclasses.field(default_factory=collections.Counter)
     suppressed_fixable_details: dict[pathlib.Path, list[Finding]] = dataclasses.field(
@@ -201,6 +203,7 @@ class IncludePlanning:
     """
 
     guard_text: str | None = None
+    guard_kind: str | None = None
     stage: ContextStage | None = None
     standalone: bool = True
     anchor: int | None = None
@@ -311,6 +314,7 @@ def _plan_normal_fixes(
                 single_space_prose=args.single_space_prose,
                 project_root=project_root,
                 include_guard=include_guard,
+                include_guard_kind=planning.guard_kind,
                 structure=structure,
             )
         except UnicodeDecodeError as exc:
@@ -570,6 +574,8 @@ def _run_phase1(
                 continue
             if plan.changed:
                 state.fixed_files.add(pstr)
+            if plan.include_refusal_kind is not None:
+                state.include_refusal_kinds[plan.include_refusal_kind] += 1
             if not args.quiet and hygiene_v:
                 print(f"✓ {pstr}: hygiene fix applied (line endings / BOM / trailing whitespace)")
             if not args.quiet and plan.text_space_counts.total:
@@ -605,6 +611,7 @@ def _run_phase1(
                 single_space_prose=args.single_space_prose,
                 project_root=project_root,
                 include_guard=include_guard,
+                include_guard_kind=planning.guard_kind,
                 structure=structure,
             )
             include_refusals = [refusal for refusal in diff_plan.refusals if refusal.code in _INCLUDE_REFUSAL_CODES]
@@ -1391,6 +1398,7 @@ def _emit_text_summary(
             parts.append(f"{state.total_chars} char(s) (= bytes, {char_detail})")
         pct_spaces = round(100 * state.total_spaces / state.total_chars) if state.total_chars else 0
         parts.append(f"{state.total_spaces} space(s) ({pct_spaces}%)")
+    _print_structural_refusal_status(state.include_refusal_kinds)
     _emit_final_status(", ".join(parts))
     del parts
 

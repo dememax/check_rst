@@ -929,6 +929,12 @@ additionally names mechanically clean files, while ``--quiet`` reduces a
 successful run to the status footer.  ``--no-adornments`` deliberately leaves
 a hygiene-only mutation pass.
 
+When an include guard makes ordinary ``fix`` or ``fix --fast`` refuse
+structural changes, the line immediately before the unchanged final status
+counts the refused files and names the reason kinds.  A byte-hygiene change
+still counts the file as fixed; the added line distinguishes that safe partial
+mutation from the refused structural work.
+
 ``--normalize-blank-lines``, ``--collapse-title-spaces``, and
 ``--single-space-prose`` are deliberately rejected here.  They are not raw
 mechanical fast-path operations: their acceptance predicates require the

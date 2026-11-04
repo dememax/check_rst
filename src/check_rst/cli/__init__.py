@@ -38,6 +38,7 @@ from ._output import (
     _emit_report_line,
     _hints_shown,
     _print_fix_only_status,
+    _print_structural_refusal_status,
 )
 from ._pipeline import IncludePlanning, _run_check_pipeline
 from ._reports import (
@@ -123,7 +124,7 @@ def _run_fix_only(
     scope: str,
     quiet: bool,
     verbose: bool,
-    include_guards: dict[pathlib.Path, str] | None = None,
+    include_guards: dict[pathlib.Path, tuple[str, str]] | None = None,
 ) -> NoReturn:
     """Plan every selected mutation, then write and report structured results."""
     if not quiet:
@@ -132,6 +133,7 @@ def _run_fix_only(
     plans: list[FixPlan] = []
     errors = 0
     for path in files:
+        guard = (include_guards or {}).get(path.resolve())
         try:
             plans.append(
                 _plan_fix(
@@ -139,7 +141,8 @@ def _run_fix_only(
                     whole_file,
                     include_structure=include_structure,
                     project_root=project_root,
-                    include_guard=(include_guards or {}).get(path.resolve()),
+                    include_guard=guard[1] if guard is not None else None,
+                    include_guard_kind=guard[0] if guard is not None else None,
                 )
             )
         except UnicodeDecodeError as exc:
@@ -182,6 +185,9 @@ def _run_fix_only(
             print(f"{result.path}: no fixable changes")
 
     fixed = sum(result.changed for result in results)
+    _print_structural_refusal_status(
+        collections.Counter(plan.include_refusal_kind for plan in plans if plan.include_refusal_kind is not None)
+    )
     _print_fix_only_status(len(files), errors, fixed)
     raise SystemExit(1 if errors else 0)
 
@@ -353,7 +359,7 @@ def _run_entitle(args: argparse.Namespace, loaded_config: LoadedConfig) -> NoRet
     args.declared_roles, args.role_record = _resolve_declared_roles(args, loaded_config, [path])
     refusal = _fast_include_refusals(args, loaded_config, [path], verb="entitle").get(path.resolve())
     if refusal is not None:
-        print(f"check_rst: {path}: ERROR: entitle refused — {refusal}")
+        print(f"check_rst: {path}: ERROR: entitle refused — {refusal[1]}")
         raise SystemExit(1)
     try:
         if args.apply:
@@ -1185,7 +1191,7 @@ def _run_diff_only(
     project_root: pathlib.Path,
     *,
     no_adornments: bool,
-    include_guards: dict[pathlib.Path, str] | None = None,
+    include_guards: dict[pathlib.Path, tuple[str, str]] | None = None,
 ) -> NoReturn:
     """diff's own non-fast, read-only preview: byte-hygiene + adornment/
     hierarchy diff only, no lint/statistics/Sphinx (that's Phase 1-3, the
@@ -1195,13 +1201,15 @@ def _run_diff_only(
     preview_changes = 0
     errors = 0
     for path in files:
+        guard = (include_guards or {}).get(path.resolve())
         try:
             plan = _plan_fix(
                 path,
                 whole_file,
                 include_structure=not no_adornments,
                 project_root=project_root,
-                include_guard=(include_guards or {}).get(path.resolve()),
+                include_guard=guard[1] if guard is not None else None,
+                include_guard_kind=guard[0] if guard is not None else None,
             )
         except UnicodeDecodeError as exc:
             err_line = exc.object.count(b"\n", 0, exc.start) + 1
@@ -2107,14 +2115,15 @@ def _full_include_planning(
         if guard is not None and anchor is None:
             anchor = _contexts.contributed_anchor(composer, path)
         planning[pathlib.Path(os.path.abspath(path))] = IncludePlanning(
-            (
+            guard_text=(
                 None
                 if guard is None
                 else _include_refusal_text(guard, args.command, configured=bool(loaded_config.source))
             ),
-            plan.stage,
-            plan.standalone,
-            anchor,
+            guard_kind=guard.kind if guard is not None else None,
+            stage=plan.stage,
+            standalone=plan.standalone,
+            anchor=anchor,
         )
     return planning, joined
 
@@ -2224,8 +2233,8 @@ def _fast_include_refusals(
     files: list[pathlib.Path],
     *,
     verb: str,
-) -> dict[pathlib.Path, str]:
-    """Return the CR-43 refusal text of each selected file fast mode cannot judge alone."""
+) -> dict[pathlib.Path, tuple[str, str]]:
+    """Return each guarded path's CR-43 reason kind and refusal text."""
     guards = _includes.fast_include_guards(
         files,
         roles=args.declared_roles,
@@ -2234,7 +2243,9 @@ def _fast_include_refusals(
         cwd=pathlib.Path.cwd(),
     )
     configured = bool(loaded_config.source)
-    return {path: _include_refusal_text(guard, verb, configured=configured) for path, guard in guards.items()}
+    return {
+        path: (guard.kind, _include_refusal_text(guard, verb, configured=configured)) for path, guard in guards.items()
+    }
 
 
 def _json_failure_document(message: str, exit_code: int) -> dict[str, Any]:

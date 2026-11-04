@@ -1456,6 +1456,7 @@ def _plan_fix(
     single_space_prose: bool = False,
     project_root: pathlib.Path | None = None,
     include_guard: str | None = None,
+    include_guard_kind: str | None = None,
     structure: StructureStage | None = None,
 ) -> FixPlan:
     """Compute a fix, refusing a title-model change the include guard forbids.
@@ -1506,7 +1507,11 @@ def _plan_fix(
         fixable=False,
         code=FindingCode.INCLUDE_CONTEXT_UNAVAILABLE,
     )
-    return dataclasses.replace(unstructured, refusals=(*plan.refusals, refusal))
+    return dataclasses.replace(
+        unstructured,
+        refusals=(*plan.refusals, refusal),
+        include_refusal_kind=include_guard_kind,
+    )
 
 
 def _plan_fix_unguarded(
