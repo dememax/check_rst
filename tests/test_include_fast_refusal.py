@@ -139,9 +139,11 @@ def test_fix_fast_refuses_a_file_outside_every_discovery_root(
     assert code == 1, out
     assert "fix refused — this file lies outside every discovery root (" in out
     assert (
-        "so check_rst cannot search for its includers — without a configuration, select the file inside its "
-        "Git worktree, or outside Git run from a working directory that contains it"
+        "so check_rst cannot search for its includers — without a configuration, run from a working directory "
+        "that contains it, move it into a Git worktree, or pass --config FILE for a configuration whose "
+        "directory contains it"
     ) in out
+    assert "inside its Git worktree" not in out
     assert part.read_text(encoding="utf-8") == _PART
 
 
@@ -620,9 +622,10 @@ def test_entitle_refuses_a_file_outside_every_discovery_root(
     assert code == 1, out
     assert "entitle refused — this file lies outside every discovery root (" in out
     assert (
-        "without a configuration, select the file inside its Git worktree, or outside Git run from a working "
-        "directory that contains it"
+        "without a configuration, run from a working directory that contains it, move it into a Git worktree, "
+        "or pass --config FILE for a configuration whose directory contains it"
     ) in out
+    assert "inside its Git worktree" not in out
     assert part.read_text(encoding="utf-8") == _PART
 
 
