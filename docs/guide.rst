@@ -1564,10 +1564,12 @@ Those roots define the closed world check_rst can search:
 A selected file outside every discovery root is refused for structural
 mutation and by the two readers.  With a configuration, select files beneath
 its directory, or pass ``--config FILE`` for the intended project.  Without a
-configuration, select a file inside its Git worktree; outside Git, run from a
-working directory that contains it.  Conversely, an includer outside all roots
-is invisible, so its target looks standalone unless
-``fragments``/``--fragment`` protects it.
+configuration, a file inside a Git worktree is covered by that worktree;
+outside Git, a file beneath the working directory is covered by it.  To cover
+an otherwise uncovered file, run from a containing working directory, move it
+into a Git worktree, or pass ``--config FILE`` for a configuration whose
+directory contains it.  Conversely, an includer outside all roots is invisible,
+so its target looks standalone unless ``fragments``/``--fragment`` protects it.
 Automatic discovery scans ``.rst`` files, active Sphinx source suffixes in
 full mode, and every reached target whatever its suffix.  It skips an ignored
 includer and never descends into ``.git`` or a directory symlink.  Role

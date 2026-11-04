@@ -71,9 +71,12 @@ file's Git worktree is a root; outside Git, the working directory covers only
 selected files beneath it.  A selected file outside every discovery root
 cannot have its includers searched.  With a configuration, select files beneath
 its directory, or pass ``--config FILE`` for the intended project.  Without a
-configuration, select a file inside its Git worktree; outside Git, run from a
-working directory that contains it.  An absolute command-line pattern, or one
-containing ``..``, may match only inside the union of established roots.
+configuration, a file inside a Git worktree is covered by that worktree;
+outside Git, a file beneath the working directory is covered by it.  To cover
+an otherwise uncovered file, run from a containing working directory, move it
+into a Git worktree, or pass ``--config FILE`` for a configuration whose
+directory contains it.  An absolute command-line pattern, or one containing
+``..``, may match only inside the union of established roots.
 
 ********************
 EXPLICIT SELECTION

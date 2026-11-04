@@ -2033,8 +2033,8 @@ def _include_refusal_text(guard: _includes.IncludeGuard, verb: str, *, configure
             "select the file inside the active configuration's directory, or pass --config FILE for its project"
             if configured
             else (
-                "without a configuration, select the file inside its Git worktree, or outside Git run from a "
-                "working directory that contains it"
+                "without a configuration, run from a working directory that contains it, move it into a Git "
+                "worktree, or pass --config FILE for a configuration whose directory contains it"
             )
         )
         return (

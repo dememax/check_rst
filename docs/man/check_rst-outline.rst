@@ -112,13 +112,15 @@ Return ``1`` when include contexts disagree or one is unavailable, even if
 the underlying validation has no ERROR.  A selected file outside every
 discovery root is one such refusal.  With a configuration, select a file
 beneath its directory, or pass ``--config FILE`` for the intended project.
-Without a configuration, select a file inside its Git worktree; outside Git,
-run from a working directory that contains it.  ERROR findings from the
-underlying check pipeline also produce status ``1``, as does an incompatible
-option combination; ``2`` is reserved for an argparse-level syntax error (see
-:manpage:`check_rst(1)`, EXIT STATUS).  When the structure-only view hides
-ERRORs, the line before the final status says how many and that
-``--with-findings`` shows them.
+Without a configuration, a file inside a Git worktree is covered by that
+worktree; outside Git, a file beneath the working directory is covered by it.
+To cover an otherwise uncovered file, run from a containing working directory,
+move it into a Git worktree, or pass ``--config FILE`` for a configuration whose
+directory contains it.  ERROR findings from the underlying check pipeline also
+produce status ``1``, as does an incompatible option combination; ``2`` is
+reserved for an argparse-level syntax error (see :manpage:`check_rst(1)`, EXIT
+STATUS).  When the structure-only view hides ERRORs, the line before the final
+status says how many and that ``--with-findings`` shows them.
 
 **********
 SEE ALSO

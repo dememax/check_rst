@@ -99,11 +99,14 @@ report that describes changes.  ``context`` returns ``1`` when include
 contexts disagree or one is unavailable.  A selected file outside every
 discovery root is unavailable.  With a configuration, select a file beneath
 its directory, or pass ``--config FILE`` for the intended project.  Without a
-configuration, select a file inside its Git worktree; outside Git, run from a
-working directory that contains it.  Invalid input, an unresolved query, a
-build failure, or a rejected incompatible option combination also returns
-``1``; ``2`` is reserved for an argparse-level syntax error (see
-:manpage:`check_rst(1)`, EXIT STATUS).
+configuration, a file inside a Git worktree is covered by that worktree;
+outside Git, a file beneath the working directory is covered by it.  To cover
+an otherwise uncovered file, run from a containing working directory, move it
+into a Git worktree, or pass ``--config FILE`` for a configuration whose
+directory contains it.  Invalid input, an unresolved query, a build failure,
+or a rejected incompatible option combination also returns ``1``; ``2`` is
+reserved for an argparse-level syntax error (see :manpage:`check_rst(1)`, EXIT
+STATUS).
 
 **********
 SEE ALSO
