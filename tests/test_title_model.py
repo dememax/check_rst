@@ -210,6 +210,126 @@ def _assert_contract(
     assert path.read_bytes() == fast_bytes
 
 
+_PUNCTUATION_TOP = "##########\nDocument\n##########\n\n"
+
+
+def _title_names(text: str) -> tuple[str, ...]:
+    """Return Docutils' section titles without their depths."""
+    return tuple(title for _depth, title in _tree(text))
+
+
+def _modeled_title_names(text: str) -> tuple[str, ...]:
+    """Return the titles owned by check_rst's parser-free mutation model."""
+    lines = text.splitlines()
+    return tuple(lines[index].strip() for index, _style in _formatting._title_style_events(lines))
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        ":\n=======\n\nBody.\n",
+        "::\n=======\n\nBody.\n",
+        ":::\n=======\n\nBody.\n",
+        "::::\n=======\n\nBody.\n",
+        "!?\n=======\n\nBody.\n",
+        "..\n=======\n\nBody.\n",
+        "-\n=======\n\nBody.\n",
+        ":field: value\n=======\n\nBody.\n",
+        "--help  description\n===================\n\nBody.\n",
+        ">>>\n=======\n\nBody.\n",
+        "|\n=======\n\nBody.\n",
+        "+---+---+\n=========\n\nBody.\n",
+        "=== ===\n=======\n\nBody.\n",
+        ".. note::\n==========\n\nBody.\n",
+        "__\n=======\n\nBody.\n",
+        "=======\n::\n=======\n\nBody.\n",
+        "----\n\nBody.\n",
+    ],
+    ids=(
+        "short-repeated-1",
+        "short-repeated-2",
+        "short-repeated-3",
+        "repeated-4",
+        "mixed-punctuation",
+        "explicit-markup-exact-dots",
+        "bullet",
+        "field",
+        "option-list",
+        "doctest",
+        "line-block",
+        "grid-table",
+        "simple-table",
+        "explicit-markup",
+        "anonymous-target",
+        "repeated-inside-overlined-block",
+        "transition",
+    ),
+)
+def test_punctuation_transition_matrix_matches_docutils_titles(body: str) -> None:
+    """Body/Line/Text precedence decides whether punctuation is title text."""
+    source = _PUNCTUATION_TOP + body
+
+    assert _modeled_title_names(source) == _title_names(source)
+
+
+@pytest.mark.integration
+def test_check_reports_findings_for_a_short_punctuation_title(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = tmp_path / "doc.rst"
+    path.write_text(_PUNCTUATION_TOP + "::\n=======\n\nBody.\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    code, findings = _json_findings(monkeypatch, capsys, "explicit")
+
+    assert code == 1
+    assert {finding["code"] for finding in findings} >= {
+        "adornment.underline-only",
+        "hierarchy.order",
+    }
+
+
+_PUNCTUATION_HIERARCHY = textwrap.dedent("""\
+    ##########
+    Document
+    ##########
+
+    ::
+    =======
+
+    Child
+    -----
+
+    Sibling
+    =======
+    """)
+_PUNCTUATION_HIERARCHY_TREE = ((1, "Document"), (2, "::"), (3, "Child"), (2, "Sibling"))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("fast", [False, True], ids=["full", "fast"])
+def test_fix_preserves_docutils_section_depths_with_a_short_punctuation_title(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    fast: bool,
+) -> None:
+    path = tmp_path / "doc.rst"
+    path.write_text(_PUNCTUATION_HIERARCHY, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    before = _tree(path.read_text(encoding="utf-8"))
+    command = ["fix", *(["--fast"] if fast else []), "doc.rst"]
+
+    _run(monkeypatch, capsys, *command)
+
+    after = _tree(path.read_text(encoding="utf-8"))
+    assert before == _PUNCTUATION_HIERARCHY_TREE
+    assert after == before
+
+
 _NOTES_BASE = textwrap.dedent("""\
     #######
     Notes
