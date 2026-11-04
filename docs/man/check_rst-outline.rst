@@ -110,8 +110,10 @@ EXIT STATUS
 
 Return ``1`` when include contexts disagree or one is unavailable, even if
 the underlying validation has no ERROR.  A selected file outside every
-discovery root is one such refusal: run from the intended project root or pass
-``--config FILE`` so includers can be searched.  ERROR findings from the
+discovery root is one such refusal.  With a configuration, select a file
+beneath its directory, or pass ``--config FILE`` for the intended project.
+Without a configuration, select a file inside its Git worktree; outside Git,
+run from a working directory that contains it.  ERROR findings from the
 underlying check pipeline also produce status ``1``, as does an incompatible
 option combination; ``2`` is reserved for an argparse-level syntax error (see
 :manpage:`check_rst(1)`, EXIT STATUS).  When the structure-only view hides

@@ -1988,7 +1988,7 @@ def _resolve_declared_roles(
     return roles, record
 
 
-def _include_refusal_text(guard: _includes.IncludeGuard, verb: str) -> str:
+def _include_refusal_text(guard: _includes.IncludeGuard, verb: str, *, configured: bool) -> str:
     """Word an include guard as a refusal, with this command's own remedy.
 
     Only a possible include site, on either side, has a full-mode remedy:
@@ -2029,9 +2029,17 @@ def _include_refusal_text(guard: _includes.IncludeGuard, verb: str) -> str:
             "including file"
         )
     if guard.kind == "uncovered":
+        remedy = (
+            "select the file inside the active configuration's directory, or pass --config FILE for its project"
+            if configured
+            else (
+                "without a configuration, select the file inside its Git worktree, or outside Git run from a "
+                "working directory that contains it"
+            )
+        )
         return (
             f"this file lies outside every discovery root ({guard.evidence}), so check_rst cannot search for "
-            "its includers — run from the project root or pass --config"
+            f"its includers — {remedy}"
         )
     return (
         f"the include graph is incomplete: {guard.evidence} cannot be read, so check_rst cannot rule out that "
@@ -2099,7 +2107,11 @@ def _full_include_planning(
         if guard is not None and anchor is None:
             anchor = _contexts.contributed_anchor(composer, path)
         planning[pathlib.Path(os.path.abspath(path))] = IncludePlanning(
-            None if guard is None else _include_refusal_text(guard, args.command),
+            (
+                None
+                if guard is None
+                else _include_refusal_text(guard, args.command, configured=bool(loaded_config.source))
+            ),
             plan.stage,
             plan.standalone,
             anchor,
@@ -2221,7 +2233,8 @@ def _fast_include_refusals(
         sphinx_src=_discovery_sphinx_src(args, loaded_config),
         cwd=pathlib.Path.cwd(),
     )
-    return {path: _include_refusal_text(guard, verb) for path, guard in guards.items()}
+    configured = bool(loaded_config.source)
+    return {path: _include_refusal_text(guard, verb, configured=configured) for path, guard in guards.items()}
 
 
 def _json_failure_document(message: str, exit_code: int) -> dict[str, Any]:

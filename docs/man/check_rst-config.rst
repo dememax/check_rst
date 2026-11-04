@@ -69,9 +69,11 @@ With a configuration, its directory is the first discovery root; a configured
 Sphinx source outside it is added.  Without configuration, each selected
 file's Git worktree is a root; outside Git, the working directory covers only
 selected files beneath it.  A selected file outside every discovery root
-cannot have its includers searched.  Run from the intended project root or
-pass ``--config FILE``.  An absolute command-line pattern, or one containing
-``..``, may match only inside the union of established roots.
+cannot have its includers searched.  With a configuration, select files beneath
+its directory, or pass ``--config FILE`` for the intended project.  Without a
+configuration, select a file inside its Git worktree; outside Git, run from a
+working directory that contains it.  An absolute command-line pattern, or one
+containing ``..``, may match only inside the union of established roots.
 
 ********************
 EXPLICIT SELECTION

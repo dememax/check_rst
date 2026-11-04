@@ -97,11 +97,13 @@ EXIT STATUS
 Each query returns ``0`` for a successful report, including a ``compare``
 report that describes changes.  ``context`` returns ``1`` when include
 contexts disagree or one is unavailable.  A selected file outside every
-discovery root is unavailable: run from the intended project root or pass
-``--config FILE``.  Invalid input, an unresolved query, a build failure, or a
-rejected incompatible option combination also returns ``1``; ``2`` is
-reserved for an argparse-level syntax error (see :manpage:`check_rst(1)`, EXIT
-STATUS).
+discovery root is unavailable.  With a configuration, select a file beneath
+its directory, or pass ``--config FILE`` for the intended project.  Without a
+configuration, select a file inside its Git worktree; outside Git, run from a
+working directory that contains it.  Invalid input, an unresolved query, a
+build failure, or a rejected incompatible option combination also returns
+``1``; ``2`` is reserved for an argparse-level syntax error (see
+:manpage:`check_rst(1)`, EXIT STATUS).
 
 **********
 SEE ALSO
