@@ -352,10 +352,11 @@ def check_directives(
 
         def visit_rubric(self, node: docutils.nodes.Node) -> None:
             if verbose:
+                rubric_title = " ".join(node.astext().split())
                 warn(
                     node,
                     FindingCode.PSEUDO_HEADING_RUBRIC,
-                    f"'.. rubric:: {node.astext()}' detected {section_clause(node)} — "
+                    f"'.. rubric:: {rubric_title}' detected {section_clause(node)} — "
                     "verify it is not substituting a section title (rubric is "
                     "excluded from the ToC and cannot be :ref:-ed)",
                 )
