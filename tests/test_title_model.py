@@ -244,6 +244,14 @@ def _modeled_title_names(text: str) -> tuple[str, ...]:
         "__\n=======\n\nBody.\n",
         "=======\n::\n=======\n\nBody.\n",
         "----\n\nBody.\n",
+        "A\n=\n\nBody.\n",
+        ":\n=\n\nBody.\n",
+        ".\n-\n\nBody.\n",
+        "AB\n=\n\nBody.\n",
+        "一\n=\n\nBody.\n",
+        "..\n=\n\nBody.\n",
+        "...\n=\n\nBody.\n",
+        "=\nA\n=\n\nBody.\n",
     ],
     ids=(
         "short-repeated-1",
@@ -263,6 +271,14 @@ def _modeled_title_names(text: str) -> tuple[str, ...]:
         "anonymous-target",
         "repeated-inside-overlined-block",
         "transition",
+        "one-column-text-one-character-underline",
+        "one-character-colon-one-character-underline",
+        "single-dot-one-character-underline",
+        "wide-text-one-character-underline",
+        "wide-column-one-character-underline",
+        "explicit-markup-one-character-underline",
+        "wide-repeated-one-character-underline",
+        "one-character-overlined-title",
     ),
 )
 def test_punctuation_transition_matrix_matches_docutils_titles(body: str) -> None:
@@ -273,13 +289,24 @@ def test_punctuation_transition_matrix_matches_docutils_titles(body: str) -> Non
 
 
 @pytest.mark.integration
-def test_check_reports_findings_for_a_short_punctuation_title(
+@pytest.mark.parametrize(
+    "body",
+    [
+        "::\n=======\n\nBody.\n",
+        "A\n-\n\nBody.\n",
+        ":\n=\n\nBody.\n",
+        ".\n-\n\nBody.\n",
+    ],
+    ids=("short-punctuation", "one-column-letter", "one-character-colon", "single-dot"),
+)
+def test_check_reports_findings_for_an_underline_only_title(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    body: str,
 ) -> None:
     path = tmp_path / "doc.rst"
-    path.write_text(_PUNCTUATION_TOP + "::\n=======\n\nBody.\n", encoding="utf-8")
+    path.write_text(_PUNCTUATION_TOP + body, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     code, findings = _json_findings(monkeypatch, capsys, "explicit")
@@ -307,18 +334,51 @@ _PUNCTUATION_HIERARCHY = textwrap.dedent("""\
     """)
 _PUNCTUATION_HIERARCHY_TREE = ((1, "Document"), (2, "::"), (3, "Child"), (2, "Sibling"))
 
+_ONE_CHARACTER_LETTER_HIERARCHY = textwrap.dedent("""\
+    Doc
+    ===
+
+    A
+    -
+
+    Child
+    ~~~~~
+
+    Sibling
+    -------
+
+    Body.
+    """)
+_ONE_CHARACTER_LETTER_TREE = ((1, "Doc"), (2, "A"), (3, "Child"), (2, "Sibling"))
+
+_ONE_CHARACTER_COLON_HIERARCHY = _ONE_CHARACTER_LETTER_HIERARCHY.replace("A\n-", ":\n-")
+_ONE_CHARACTER_COLON_TREE = ((1, "Doc"), (2, ":"), (3, "Child"), (2, "Sibling"))
+
+_ONE_CHARACTER_DOT_HIERARCHY = _ONE_CHARACTER_LETTER_HIERARCHY.replace("A\n-", ".\n-")
+
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("source", "expected_tree"),
+    [
+        (_PUNCTUATION_HIERARCHY, _PUNCTUATION_HIERARCHY_TREE),
+        (_ONE_CHARACTER_LETTER_HIERARCHY, _ONE_CHARACTER_LETTER_TREE),
+        (_ONE_CHARACTER_COLON_HIERARCHY, _ONE_CHARACTER_COLON_TREE),
+    ],
+    ids=("short-punctuation", "one-column-letter", "one-character-colon"),
+)
 @pytest.mark.parametrize("fast", [False, True], ids=["full", "fast"])
-def test_fix_preserves_docutils_section_depths_with_a_short_punctuation_title(
+def test_fix_preserves_docutils_section_tree(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    source: str,
+    expected_tree: tuple[tuple[int, str], ...],
     *,
     fast: bool,
 ) -> None:
     path = tmp_path / "doc.rst"
-    path.write_text(_PUNCTUATION_HIERARCHY, encoding="utf-8")
+    path.write_text(source, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     before = _tree(path.read_text(encoding="utf-8"))
     command = ["fix", *(["--fast"] if fast else []), "doc.rst"]
@@ -326,21 +386,32 @@ def test_fix_preserves_docutils_section_depths_with_a_short_punctuation_title(
     _run(monkeypatch, capsys, *command)
 
     after = _tree(path.read_text(encoding="utf-8"))
-    assert before == _PUNCTUATION_HIERARCHY_TREE
+    assert before == expected_tree
     assert after == before
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    ("source", "title"),
+    [
+        (_PUNCTUATION_HIERARCHY, "::"),
+        (_ONE_CHARACTER_COLON_HIERARCHY, ":"),
+        (_ONE_CHARACTER_DOT_HIERARCHY, "."),
+    ],
+    ids=("short-punctuation", "one-character-colon", "single-dot"),
+)
 @pytest.mark.parametrize("fast", [False, True], ids=["full", "fast"])
 def test_fix_refuses_structural_changes_at_the_short_punctuation_title_line(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    source: str,
+    title: str,
     *,
     fast: bool,
 ) -> None:
     path = tmp_path / "doc.rst"
-    path.write_text(_PUNCTUATION_HIERARCHY, encoding="utf-8")
+    path.write_text(source, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     command = ["fix", *(["--fast"] if fast else []), "doc.rst"]
 
@@ -348,8 +419,8 @@ def test_fix_refuses_structural_changes_at_the_short_punctuation_title_line(
 
     assert code == 1, out
     assert "doc.rst:5: ERROR:" in out
-    assert "short punctuation title '::' cannot take the required overline" in out
-    assert path.read_text(encoding="utf-8") == _PUNCTUATION_HIERARCHY
+    assert f"short punctuation title {title!r} cannot take the required overline" in out
+    assert path.read_text(encoding="utf-8") == source
 
 
 _NOTES_BASE = textwrap.dedent("""\
