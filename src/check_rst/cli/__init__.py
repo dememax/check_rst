@@ -39,6 +39,7 @@ from ._output import (
     _hints_shown,
     _print_fix_only_status,
     _print_structural_refusal_status,
+    _print_unjudged_includer_status,
 )
 from ._pipeline import IncludePlanning, _run_check_pipeline
 from ._reports import (
@@ -125,6 +126,7 @@ def _run_fix_only(
     quiet: bool,
     verbose: bool,
     include_guards: dict[pathlib.Path, tuple[str, str]] | None = None,
+    unjudged_includers: int = 0,
 ) -> NoReturn:
     """Plan every selected mutation, then write and report structured results."""
     if not quiet:
@@ -160,6 +162,7 @@ def _run_fix_only(
             errors += 1
 
     if errors:
+        _print_unjudged_includer_status(unjudged_includers, possible=True)
         _print_fix_only_status(len(files), errors, 0)
         raise SystemExit(1)
 
@@ -185,6 +188,7 @@ def _run_fix_only(
             print(f"{result.path}: no fixable changes")
 
     fixed = sum(result.changed for result in results)
+    _print_unjudged_includer_status(unjudged_includers, possible=True)
     _print_structural_refusal_status(
         collections.Counter(plan.include_refusal_kind for plan in plans if plan.include_refusal_kind is not None)
     )
@@ -1809,11 +1813,13 @@ def _main() -> None:
     else:
         args.include_planning, joined = {}, []
     _populate_reader_contexts(args, files)
+    args.unjudged_includers = len(joined) if args.command == "fix" else 0
     args.whole_file_paths = frozenset(pathlib.Path(os.path.abspath(includer)) for includer, _fragment in joined)
-    for includer, fragment in joined:
-        files.append(includer)
-        if not args.quiet:
-            print(f"check_rst: also checking {includer}, which includes {fragment} (whole-file, read-only)")
+    if args.command == "check":
+        for includer, fragment in joined:
+            files.append(includer)
+            if not args.quiet:
+                print(f"check_rst: also checking {includer}, which includes {fragment} (whole-file, read-only)")
 
     if args.command == "list-table":
         _run_list_table(files, only=args.only, skip=args.skip, apply=args.apply, quiet=args.quiet)
@@ -1824,6 +1830,7 @@ def _main() -> None:
             scope = f"{selection}/whole-file; hygiene and hierarchy are whole-file"
         else:
             scope = "Git-selected/diff-scoped adornment geometry; hygiene and hierarchy are whole-file"
+        include_guards, unjudged_includers = _fast_include_data(args, loaded_config, files, verb="fix")
         _run_fix_only(
             files,
             whole_file,
@@ -1832,7 +1839,8 @@ def _main() -> None:
             scope=scope,
             quiet=args.quiet,
             verbose=args.verbose,
-            include_guards=_fast_include_refusals(args, loaded_config, files, verb="fix"),
+            include_guards=include_guards,
+            unjudged_includers=len(unjudged_includers),
         )
 
     if args.context is not None:
@@ -2063,13 +2071,14 @@ def _full_include_planning(
     prepared_facts: _sphinx.PlanningFacts | None = None,
 ) -> tuple[dict[pathlib.Path, IncludePlanning], list[tuple[pathlib.Path, str]]]:
     """Return, by canonical path, each file's full-mode include planning
-    (CR-43 P4 and P5), and for check the includers that join the run.
+    (CR-43 P4 and P5), plus unselected includers for check or fix.
 
     A file absent from the planning keeps today's standalone plan and check.
     check also judges every transitive includer of a selected file, read-only
     and whole-file (P5c), so that an edit which leaves a fragment consistent
     but breaks the document including it still fails the check.  Each joined
-    includer comes paired with the selected file that brought it in.
+    includer comes paired with the selected file that brought it in.  fix uses
+    the same list only to qualify its summary and never plans those paths.
     """
     # Verified mode reads the project's own facts (P4c): its documents,
     # its source suffixes, and whether it may transform an include.
@@ -2095,17 +2104,17 @@ def _full_include_planning(
     composer = _contexts.Composer(universe)
     composer.confirm_sites()
     joined: list[tuple[pathlib.Path, str]] = []
-    if args.command == "check":
+    if args.command in {"check", "fix"}:
         # Lexical identity throughout: two aliases of one file are two
-        # documents, each with its own includes (Codex's P5 review).
-        known = {pathlib.Path(os.path.abspath(path)) for path in files}
-        for path in files:
-            for includer in universe.graph.lexical_includers(path):
-                if includer not in known:
-                    known.add(includer)
-                    joined.append((pathlib.Path(universe.shown(includer)), universe.shown(path)))
+        # documents, each with its own includes (Codex's P5 review).  fix
+        # returns the same set only to qualify its summary; it never plans it.
+        joined = [
+            (pathlib.Path(universe.shown(includer)), universe.shown(fragment))
+            for includer, fragment in _includes.unselected_lexical_includers(universe, files)
+        ]
     planning: dict[pathlib.Path, IncludePlanning] = {}
-    for path in [*files, *(includer for includer, _fragment in joined)]:
+    planning_files = [*files, *(includer for includer, _fragment in joined if args.command == "check")]
+    for path in planning_files:
         plan = _contexts.full_mode_planning(universe, composer, path, facts)
         if plan.guard is None and plan.stage is None:
             continue
@@ -2235,7 +2244,19 @@ def _fast_include_refusals(
     verb: str,
 ) -> dict[pathlib.Path, tuple[str, str]]:
     """Return each guarded path's CR-43 reason kind and refusal text."""
-    guards = _includes.fast_include_guards(
+    guards, _includers = _fast_include_data(args, loaded_config, files, verb=verb)
+    return guards
+
+
+def _fast_include_data(
+    args: argparse.Namespace,
+    loaded_config: LoadedConfig,
+    files: list[pathlib.Path],
+    *,
+    verb: str,
+) -> tuple[dict[pathlib.Path, tuple[str, str]], tuple[tuple[pathlib.Path, pathlib.Path], ...]]:
+    """Return rendered guards and unselected includers from one fast scan."""
+    guards, includers = _includes.fast_include_analysis(
         files,
         roles=args.declared_roles,
         config_root=loaded_config.root if loaded_config.source else None,
@@ -2243,9 +2264,10 @@ def _fast_include_refusals(
         cwd=pathlib.Path.cwd(),
     )
     configured = bool(loaded_config.source)
-    return {
+    rendered = {
         path: (guard.kind, _include_refusal_text(guard, verb, configured=configured)) for path, guard in guards.items()
     }
+    return rendered, includers
 
 
 def _json_failure_document(message: str, exit_code: int) -> dict[str, Any]:

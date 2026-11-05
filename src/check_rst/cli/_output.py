@@ -558,6 +558,17 @@ def _print_fix_only_status(processed: int, errors: int, fixed: int) -> None:
     _emit_final_status(f"check_rst: {processed} file(s) processed, {errors} error(s), {fixed} file(s) fixed [fast]")
 
 
+def _print_unjudged_includer_status(includers: int, *, possible: bool) -> None:
+    """Qualify fix's status when unselected includers were not judged."""
+    if not includers:
+        return
+    qualifier = "possible " if possible else ""
+    print(
+        f"check_rst: {includers} {qualifier}includer(s) of the selected file(s) not judged by fix; "
+        "run check on the same files to judge them"
+    )
+
+
 _INCLUDE_REFUSAL_LABELS = {
     "fragment": "declared fragment",
     "included": "possible includer",

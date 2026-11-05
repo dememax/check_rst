@@ -947,14 +947,17 @@ Git-diff-scoped or whole-file.  Each changed file then receives a structured
 count such as ``BOM 1, CRLF line endings 42, trailing whitespace lines 3,
 structural lines 2``; the final status line is always last.  ``--verbose``
 additionally names mechanically clean files, while ``--quiet`` reduces a
-successful run to the status footer.  ``--no-adornments`` deliberately leaves
-a hygiene-only mutation pass.
+successful run to the status footer, plus the unselected-includer hint when
+that footer needs qualification.  ``--no-adornments`` deliberately leaves a
+hygiene-only mutation pass.
 
 When an include guard makes ordinary ``fix`` or ``fix --fast`` refuse
 structural changes, the line immediately before the unchanged final status
-counts the refused files and names the reason kinds.  A byte-hygiene change
-still counts the file as fixed; the added line distinguishes that safe partial
-mutation from the refused structural work.
+counts the refused files and names the reason kinds.  If unselected includers
+also remain unjudged, their hint comes first, so the structural-refusal line
+stays immediately before the final status.  A byte-hygiene change still counts
+the file as fixed; the added line distinguishes that safe partial mutation
+from the refused structural work.
 
 ``--normalize-blank-lines``, ``--collapse-title-spaces``, and
 ``--single-space-prose`` are deliberately rejected here.  They are not raw
@@ -1539,14 +1542,18 @@ with no context-dependent structure produces no such warning.
 ``check`` also joins a selected fragment's transitive includers read-only and
 whole-file.  This is deliberate even in Git-hunk scope: the fragment can be
 locally consistent while making an unchanged includer invalid.  ``fix`` and
-``diff`` never mutate or preview an unselected includer.  ``outline`` and
-``context`` project sections and leaves back to their physical files while
-showing their effective depths; they print one answer only when every context
-agrees and none is unavailable.  Content after a title Docutils drops remains
-in the last surviving parsed section rather than disappearing with the title.
-Where a contextual briefing cannot safely carry a document-level title
-finding, ``context`` says to run ``check`` instead of presenting the fragment's
-unrelated standalone diagnosis.
+``diff`` never mutate or preview an unselected includer.  When such includers
+exist, ``fix`` qualifies its final status with one line counting the exact
+includers that ``check`` would join; ``fix --fast`` instead counts possible
+includers from its conservative lexical scan.  Both direct the author to run
+``check`` on the same files, without judging those includers themselves.
+``outline`` and ``context`` project sections and leaves back to their physical
+files while showing their effective depths; they print one answer only when
+every context agrees and none is unavailable.  Content after a title Docutils
+drops remains in the last surviving parsed section rather than disappearing
+with the title.  Where a contextual briefing cannot safely carry a
+document-level title finding, ``context`` says to run ``check`` instead of
+presenting the fragment's unrelated standalone diagnosis.
 
 Fast ``fix``/``diff`` and ``entitle`` cannot parse away false include-looking
 text.  They therefore use a conservative lexical boundary: a possible

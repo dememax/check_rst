@@ -46,6 +46,7 @@ from ._output import (
     _print_findings,
     _print_outline_entries,
     _print_structural_refusal_status,
+    _print_unjudged_includer_status,
     _report_kind,
 )
 from ._reports import _docname_id, _format_runtime, _json_file_model
@@ -1398,6 +1399,8 @@ def _emit_text_summary(
             parts.append(f"{state.total_chars} char(s) (= bytes, {char_detail})")
         pct_spaces = round(100 * state.total_spaces / state.total_chars) if state.total_chars else 0
         parts.append(f"{state.total_spaces} space(s) ({pct_spaces}%)")
+    if args.fix:
+        _print_unjudged_includer_status(getattr(args, "unjudged_includers", 0), possible=False)
     _print_structural_refusal_status(state.include_refusal_kinds)
     _emit_final_status(", ".join(parts))
     del parts

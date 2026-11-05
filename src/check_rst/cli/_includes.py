@@ -938,6 +938,43 @@ class IncludeUniverse:
         return None
 
 
+def unselected_lexical_includers(
+    universe: IncludeUniverse,
+    files: Sequence[pathlib.Path],
+) -> tuple[tuple[pathlib.Path, pathlib.Path], ...]:
+    """Return distinct transitive includers outside *files*, nearest first.
+
+    Each includer is paired with the selected file whose reverse walk first
+    reached it.  Lexical paths stay distinct because each path is its own
+    Docutils input and resolves further includes from its own directory.
+    """
+    known = {pathlib.Path(os.path.abspath(path)) for path in files}
+    joined: list[tuple[pathlib.Path, pathlib.Path]] = []
+    for path in files:
+        for includer in universe.graph.lexical_includers(path):
+            if includer not in known:
+                known.add(includer)
+                joined.append((includer, path))
+    return tuple(joined)
+
+
+def fast_include_analysis(
+    files: Sequence[pathlib.Path],
+    *,
+    roles: DeclaredRoles | None,
+    config_root: pathlib.Path | None,
+    sphinx_src: pathlib.Path | None,
+    cwd: pathlib.Path,
+) -> tuple[dict[pathlib.Path, IncludeGuard], tuple[tuple[pathlib.Path, pathlib.Path], ...]]:
+    """Return fast guards and unselected includers from one lexical scan."""
+    universe = IncludeUniverse(files, roles=roles, config_root=config_root, sphinx_src=sphinx_src, cwd=cwd)
+    guards: dict[pathlib.Path, IncludeGuard] = {}
+    for path in files:
+        if (guard := universe.fast_guard(path)) is not None:
+            guards[path.resolve()] = guard
+    return guards, unselected_lexical_includers(universe, files)
+
+
 def fast_include_guards(
     files: Sequence[pathlib.Path],
     *,
@@ -948,9 +985,11 @@ def fast_include_guards(
 ) -> dict[pathlib.Path, IncludeGuard]:
     """Return, by canonical path, the fast-mode guard of each selected file
     that has one."""
-    universe = IncludeUniverse(files, roles=roles, config_root=config_root, sphinx_src=sphinx_src, cwd=cwd)
-    guards: dict[pathlib.Path, IncludeGuard] = {}
-    for path in files:
-        if (guard := universe.fast_guard(path)) is not None:
-            guards[path.resolve()] = guard
+    guards, _includers = fast_include_analysis(
+        files,
+        roles=roles,
+        config_root=config_root,
+        sphinx_src=sphinx_src,
+        cwd=cwd,
+    )
     return guards
