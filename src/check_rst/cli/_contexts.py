@@ -644,10 +644,20 @@ class ContextStage:
             else:
                 composed = list(composition.lines)
                 composed_ranges = self._composed_ranges(composition, ranges)
+                physical_lines = {
+                    position: lines[origin.index]
+                    for position, origin in enumerate(composition.origins)
+                    if origin is not None
+                    and origin.path == self.own
+                    and not origin.partial
+                    and 0 <= origin.index < len(lines)
+                }
                 own = []
-                for finding in adornment_findings(composed, composed_ranges) + hierarchy_findings(
-                    composed, composed_ranges
-                ):
+                for finding in adornment_findings(
+                    composed,
+                    composed_ranges,
+                    physical_lines=physical_lines,
+                ) + hierarchy_findings(composed, composed_ranges):
                     origin = composition.origins[finding.lineno - 1] if 0 < finding.lineno <= len(composed) else None
                     if origin is not None and origin.path == self.own:
                         own.append(dataclasses.replace(finding, lineno=origin.index + 1))

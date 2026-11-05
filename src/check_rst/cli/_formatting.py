@@ -55,7 +55,7 @@ from ._types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from ._types import OutlineEntry
 
@@ -82,6 +82,7 @@ def fix_hygiene(path: pathlib.Path) -> bool:
 
 
 type _TitleStyle = tuple[str, bool]
+type _PhysicalLines = Mapping[int, str] | None
 
 
 _BULLET_ITEM_MARKER_RE = re.compile(r"^[ \t]*[-+*][ \t]+")
@@ -510,7 +511,10 @@ def check_adornments(path: pathlib.Path, whole_file: bool, doc: Document | None 
 
 
 def adornment_findings(
-    lines: list[str], ranges: list[tuple[int, int]] | None, doctree: docutils.nodes.document | None = None
+    lines: list[str],
+    ranges: list[tuple[int, int]] | None,
+    doctree: docutils.nodes.document | None = None,
+    physical_lines: _PhysicalLines = None,
 ) -> list[Finding]:
     """check_adornments on *lines*: the findings for the lines in *ranges*,
     by the same parser-free model fix applies.  *doctree*, when given, only
@@ -527,7 +531,12 @@ def adornment_findings(
 
     # Mutation findings come from the same parser-free model fix uses; the
     # doctree only words what that model cannot prove (CR-29).
-    findings: list[Finding] = _unseparated_title_findings(lines, doctree, blocking=False)
+    findings: list[Finding] = _unseparated_title_findings(
+        lines,
+        doctree,
+        blocking=False,
+        physical_lines=physical_lines,
+    )
     modeled_titles = dict(_title_style_events(lines))
 
     # Detect underline-only titles (overline is required) in the shared
@@ -554,6 +563,7 @@ def adornment_findings(
 
         lineno = block.lineno  # 1-based line of the title text
         c = analyze_block(block)
+        displayed_title = _physical_title(lines, block.index, physical_lines)
 
         if c.char_mismatch:
             findings.append(
@@ -571,7 +581,7 @@ def adornment_findings(
                     FindingCode.ADORNMENT_LENGTH,
                     lineno,
                     f"adornment must be {c.expected} chars for title "
-                    f"{c.title!r} (over={len(block.over)}, under={len(block.under)})",
+                    f"{displayed_title!r} (over={len(block.over)}, under={len(block.under)})",
                 )
             )
         if c.title_spaces:
@@ -907,6 +917,19 @@ _UNSEPARATED_TITLE_REMEDY = (
 )
 
 
+def _physical_title(lines: list[str], title_index: int, physical_lines: _PhysicalLines) -> str:
+    """Return a title's stripped physical spelling when its origin is whole.
+
+    Include composition expands tabs before the lexical title model measures
+    geometry.  Findings still identify a title at its physical coordinate, so
+    their quote uses the corresponding physical line.  A missing mapping is a
+    standalone title or an unproven partial origin and deliberately retains the
+    composed spelling.
+    """
+    source = lines[title_index] if physical_lines is None else physical_lines.get(title_index, lines[title_index])
+    return source.strip()
+
+
 def _short_punctuation_title_refusals(lines: list[str]) -> list[Finding]:
     """Refuse the overline that would make a short punctuation title vanish.
 
@@ -1016,6 +1039,7 @@ def _unseparated_title_findings(
     doctree: docutils.nodes.document | None,
     *,
     blocking: bool,
+    physical_lines: _PhysicalLines = None,
 ) -> list[Finding]:
     """Report each title candidate the parser-free model cannot prove.
 
@@ -1039,7 +1063,7 @@ def _unseparated_title_findings(
         if construct_index < 0 or not _is_proven_non_title_construct(lines, construct_index):
             continue
         construct = lines[construct_index].strip()
-        title = block.title.strip()
+        title = _physical_title(lines, block.index, physical_lines)
         findings.append(
             Finding(
                 lineno=block.index + 1,
@@ -1056,7 +1080,7 @@ def _unseparated_title_findings(
     for title_index, status in _underline_candidates(lines):
         if status != "unproven":
             continue
-        title = lines[title_index].strip()
+        title = _physical_title(lines, title_index, physical_lines)
         if doctree is None:
             text = (
                 f"{title!r} directly follows a non-blank line, so fix cannot tell whether it is a "
