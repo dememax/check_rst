@@ -558,6 +558,50 @@ vacuous-pass assertion; follow-up tracing corrected an unreachable
 modeled-position parallels.  Independent agreement mattered only after those
 claims survived direct probes, source tracing, and executable tests.
 
+********************************************
+Development environments and locale checks
+********************************************
+
+Build ordinary installations from the clean Git export documented in the
+README.  On Gentoo, a host-wide checker should reuse the distribution's
+coherent Sphinx/Docutils stack and installed Sphinx extensions.  Keep the
+launcher isolated while exposing those packages with a system-site virtual
+environment, then install only ``check_rst`` into it::
+
+   python3.14 -m venv --system-site-packages ~/opt/check_rst
+   ~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps \
+       /tmp/check_rst-source.tar
+
+This matters in verified mode: a consuming project's ``conf.py`` may load an
+extension such as ``sphinxcontrib.plantuml``, which must be importable by the
+same interpreter that runs ``check_rst``.  Use ordinary dependency-resolving
+``pip install`` in a self-contained environment when the projects also install
+their Sphinx extensions there.
+
+For an isolated development environment outside Gentoo, let pip resolve a
+compatible upstream Sphinx rather than patching Sphinx 9.1 metadata.  With
+Docutils 0.23 required by this project, pip selects Sphinx 9.2 or later::
+
+   python3.14 -m venv ~/opt/check_rst-ubuntu
+   ~/opt/check_rst-ubuntu/bin/python -m pip install \
+       --editable '/path/to/check_rst[dev]' pytest==9.1.1
+   ~/opt/check_rst-ubuntu/bin/python -m pip check
+
+Ruff is not installed into this environment.  Use the system Ruff 0.17.3
+executable pinned by ``[tool.ruff].required-version`` in ``pyproject.toml``.
+Ordinary Python edits in an editable checkout take effect without
+reinstallation; reinstall after changing packaging metadata or console entry
+points.
+
+Validation hosts can differ by locale as well as package versions.  An Ubuntu
+language locale such as ``fr_FR.UTF-8`` leaves Python's standard output on its
+strict error handler, while the Gentoo host's ``C.utf8`` enables Python's UTF-8
+mode with ``surrogateescape``.  Identical code can therefore fail on one host
+but not the other unless the CLI controls its output policy.  The black-box
+tests select each regime explicitly with ``PYTHONIOENCODING``, independently
+of the locales generated on the host; run both regimes for a locale- or
+encoding-sensitive change.
+
 **********************
 Performance recorder
 **********************

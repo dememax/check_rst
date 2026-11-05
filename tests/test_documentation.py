@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 import runpy
 import shutil
 import subprocess
@@ -174,6 +175,7 @@ def test_readme_outline_example_matches_real_output() -> None:
         check=False,
         text=True,
         capture_output=True,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT / "src")},
     )
 
     assert result.returncode == 0, result.stdout + result.stderr

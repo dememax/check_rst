@@ -5,35 +5,102 @@ SPDX-License-Identifier: GPL-3.0-only
 
 # check_rst
 
-`check_rst` is an opinionated deterministic front end for reStructuredText
-and Sphinx documentation. It combines byte hygiene, project formatting rules,
-structural queries, Sphinx-aware reference analysis, safe fixers, and
-machine-readable reports in one command.
+## What it is
 
-The tool is designed for both human and AI-assisted documentation workflows:
-semantic decisions stay with the author or reviewer, while exact source
-geometry and parser-verifiable transformations are delegated to software.
+`check_rst` is a deterministic front end for checking, fixing, and querying
+reStructuredText and Sphinx documentation. It checks byte hygiene, RST rules,
+and Sphinx-aware structure; verified mode also runs a real Sphinx build.
+Authors and reviewers keep control of wording and structure, while the tool
+materializes character-exact syntax and returns verified structure for people
+and AI agents.
 
-The detailed reference is in [docs/guide.rst](docs/guide.rst).
+## What it is not
 
-## Supported source formats
+Unlike whole-document reformatters such as Black and Prettier, `check_rst`
+does not reprint documents or reflow prose. RST reformatters such as
+`docstrfmt` and `rstfmt`, and neighbouring linters such as `doc8`, `rstcheck`,
+`sphinx-lint`, and `restructuredtext-lint`, serve different scopes.
 
-`check_rst` natively reads and, for explicitly selected operations, rewrites
-reStructuredText (`.rst`). With `--sphinx-src`, it also verifies trusted Sphinx
-projects against their live configuration and extensions. Markdown (`.md`) is
-not a native input format: an explicit Markdown path is ignored with a clear
-“no `.rst` files” result.
+`check_rst` is not a Sphinx replacement: verified mode runs the selected
+project's Sphinx configuration, while heuristic mode has no live Sphinx
+project. It is not a native Markdown tool; an external Pandoc conversion can
+support analysis, but `check_rst` never rewrites the Markdown source. It also
+does not guess between ambiguous readings: it refuses the unsafe structural
+change and explains the remedy.
 
-Markdown can be converted externally with Pandoc and checked as generated RST
-for analysis. Diagnostics then refer to converted-RST lines, and round-trip
-editing is outside the safety contract; `check_rst` does not rewrite the
-Markdown source.
+## What `fix` changes—and never changes
 
-## Installation
+By default, `fix` changes title-adornment geometry and byte hygiene: BOMs,
+line endings, control whitespace, and trailing whitespace. It never changes
+prose words or meaningful prose spacing by default. The
+`--normalize-blank-lines`, `--collapse-title-spaces`, and
+`--single-space-prose` modes are explicit, parser-verified opt-ins.
 
-Requires Python 3.14 or newer. Build ordinary installations from the tracked
-commit rather than the working tree, whose ignored build cache may contain
-stale modules:
+When the title model or include context does not prove one safe structural
+edit, `fix` refuses that edit rather than choosing a reading. `diff` computes
+the same candidate source without writing it and prints the exact unified diff
+for review.
+
+## Commands at a glance
+
+Review:
+
+- `check` — run hygiene, RST, structure, and optional Sphinx validation;
+- `diff` — preview the source that `fix` would write;
+- `compare` — explain changes between Git states or two saved JSON reports.
+
+Write:
+
+- `fix` — apply bounded hygiene and title-structure corrections;
+- `list-table` — preview, or apply with `--apply`, an eligible table's
+  conversion to `list-table` syntax;
+- `entitle` — preview, or apply with `--apply`, a new top-level title.
+
+Read:
+
+- `outline` — print section structure and complete physical ranges;
+- `context` — brief one explicit label, stable id, generated selector, or
+  exact title, term, caption, or preview;
+- `targets` — list or locate valid Sphinx cross-reference targets;
+- `refs` — report a file's references or exact uses of one label;
+- `hierarchy` — print the live adornment-character ranking.
+
+Run `check_rst COMMAND --help` for each command's exact options.
+
+## A real structure query
+
+This repository can describe a document without a linear source scan:
+
+```console
+$ check_rst outline --outline-depth 1 --sections-only docs/releasing.rst
+Outline: docs/releasing.rst
+  levels: 1 '#o' (1), 2 '*o' (5), 6 sections total; next free section char: '='
+  6-158:#o Releasing check_rst [5 subsections, 5 code blocks, 2 lists]
+  (19 entries hidden — --outline-depth 1, --sections-only)
+check_rst: 1 file(s) checked, 0 error(s), 0 warning(s), 6600 char(s) (84 distinct, 7 once), 6602 byte(s), 903 space(s) (14%)
+```
+
+## Limits and trade-offs
+
+Verified mode imports the selected project's `conf.py` and extensions, which
+execute Python code; use it only with trusted projects. Full mode uses
+Docutils and, when configured, Sphinx evidence, while `--fast` stays
+parser-free and therefore refuses more cases when safety cannot be proved.
+Ambiguous title models and unavailable or conflicting include contexts can
+make structural changes fail closed.
+
+Only `check --format json` emits a machine-readable report; `compare
+--snapshots` consumes two such reports. The supported runtime is Python 3.14
+with Docutils `>=0.23,<0.24`. Verified reader queries include Sphinx setup;
+measured costs and reproductions are recorded in
+[the performance history](docs/performance-history.rst), without promising a
+fixed latency. Markdown remains an analysis-only Pandoc bridge, not a native
+editing format.
+
+## Install
+
+Build an ordinary installation from a clean Git export so ignored build
+artifacts cannot enter the package:
 
 ```bash
 cd /path/to/check_rst
@@ -42,169 +109,26 @@ python3.14 -m pip install /tmp/check_rst-source.tar
 check_rst --help
 ```
 
-`pip install` builds a wheel internally and installs both the Python package
-and its console entry point, along with its bounded dependencies (`docutils`,
-`Sphinx`, `snowballstemmer`, `pygit2`). The supported Docutils range is
-`>=0.23,<0.24`. An ordinary PyPI resolution selects Sphinx 9.2 or later,
-because upstream Sphinx 9.1 excludes Docutils 0.23; Gentoo's Sphinx 9.1 build
-accepts Docutils 0.23 and remains supported. The suite runs in that single
-Docutils 0.23 environment. To build the wheel explicitly from the same clean
-export instead:
-
-```bash
-python3.14 -m pip wheel --wheel-dir dist /tmp/check_rst-source.tar
-python3.14 -m pip install dist/check_rst-0.7.4-py3-none-any.whl
-```
-
-The generated wheel is a pure-Python, platform-independent package. Its exact
-filename includes the package version from `check_rst.__version__`.
-
-At startup, `check_rst` checks `docutils.__version_info__` and rejects an
-importable runtime outside `>=0.23,<0.24`. This protects `--no-deps` and
-system-site installations that bypass the package resolver. The entry point
-imports Docutils-using modules before this gate runs, however, so a future
-incompatible Docutils release that already fails during those imports may not
-reach `check_rst`'s tailored version message.
-
-On Gentoo, a host-wide checker should reuse the distribution's coherent
-Sphinx/docutils stack and its installed Sphinx extensions. Keep the launcher
-isolated while exposing those packages with a system-site virtual environment,
-then install only `check_rst` into it:
-
-```bash
-python3.14 -m venv --system-site-packages ~/opt/check_rst
-~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps \
-    /tmp/check_rst-source.tar
-```
-
-This matters for verified mode: a consuming project's `conf.py` may load
-extensions such as `sphinxcontrib.plantuml`, and those extensions must be
-importable by the same interpreter that runs `check_rst`. Use ordinary
-dependency-resolving `pip install` in a self-contained environment when its
-projects also install their Sphinx extensions there.
-
-For an isolated development environment outside Gentoo, let pip resolve a
-compatible upstream Sphinx rather than patching Sphinx 9.1 metadata. With
-Docutils 0.23 required by this project, pip selects Sphinx 9.2 or later:
-
-```bash
-python3.14 -m venv ~/opt/check_rst-ubuntu
-~/opt/check_rst-ubuntu/bin/python -m pip install \
-    --editable '/path/to/check_rst[dev]' pytest==9.1.1
-~/opt/check_rst-ubuntu/bin/python -m pip check
-```
-
-Ruff is not installed into this environment. Use the system Ruff 0.17.3
-executable pinned by `[tool.ruff].required-version` in `pyproject.toml`.
-
-The two validation hosts also differ by locale, not only by versions. An
-Ubuntu language locale such as `fr_FR.UTF-8` leaves Python's standard output
-on its strict error handler, while the Gentoo host's `C.utf8` enables Python's
-UTF-8 mode with `surrogateescape`, so identical code can crash on one host and
-not the other without the CLI output policy. The black-box tests select each regime explicitly with
-`PYTHONIOENCODING`, independent of which locales a host has generated; run the
-suite on both hosts for any locale- or encoding-sensitive change.
-
-For development, install the checkout in editable mode:
-
-```bash
-cd /path/to/check_rst
-python3.14 -m pip install --editable '.[dev]'
-```
-
-Ordinary Python source edits then take effect without reinstalling. Reinstall
-after changing packaging metadata or console entry points in `pyproject.toml`.
-For a normal installation, upgrade from the clean archive created above. For
-the Gentoo system-site model, retain its dependency boundary:
-
-```bash
-~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps \
-    --upgrade /tmp/check_rst-source.tar
-```
-
-The `pyproject.toml` console entry point installs `check_rst` in the
-selected Python environment's scripts directory, which must be on `PATH`.
 The equivalent module invocation is:
 
 ```bash
 python3.14 -m check_rst --help
 ```
 
-## Quick start
+Host-specific system-site setup, an isolated editable development environment,
+and locale-sensitive test notes are in
+[the development guide](docs/development.rst). The release procedure owns the
+exact wheel-building and versioned-artifact commands.
 
-```bash
-check_rst --help
-check_rst check path/to/document.rst
-check_rst outline path/to/document.rst
-check_rst diff path/to/document.rst
-```
+## Where next
 
-A repository can declare its Sphinx source and reusable build directory in
-`.check_rst.toml`:
-
-```toml
-sphinx-src = "docs"
-build-dir = "/tmp/my-project-sphinx-build"
-```
-
-With verified Sphinx configuration, `check_rst targets --exact LABEL` locates a
-label's definition, `check_rst context LABEL FILE` describes an explicit label
-in a known file, and `check_rst refs --target LABEL` lists its exact users.
-`check_rst refs FILE` retains the document-level reference report.
-
-For a complete cold-reader adoption procedure—including the first baseline
-audit, project-instruction template, and optional `check_formatting`
-integration—see “Adopting `check_rst` in a new project” in
-[the guide](docs/guide.rst).
-
-Verified Sphinx mode imports the selected project's `conf.py` and extensions,
-which execute Python code. Use `--sphinx-src` or configuration that supplies it
-only with projects you trust.
-
-With no positional files, `check_rst` selects changed and untracked RST
-files from Git. Explicit files are checked in full. Read the complete guide
-linked above before enabling mutations in an existing documentation set.
-
-## Manual pages
-
-The repository includes concise Sphinx sources for `check_rst(1)`, individual
-commands, configuration and JSON contracts, source formats, workflow, and
-semantic boundaries. From a source checkout, build and install every page
-registered in `docs/conf.py` under a private prefix with:
-
-```bash
-python3.14 tools/install_man_pages.py --prefix "$HOME/opt"
-export MANPATH="$HOME/opt/share/man${MANPATH:+:$MANPATH}"
-man check_rst
-```
-
-The installer invokes Sphinx, installs the registered section 1, 5, and 7
-pages, and updates the prefix's manual index with `makewhatis` or `mandb` when
-available. Distribution packaging can stage the same registry below a package
-root without modifying the host index:
-
-```bash
-python3.14 tools/install_man_pages.py --prefix /usr --destdir "$pkgdir"
-```
-
-Use `--skip-build` with `--build-dir` to install an existing Sphinx man build,
-or `--no-index` when the caller owns index maintenance. The underlying manual
-build remains `sphinx-build -b man docs docs/_build/man`. Python wheels do not
-choose a host man-page directory, so manual installation is deliberately a
-source-checkout or distribution-packaging operation.
-
-## Development
-
-The implementation is divided by responsibility under `src/check_rst/`, with
-unit, integration, CLI, packaging, and documentation tests under `tests/`.
-Run the complete regression and static-check suite from the repository root:
-
-```bash
-python3.14 -m pytest
-ruff format --check --no-cache src tests tools
-ruff check --no-cache src tests tools
-PYTHONPATH=src python3.14 -m check_rst check --recursive docs
-```
+- Follow “Adopting `check_rst` in a new project” in
+  [the guide](docs/guide.rst) before enabling writes on an existing corpus.
+- Use the concise [manual pages](docs/man/index.rst) for command, configuration,
+  JSON, format, workflow, and semantic contracts.
+- Read [the development guide](docs/development.rst) for evidence, test
+  environments, and review practice, and [the release procedure](docs/releasing.rst)
+  for release-only build details.
 
 The standalone repository was seeded from Journal commit `3f7fef1` on
 2026-08-02 without importing Journal's Git history. Journal retains that
