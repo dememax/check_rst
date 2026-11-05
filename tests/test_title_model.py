@@ -67,6 +67,19 @@ class OverlineTransitionCase:
     construct_overline: bool = False
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class UnderlineTransitionCase:
+    """One Docutils ``Body``/``Text`` underline transition boundary."""
+
+    name: str
+    body: str
+    titles: tuple[_ObservedTitle, ...]
+    has_underline_finding: bool | None = None
+    fixed_body: str | None = None
+    unchanged: bool = False
+    refusal: bool = False
+
+
 def _scope_args(scope: str) -> list[str]:
     if scope == "explicit":
         return ["doc.rst"]
@@ -317,6 +330,123 @@ _OVERLINE_TRANSITION_CASES = (
 )
 
 
+def _fixed_after_construct(construct: str, adornment: str, title: str) -> str:
+    """Return the canonical title block after a Body construct."""
+    return "\n".join((construct, "", adornment, title, adornment, "", "Body.", ""))
+
+
+_UNDERLINE_TRANSITION_CASES = (
+    UnderlineTransitionCase(
+        "indented-title",
+        _body("  Hello", "-------"),
+        (),
+        has_underline_finding=False,
+        unchanged=True,
+    ),
+    UnderlineTransitionCase(
+        "indented-one-column-title",
+        _body(" A", "-"),
+        (),
+        has_underline_finding=False,
+        unchanged=True,
+    ),
+    UnderlineTransitionCase(
+        "tab-indented-title",
+        _body("\tA", "========"),
+        (),
+        has_underline_finding=False,
+        unchanged=True,
+    ),
+    UnderlineTransitionCase(
+        "indented-bullet-content",
+        _body("-", " A", "-"),
+        (),
+        has_underline_finding=False,
+        unchanged=True,
+    ),
+    UnderlineTransitionCase(
+        "indented-line-block-content",
+        _body("|", " A", "|"),
+        (),
+        has_underline_finding=False,
+        unchanged=True,
+    ),
+    UnderlineTransitionCase(
+        "indented-wide-bullet-content",
+        _body("-", "  AB", "--"),
+        (),
+        has_underline_finding=False,
+        unchanged=True,
+    ),
+    UnderlineTransitionCase(
+        "indented-anonymous-target-content",
+        _body("__", " A", "__"),
+        (),
+        has_underline_finding=False,
+        unchanged=True,
+    ),
+    UnderlineTransitionCase(
+        "dot-dot-one-column-title",
+        _body("A", ".."),
+        (("A", ".", False),),
+        has_underline_finding=True,
+        fixed_body=_body("...", "A", "..."),
+    ),
+    UnderlineTransitionCase(
+        "dot-dot-two-column-title",
+        _body("AB", ".."),
+        (("AB", ".", False),),
+        has_underline_finding=True,
+        fixed_body=_body("....", "AB", "...."),
+    ),
+    UnderlineTransitionCase(
+        "dot-dot-wide-column-title",
+        _body("一", ".."),
+        (("一", ".", False),),
+        has_underline_finding=True,
+        fixed_body=_body("....", "一", "...."),
+    ),
+    UnderlineTransitionCase(
+        "dot-dot-short-punctuation-title",
+        _body(":", ".."),
+        ((":", ".", False),),
+        has_underline_finding=True,
+        unchanged=True,
+        refusal=True,
+    ),
+    UnderlineTransitionCase(
+        "dot-dot-after-comment",
+        _body("..", "AB", ".."),
+        (("AB", ".", False),),
+        has_underline_finding=True,
+        fixed_body=_fixed_after_construct("..", "....", "AB"),
+    ),
+    UnderlineTransitionCase(
+        "dot-dot-after-bullet",
+        _body("-", "AB", ".."),
+        (("AB", ".", False),),
+        has_underline_finding=True,
+        fixed_body=_fixed_after_construct("-", "....", "AB"),
+    ),
+    UnderlineTransitionCase(
+        "indented-overlined-title",
+        _body("=====", "  Hello", "====="),
+        (("Hello", "=", True),),
+    ),
+    UnderlineTransitionCase(
+        "ordinary-underline-title",
+        _body("Hello", "-----"),
+        (("Hello", "-", False),),
+    ),
+    UnderlineTransitionCase("dot-dot-comment-pair", _body("..", "   note", ".."), (), unchanged=True),
+    UnderlineTransitionCase("dot-dot-too-short-for-title", _body("ABC", ".."), (), unchanged=True),
+    UnderlineTransitionCase("dot-dot-alone", _body(".."), (), unchanged=True),
+    UnderlineTransitionCase("dot-dot-comment-text", _body("..", "foo"), (), unchanged=True),
+    UnderlineTransitionCase("dot-dot-comment-title-text", _body("..", "AB"), (), unchanged=True),
+    UnderlineTransitionCase("dot-dot-third-paragraph-line", _body("text", "AB", ".."), (), unchanged=True),
+)
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -397,6 +527,22 @@ def test_overline_transition_matrix_matches_docutils_names_and_forms(
     assert _modeled_title_forms(source) == expected
 
 
+@pytest.mark.parametrize("with_document_title", [False, True], ids=("bare", "document-title"))
+@pytest.mark.parametrize("case", _UNDERLINE_TRANSITION_CASES, ids=lambda case: case.name)
+def test_underline_transition_matrix_matches_docutils_names_and_forms(
+    case: UnderlineTransitionCase,
+    *,
+    with_document_title: bool,
+) -> None:
+    """Body indentation and Text punctuation decide name and title form."""
+    prefix = _PUNCTUATION_TOP if with_document_title else ""
+    source = prefix + case.body
+    expected = (("Document", "#", True), *case.titles) if with_document_title else case.titles
+
+    assert _docutils_title_forms(source) == expected
+    assert _modeled_title_forms(source) == expected
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize("fast", [False, True], ids=("full", "fast"))
 @pytest.mark.parametrize("with_document_title", [False, True], ids=("bare", "document-title"))
@@ -429,6 +575,48 @@ def test_fix_preserves_every_overline_transition_tree(
     if case.construct_overline:
         construct_index = len(prefix.splitlines())
         assert after_source.splitlines()[construct_index] == case.body.splitlines()[0]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("fast", [False, True], ids=("full", "fast"))
+@pytest.mark.parametrize("with_document_title", [False, True], ids=("bare", "document-title"))
+@pytest.mark.parametrize("case", _UNDERLINE_TRANSITION_CASES, ids=lambda case: case.name)
+def test_fix_preserves_every_underline_transition_tree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    case: UnderlineTransitionCase,
+    *,
+    with_document_title: bool,
+    fast: bool,
+) -> None:
+    """Every underline boundary keeps Docutils' complete tree in both modes."""
+    prefix = _PUNCTUATION_TOP if with_document_title else ""
+    source = prefix + case.body
+    path = tmp_path / "doc.rst"
+    path.write_text(source, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    before = _tree(source)
+
+    if case.has_underline_finding is not None:
+        _check_exit, findings = _json_findings(monkeypatch, capsys, "explicit")
+        underline_findings = [finding for finding in findings if finding["code"] == "adornment.underline-only"]
+        assert bool(underline_findings) is case.has_underline_finding
+        if case.refusal:
+            assert all(not finding["fixable"] for finding in underline_findings)
+
+    command = ["fix", *(["--fast"] if fast else []), "doc.rst"]
+    code, out = _run(monkeypatch, capsys, *command)
+
+    after_source = path.read_text(encoding="utf-8")
+    assert code == (1 if case.refusal else 0), out
+    assert _tree(after_source) == before
+    if case.unchanged:
+        assert after_source == source
+    if case.fixed_body is not None:
+        assert after_source == prefix + case.fixed_body
+        written_overlines = [line for line in after_source.splitlines() if line and set(line) == {"."}]
+        assert ".." not in written_overlines
 
 
 @pytest.mark.integration
@@ -542,6 +730,58 @@ _BODY_CONSTRUCT_OVERLINE_HIERARCHY_TREE = (
     (2, "Sibling"),
 )
 
+_INDENTED_UNDERLINE_HIERARCHY = textwrap.dedent("""\
+    Doc
+    ===
+
+      Hello
+    -------
+
+    Child
+    ~~~~~
+
+    Sibling
+    -------
+
+    Body.
+    """)
+_INDENTED_UNDERLINE_HIERARCHY_TREE = ((1, "Doc"), (2, "Child"), (3, "Sibling"))
+
+_DOT_DOT_UNDERLINE_HIERARCHY = textwrap.dedent("""\
+    CD
+    ..
+
+    Para 0.
+
+    A
+    .
+
+    Para 1.
+
+    ==
+    CD
+    ==
+
+    Para 2.
+
+    A
+    -
+
+    Para 3.
+
+    Title
+    .....
+
+    Para 4.
+    """)
+_DOT_DOT_UNDERLINE_HIERARCHY_TREE = (
+    (1, "CD"),
+    (1, "A"),
+    (2, "CD"),
+    (3, "A"),
+    (1, "Title"),
+)
+
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
@@ -611,6 +851,39 @@ def test_fix_preserves_docutils_section_tree_with_overline_transition(
     assert _tree(after_source) == before
     if unchanged:
         assert after_source.splitlines()[4:7] == source.splitlines()[4:7]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("source", "expected_tree"),
+    [
+        (_INDENTED_UNDERLINE_HIERARCHY, _INDENTED_UNDERLINE_HIERARCHY_TREE),
+        (_DOT_DOT_UNDERLINE_HIERARCHY, _DOT_DOT_UNDERLINE_HIERARCHY_TREE),
+    ],
+    ids=("indented-title", "dot-dot-underline"),
+)
+@pytest.mark.parametrize("fast", [False, True], ids=("full", "fast"))
+def test_fix_preserves_docutils_section_tree_with_underline_transition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    source: str,
+    expected_tree: tuple[tuple[int, str], ...],
+    *,
+    fast: bool,
+) -> None:
+    """A later sibling keeps its depth across each underline correction."""
+    path = tmp_path / "doc.rst"
+    path.write_text(source, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    before = _tree(source)
+    command = ["fix", *(["--fast"] if fast else []), "doc.rst"]
+
+    code, out = _run(monkeypatch, capsys, *command)
+
+    assert before == expected_tree
+    assert code == 0, out
+    assert _tree(path.read_text(encoding="utf-8")) == before
 
 
 @pytest.mark.integration
