@@ -147,6 +147,12 @@ def test_isolated_development_recipe_installs_the_test_runner() -> None:
     recipe = "--editable '/path/to/check_rst[dev]' pytest==9.1.1"
     assert recipe in development
     assert recipe not in readme
+    for command in (
+        "python3.14 -m pip install --editable '.[dev]'",
+        "~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps \\ "
+        "--upgrade /tmp/check_rst-source.tar",
+    ):
+        assert command in development
 
 
 @pytest.mark.unit
