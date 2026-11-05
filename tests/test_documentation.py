@@ -136,6 +136,7 @@ def test_release_docs_require_a_concrete_clean_export_build() -> None:
     assert "pip wheel --wheel-dir dist ." not in readme
     assert "release_tree=$(mktemp -d)" in releasing
     assert 'git archive <release-commit> | tar -x -C "$release_tree"' in releasing
+    assert "README wheel example" not in releasing
 
 
 @pytest.mark.unit
