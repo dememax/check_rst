@@ -78,7 +78,7 @@ Outline: docs/releasing.rst
   levels: 1 '#o' (1), 2 '*o' (5), 6 sections total; next free section char: '='
   6-158:#o Releasing check_rst [5 subsections, 5 code blocks, 2 lists]
   (19 entries hidden — --outline-depth 1, --sections-only)
-check_rst: 1 file(s) checked, 0 error(s), 0 warning(s), 6600 char(s) (84 distinct, 7 once), 6602 byte(s), 903 space(s) (14%)
+check_rst: 1 file(s) checked, 0 error(s), 0 warning(s), 6572 char(s) (84 distinct, 7 once), 6574 byte(s), 898 space(s) (14%)
 ```
 
 ## Limits and trade-offs

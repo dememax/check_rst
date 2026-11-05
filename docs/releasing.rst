@@ -39,8 +39,8 @@ Prepare the release commits
    pygit2-floor acceptance output.  Run the focused tests, confirm that they
    fail for the old version source, and commit that failing state as
    ``test: RED require the X.Y.Z release identity``.
-#. Update ``src/check_rst/__init__.py``, the README wheel example, and a dated
-   roadmap Shipped entry.  Confirm the focused tests pass and commit the result
+#. Update ``src/check_rst/__init__.py`` and a dated roadmap Shipped entry.
+   Confirm the focused tests pass and commit the result
    as ``release: bump check_rst to X.Y.Z``.  Never combine the version bump
    with a feature implementation.
 

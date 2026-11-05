@@ -572,8 +572,9 @@ environment, then install only ``check_rst`` into it::
    ~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps \
        /tmp/check_rst-source.tar
 
-For a normal installation, upgrade from the clean archive created above.  For
-the Gentoo system-site model, retain its dependency boundary::
+For a normal installation, upgrade from the clean archive created by the
+README's ``Install`` procedure.  For the Gentoo system-site model, retain its
+dependency boundary::
 
    ~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps \
        --upgrade /tmp/check_rst-source.tar
