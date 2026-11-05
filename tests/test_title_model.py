@@ -75,7 +75,7 @@ class UnderlineTransitionCase:
     body: str
     titles: tuple[_ObservedTitle, ...]
     has_underline_finding: bool | None = None
-    fixed_body: str | None = None
+    fixed_body: tuple[str, str] | None = None
     unchanged: bool = False
     refusal: bool = False
 
@@ -390,21 +390,21 @@ _UNDERLINE_TRANSITION_CASES = (
         _body("A", ".."),
         (("A", ".", False),),
         has_underline_finding=True,
-        fixed_body=_body("...", "A", "..."),
+        fixed_body=(_body("###", "A", "###"), _body("***", "A", "***")),
     ),
     UnderlineTransitionCase(
         "dot-dot-two-column-title",
         _body("AB", ".."),
         (("AB", ".", False),),
         has_underline_finding=True,
-        fixed_body=_body("....", "AB", "...."),
+        fixed_body=(_body("####", "AB", "####"), _body("****", "AB", "****")),
     ),
     UnderlineTransitionCase(
         "dot-dot-wide-column-title",
         _body("一", ".."),
         (("一", ".", False),),
         has_underline_finding=True,
-        fixed_body=_body("....", "一", "...."),
+        fixed_body=(_body("####", "一", "####"), _body("****", "一", "****")),
     ),
     UnderlineTransitionCase(
         "dot-dot-short-punctuation-title",
@@ -419,14 +419,20 @@ _UNDERLINE_TRANSITION_CASES = (
         _body("..", "AB", ".."),
         (("AB", ".", False),),
         has_underline_finding=True,
-        fixed_body=_fixed_after_construct("..", "....", "AB"),
+        fixed_body=(
+            _fixed_after_construct("..", "####", "AB"),
+            _fixed_after_construct("..", "****", "AB"),
+        ),
     ),
     UnderlineTransitionCase(
         "dot-dot-after-bullet",
         _body("-", "AB", ".."),
         (("AB", ".", False),),
         has_underline_finding=True,
-        fixed_body=_fixed_after_construct("-", "....", "AB"),
+        fixed_body=(
+            _fixed_after_construct("-", "####", "AB"),
+            _fixed_after_construct("-", "****", "AB"),
+        ),
     ),
     UnderlineTransitionCase(
         "indented-overlined-title",
@@ -614,9 +620,8 @@ def test_fix_preserves_every_underline_transition_tree(
     if case.unchanged:
         assert after_source == source
     if case.fixed_body is not None:
-        assert after_source == prefix + case.fixed_body
-        written_overlines = [line for line in after_source.splitlines() if line and set(line) == {"."}]
-        assert ".." not in written_overlines
+        expected_body = case.fixed_body[1 if with_document_title else 0]
+        assert after_source == prefix + expected_body
 
 
 @pytest.mark.integration
@@ -882,7 +887,8 @@ def test_fix_preserves_docutils_section_tree_with_underline_transition(
     code, out = _run(monkeypatch, capsys, *command)
 
     assert before == expected_tree
-    assert code == 0, out
+    expected_exit = 1 if source == _DOT_DOT_UNDERLINE_HIERARCHY and not fast else 0
+    assert code == expected_exit, out
     assert _tree(path.read_text(encoding="utf-8")) == before
 
 

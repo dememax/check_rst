@@ -32,6 +32,7 @@ from ._helpers import (
     _docutils_title_diagnostics,
     _in_scope,
     _is_adornment,
+    _is_title_underline,
     _normalize_source,
     _normalize_source_detailed,
     _read_normalized,
@@ -225,20 +226,26 @@ def _underline_candidates(
     candidates: list[tuple[int, str]] = []
     for underline_index in range(1, len(lines)):
         underline = lines[underline_index]
-        if not _is_adornment(underline) or len(underline) < _DOCUTILS_MIN_ADORNMENT_LEN:
+        if not _is_title_underline(underline) or len(underline) < _DOCUTILS_MIN_ADORNMENT_LEN:
             continue
         title_index = underline_index - 1
         title = lines[title_index]
-        if not title.strip() or (_is_adornment(title) and not _is_short_line_title_text(lines, title_index)):
+        if (
+            not title.strip()
+            or title != title.lstrip()
+            or (_is_adornment(title) and not _is_short_line_title_text(lines, title_index))
+        ):
             continue
         if _is_proven_non_title_construct(lines, title_index):
             continue
         preceding_construct = (
             _body_construct_transition(lines, title_index - 1)
-            if title_index > 0 and _is_adornment(lines[title_index - 1])
+            if title_index > 0 and (_is_adornment(lines[title_index - 1]) or lines[title_index - 1] == "..")
             else None
         )
-        follows_body_construct = preceding_construct in _BODY_CONSTRUCTS_FOLLOWED_BY_TITLE
+        follows_body_construct = preceding_construct in _BODY_CONSTRUCTS_FOLLOWED_BY_TITLE or (
+            preceding_construct == "explicit_markup" and lines[title_index - 1] == ".."
+        )
         if preceding_construct is not None and not follows_body_construct:
             continue
         if underline_index >= 2 and _is_adornment(lines[underline_index - 2]) and not follows_body_construct:
@@ -620,7 +627,7 @@ def _compute_adornment_fixes(lines: list[str], ranges: list[tuple[int, int]] | N
             i = idx
             if not _in_scope(ranges, i, i + 1):
                 continue
-            if not _is_adornment(result[i]):
+            if not _is_title_underline(result[i]):
                 continue  # earlier insertion shifted this index away from the adornment
 
             char = result[i][0]
@@ -640,7 +647,9 @@ def _compute_adornment_fixes(lines: list[str], ranges: list[tuple[int, int]] | N
             i = idx
             if not _in_scope(ranges, i - 1, i + 3):
                 continue
-            if not (i >= 1 and i + 1 < len(result) and _is_adornment(result[i - 1]) and _is_adornment(result[i + 1])):
+            if not (
+                i >= 1 and i + 1 < len(result) and _is_adornment(result[i - 1]) and _is_title_underline(result[i + 1])
+            ):
                 continue  # safety: earlier insertion may have shifted this index
 
             # Analyze the block as it stands in the mutating buffer — not

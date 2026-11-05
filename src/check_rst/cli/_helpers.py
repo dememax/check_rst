@@ -187,18 +187,27 @@ MIN_UNDERLINE_ONLY_LEN = 4
 def _is_adornment(line: str) -> bool:
     """Return True if *line* consists entirely of one repeated adornment character.
 
-    Exactly ``..`` is excluded: docutils' explicit-markup pattern
-    (``\\.\\.( +|$)``) takes precedence over the title-line pattern, so a
-    lone ``..`` is always a comment marker to docutils, never an over/
-    underline.  Treating it as an adornment made two ``..`` comment lines
-    around an indented note match the over/title/under shape — and fix
-    rewrote the comment into a dotted section title (confirmed by direct
-    testing, 2026-07-18).  Three or more dots don't match the comment
-    pattern and stay valid adornments.
+    Exactly ``..`` is excluded because Docutils' explicit-markup transition
+    precedes its adornment-line transition at a ``Body`` position.  It is
+    therefore never an overline or title text.  Treating it as an adornment
+    made two ``..`` comment lines around an indented note match the
+    over/title/under shape — and fix rewrote the comment into a dotted
+    section title (confirmed by direct testing, 2026-07-18).  Its distinct
+    role as a title underline is modeled by ``_is_title_underline``.
     """
     if line == "..":
         return False
     return bool(line) and line[0] in VALID_ADORNMENT_CHARS and len(set(line)) == 1
+
+
+def _is_title_underline(line: str) -> bool:
+    """Return whether Docutils ``Text.underline`` accepts *line*.
+
+    ``Text`` uses the punctuation-line pattern directly, without ``Body``'s
+    earlier explicit-markup transition.  Exact ``..`` is consequently an
+    underline only when a preceding text line has already entered ``Text``.
+    """
+    return line == ".." or _is_adornment(line)
 
 
 def _discover_repo(root: pathlib.Path) -> pygit2.Repository | None:
@@ -628,7 +637,7 @@ def iter_title_blocks(lines: list[str]) -> Iterator[TitleBlock]:
     """
     for i in range(1, len(lines) - 1):
         over, title, under = lines[i - 1], lines[i], lines[i + 1]
-        if _is_adornment(over) and _is_adornment(under) and not _is_adornment(title) and title:
+        if _is_adornment(over) and _is_title_underline(under) and not _is_adornment(title) and title:
             yield TitleBlock(i, over, title, under)
 
 
