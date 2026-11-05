@@ -25,9 +25,11 @@ import difflib
 import json
 import textwrap
 from typing import TYPE_CHECKING, Any
+from unittest import mock
 
 import docutils.core
 import docutils.nodes
+import docutils.parsers.rst.states
 import pytest
 from _support import _git
 
@@ -49,6 +51,20 @@ class Case:
     edited: str
     refusal: str | None
     tree: tuple[tuple[int, str], ...] = ()
+
+
+type _ObservedTitle = tuple[str, str, bool]
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class OverlineTransitionCase:
+    """One Docutils ``Body``/``Line`` overline transition boundary."""
+
+    name: str
+    body: str
+    titles: tuple[_ObservedTitle, ...]
+    unchanged: bool = False
+    construct_overline: bool = False
 
 
 def _scope_args(scope: str) -> list[str]:
@@ -75,6 +91,40 @@ def _tree(text: str) -> tuple[tuple[int, str], ...]:
                 walk(child, depth + 1)
 
     walk(document, 1)
+    return tuple(found)
+
+
+def _docutils_title_forms(text: str) -> tuple[_ObservedTitle, ...]:
+    """Return successful Docutils titles as (name, character, overlined).
+
+    Docutils passes the source style to ``RSTState.section`` as one character
+    for an underline-only title and as a two-character tuple for an overlined
+    title.  Instrument that call while retaining Docutils' own subsection
+    validation and node construction, so the oracle observes form directly
+    instead of inferring it from the surrounding source.
+    """
+    found: list[_ObservedTitle] = []
+
+    def recording_section(
+        state: docutils.parsers.rst.states.RSTState,
+        title: str,
+        source: str,
+        style: str | tuple[str, str],
+        lineno: int,
+        messages: list[docutils.nodes.system_message],
+    ) -> None:
+        if state.check_subsection(source, style, lineno):
+            if isinstance(style, tuple):
+                found.append((title.strip(), style[0], True))
+            else:
+                found.append((title.strip(), style, False))
+            state.new_subsection(title, lineno, messages)
+
+    with mock.patch.object(docutils.parsers.rst.states.RSTState, "section", recording_section):
+        docutils.core.publish_doctree(
+            text,
+            settings_overrides={"report_level": 5, "halt_level": 5, "doctitle_xform": False},
+        )
     return tuple(found)
 
 
@@ -224,6 +274,49 @@ def _modeled_title_names(text: str) -> tuple[str, ...]:
     return tuple(lines[index].strip() for index, _style in _formatting._title_style_events(lines))
 
 
+def _modeled_title_forms(text: str) -> tuple[_ObservedTitle, ...]:
+    """Return title names and forms owned by the parser-free mutation model."""
+    lines = text.expandtabs(8).splitlines()
+    return tuple((lines[index].strip(), style[0], style[1]) for index, style in _formatting._title_style_events(lines))
+
+
+def _body(*lines: str) -> str:
+    """Return an invented transition row followed by ordinary body text."""
+    return "\n".join((*lines, "", "Body.", ""))
+
+
+_OVERLINE_TRANSITION_CASES = (
+    OverlineTransitionCase("short-overline-wide-title-2", _body("==", "ABC", "=="), (), unchanged=True),
+    OverlineTransitionCase("short-overline-mismatched-char", _body("==", "AB", "--"), (), unchanged=True),
+    OverlineTransitionCase("short-overline-mismatched-length", _body("==", "A", "==="), (), unchanged=True),
+    OverlineTransitionCase("short-overline-wide-title-3", _body("===", "ABCD", "==="), (), unchanged=True),
+    OverlineTransitionCase("short-overline-wide-title-1", _body("=", "AB", "="), (), unchanged=True),
+    OverlineTransitionCase("short-overline-leading-spaces", _body("==", "  A", "=="), (), unchanged=True),
+    OverlineTransitionCase("short-overline-tab", _body("==", "\tA", "=="), (), unchanged=True),
+    OverlineTransitionCase("short-overline-wide-columns", _body("==", "一一", "=="), (), unchanged=True),
+    OverlineTransitionCase("body-bullet-dash", _body("-", "x", "-"), (("x", "-", False),), construct_overline=True),
+    OverlineTransitionCase("body-bullet-star", _body("*", "x", "*"), (("x", "*", False),), construct_overline=True),
+    OverlineTransitionCase("body-bullet-plus", _body("+", "x", "+"), (("x", "+", False),), construct_overline=True),
+    OverlineTransitionCase("body-line-block", _body("|", "x", "|"), (("x", "|", False),), construct_overline=True),
+    OverlineTransitionCase(
+        "body-anonymous-target", _body("__", "ab", "__"), (("ab", "_", False),), construct_overline=True
+    ),
+    OverlineTransitionCase("body-doctest", _body(">>>", "abc", ">>>"), (), unchanged=True, construct_overline=True),
+    OverlineTransitionCase("valid-overline-2", _body("==", "AB", "=="), (("AB", "=", True),)),
+    OverlineTransitionCase("valid-overline-3", _body("===", "ABC", "==="), (("ABC", "=", True),)),
+    OverlineTransitionCase("valid-overline-1", _body("=", "A", "="), (("A", "=", True),)),
+    OverlineTransitionCase("valid-overline-leading-space", _body("===", " A", "==="), (("A", "=", True),)),
+    OverlineTransitionCase("valid-overline-wide-column", _body("==", "一", "=="), (("一", "=", True),)),
+    OverlineTransitionCase("valid-body-dash", _body("--", "ab", "--"), (("ab", "-", True),)),
+    OverlineTransitionCase("valid-body-star", _body("***", "abc", "***"), (("abc", "*", True),)),
+    OverlineTransitionCase("valid-body-line", _body("||", "ab", "||"), (("ab", "|", True),)),
+    OverlineTransitionCase("valid-body-angle", _body(">>", "ab", ">>"), (("ab", ">", True),)),
+    OverlineTransitionCase("valid-body-underscore", _body("___", "abc", "___"), (("abc", "_", True),)),
+    OverlineTransitionCase("short-overline-eof", "==\nAB\n", (), unchanged=True),
+    OverlineTransitionCase("short-overline-followed-by-text", _body("==", "AB", "text"), (), unchanged=True),
+)
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -286,6 +379,56 @@ def test_punctuation_transition_matrix_matches_docutils_titles(body: str) -> Non
     source = _PUNCTUATION_TOP + body
 
     assert _modeled_title_names(source) == _title_names(source)
+
+
+@pytest.mark.parametrize("with_document_title", [False, True], ids=("bare", "document-title"))
+@pytest.mark.parametrize("case", _OVERLINE_TRANSITION_CASES, ids=lambda case: case.name)
+def test_overline_transition_matrix_matches_docutils_names_and_forms(
+    case: OverlineTransitionCase,
+    *,
+    with_document_title: bool,
+) -> None:
+    """Body precedence and short-overline correction decide name and form."""
+    prefix = _PUNCTUATION_TOP if with_document_title else ""
+    source = prefix + case.body
+    expected = (("Document", "#", True), *case.titles) if with_document_title else case.titles
+
+    assert _docutils_title_forms(source) == expected
+    assert _modeled_title_forms(source) == expected
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("fast", [False, True], ids=("full", "fast"))
+@pytest.mark.parametrize("with_document_title", [False, True], ids=("bare", "document-title"))
+@pytest.mark.parametrize("case", _OVERLINE_TRANSITION_CASES, ids=lambda case: case.name)
+def test_fix_preserves_every_overline_transition_tree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    case: OverlineTransitionCase,
+    *,
+    with_document_title: bool,
+    fast: bool,
+) -> None:
+    """Every lexical row keeps Docutils' complete section tree in both modes."""
+    prefix = _PUNCTUATION_TOP if with_document_title else ""
+    source = prefix + case.body
+    path = tmp_path / "doc.rst"
+    path.write_text(source, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    before = _tree(source)
+    command = ["fix", *(["--fast"] if fast else []), "doc.rst"]
+
+    code, out = _run(monkeypatch, capsys, *command)
+
+    after_source = path.read_text(encoding="utf-8")
+    assert code == 0, out
+    assert _tree(after_source) == before
+    if case.unchanged:
+        assert after_source == source
+    if case.construct_overline:
+        construct_index = len(prefix.splitlines())
+        assert after_source.splitlines()[construct_index] == case.body.splitlines()[0]
 
 
 @pytest.mark.integration
@@ -356,6 +499,45 @@ _ONE_CHARACTER_COLON_TREE = ((1, "Doc"), (2, ":"), (3, "Child"), (2, "Sibling"))
 
 _ONE_CHARACTER_DOT_HIERARCHY = _ONE_CHARACTER_LETTER_HIERARCHY.replace("A\n-", ".\n-")
 
+_SHORT_OVERLINE_HIERARCHY = textwrap.dedent("""\
+    ==
+    ABC
+    ==
+
+    Child
+    -----
+
+    Sibling
+    -----
+
+    Body.
+    """)
+_SHORT_OVERLINE_HIERARCHY_TREE = ((1, "Child"), (1, "Sibling"))
+
+_BODY_CONSTRUCT_OVERLINE_HIERARCHY = textwrap.dedent("""\
+    ##########
+    Document
+    ##########
+
+    -
+    x
+    -
+
+    Child
+    ~~~~~
+
+    Sibling
+    -------
+
+    Body.
+    """)
+_BODY_CONSTRUCT_OVERLINE_HIERARCHY_TREE = (
+    (1, "Document"),
+    (2, "x"),
+    (3, "Child"),
+    (2, "Sibling"),
+)
+
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
@@ -388,6 +570,43 @@ def test_fix_preserves_docutils_section_tree(
     after = _tree(path.read_text(encoding="utf-8"))
     assert before == expected_tree
     assert after == before
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("source", "expected_tree", "unchanged"),
+    [
+        (_SHORT_OVERLINE_HIERARCHY, _SHORT_OVERLINE_HIERARCHY_TREE, True),
+        (_BODY_CONSTRUCT_OVERLINE_HIERARCHY, _BODY_CONSTRUCT_OVERLINE_HIERARCHY_TREE, False),
+    ],
+    ids=("short-overline", "body-construct-overline"),
+)
+@pytest.mark.parametrize("fast", [False, True], ids=("full", "fast"))
+def test_fix_preserves_docutils_section_tree_with_overline_transition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    source: str,
+    expected_tree: tuple[tuple[int, str], ...],
+    *,
+    unchanged: bool,
+    fast: bool,
+) -> None:
+    """A later sibling keeps its depth when the first triple is not a block."""
+    path = tmp_path / "doc.rst"
+    path.write_text(source, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    before = _tree(source)
+    command = ["fix", *(["--fast"] if fast else []), "doc.rst"]
+
+    code, out = _run(monkeypatch, capsys, *command)
+
+    after_source = path.read_text(encoding="utf-8")
+    assert before == expected_tree
+    assert code == 0, out
+    assert _tree(after_source) == before
+    if unchanged:
+        assert after_source == source
 
 
 @pytest.mark.integration
