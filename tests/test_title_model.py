@@ -392,11 +392,11 @@ def test_fix_preserves_docutils_section_tree(
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    ("source", "title"),
+    ("source", "title", "lineno"),
     [
-        (_PUNCTUATION_HIERARCHY, "::"),
-        (_ONE_CHARACTER_COLON_HIERARCHY, ":"),
-        (_ONE_CHARACTER_DOT_HIERARCHY, "."),
+        (_PUNCTUATION_HIERARCHY, "::", 5),
+        (_ONE_CHARACTER_COLON_HIERARCHY, ":", 4),
+        (_ONE_CHARACTER_DOT_HIERARCHY, ".", 4),
     ],
     ids=("short-punctuation", "one-character-colon", "single-dot"),
 )
@@ -407,6 +407,7 @@ def test_fix_refuses_structural_changes_at_the_short_punctuation_title_line(
     capsys: pytest.CaptureFixture[str],
     source: str,
     title: str,
+    lineno: int,
     *,
     fast: bool,
 ) -> None:
@@ -418,7 +419,7 @@ def test_fix_refuses_structural_changes_at_the_short_punctuation_title_line(
     code, out = _run(monkeypatch, capsys, *command)
 
     assert code == 1, out
-    assert "doc.rst:5: ERROR:" in out
+    assert f"doc.rst:{lineno}: ERROR:" in out
     assert f"short punctuation title {title!r} cannot take the required overline" in out
     assert path.read_text(encoding="utf-8") == source
 

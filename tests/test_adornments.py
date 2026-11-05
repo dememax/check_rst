@@ -125,9 +125,11 @@ def test_adornments_underline_shorter_than_title_flagged(tmp_path: Path) -> None
 def test_adornments_underline_below_absolute_minimum_not_flagged(
     tmp_path: Path,
 ) -> None:
-    """An underline below MIN_UNDERLINE_ONLY_LEN (e.g. a single char) is not
-    treated as an underline-only title candidate at all — too short to be
-    distinguishable from something that isn't a title attempt."""
+    """A sub-four-character underline narrower than its title is not a title.
+
+    This remains a useful control for the legacy helper's independent
+    MIN_UNDERLINE_ONLY_LEN promotion-safety floor.
+    """
     p = _rst(
         tmp_path,
         """\

@@ -696,16 +696,13 @@ def analyze_block(block: TitleBlock) -> BlockCorrection:
     )
 
 
-# docutils' OWN minimum for a title-underline attempt to register as a
-# section at all — confirmed by direct probe, 2026-07-21: a 1-char
-# underline glued to text produces only an INFO "Possible title underline,
-# too short" and NO section; a 2-char underline is already a real section,
-# no message at all.  Deliberately NOT MIN_UNDERLINE_ONLY_LEN (4): that is
-# check_rst's OWN, stricter promotion-safety floor for --fix (avoiding
-# false-positive auto-promotion of a stray short adornment-like line into
-# a full block) — a different job from "is this a real title docutils
-# would parse", which is what hierarchy detection below actually needs.
-_DOCUTILS_MIN_ADORNMENT_LEN = 2
+# Docutils' Body ``line`` pattern accepts one repeated punctuation character.
+# ``Text.underline`` then rejects a sub-four-character underline only when the
+# rstripped title is wider than it; a one-character underline is therefore a
+# real section underline for a one-column title.  Deliberately NOT
+# MIN_UNDERLINE_ONLY_LEN (4): that is check_rst's own promotion-safety floor in
+# a legacy candidate helper, not the shared model of titles Docutils parses.
+_DOCUTILS_MIN_ADORNMENT_LEN = 1
 
 
 # Docutils title diagnostics that can restate a Phase 0/1 adornment defect

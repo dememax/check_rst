@@ -266,10 +266,9 @@ def _shared_adornment_findings(lines: list[str]) -> list[Finding]:
 def _title_char_events(lines: list[str]) -> list[tuple[int, str]]:
     """Return (0-based line index, char) for EVERY title occurrence, in
     document order — full overline+title+underline blocks AND underline-only
-    titles alike (including ones too short for iter_underline_only's own
-    MIN_UNDERLINE_ONLY_LEN floor; that floor exists purely to avoid
-    mis-promoting a stray short line during --fix, and has nothing to do
-    with whether docutils itself already sees a real title there).
+    titles alike.  The legacy ``iter_underline_only`` helper's
+    MIN_UNDERLINE_ONLY_LEN promotion-safety floor does not define this shared
+    model of titles Docutils parses.
 
     Shared by the hierarchy discovery helpers below: one collapses this to
     first appearances, while the other follows every occurrence to recover
@@ -534,8 +533,8 @@ def _compute_adornment_fixes(lines: list[str], ranges: list[tuple[int, int]] | N
     - leading/trailing spaces in title
     - missing blank line before overline or after underline
     - underline-only title: overline is added using the same character as the
-      underline (underline must be >= MIN_UNDERLINE_ONLY_LEN chars to be
-      recognized as one at all, independent of the title's own length)
+      underline, after the shared title model applies Docutils' conditional
+      title-width rule
 
     NOT handled here: hierarchy character remapping is a separate concern —
     _compute_structure_fixes() composes _compute_hierarchy_remap's remap
