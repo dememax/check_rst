@@ -139,10 +139,45 @@ def test_release_docs_require_a_concrete_clean_export_build() -> None:
 
 @pytest.mark.unit
 def test_isolated_development_recipe_installs_the_test_runner() -> None:
-    """A fresh non-system venv can run README's documented pytest command."""
-    readme = " ".join((PROJECT_ROOT / "README.md").read_text(encoding="utf-8").split())
+    """A fresh non-system venv can run the development guide's pytest command."""
+    readme = _normalized_text(PROJECT_ROOT / "README.md")
+    development = _normalized_text(DOCS_DIR / "development.rst")
 
-    assert "--editable '/path/to/check_rst[dev]' pytest==9.1.1" in readme
+    recipe = "--editable '/path/to/check_rst[dev]' pytest==9.1.1"
+    assert recipe in development
+    assert recipe not in readme
+
+
+@pytest.mark.unit
+def test_readme_outline_example_matches_real_output() -> None:
+    """The cold-reader example is byte-identical to the current CLI output."""
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    command = "check_rst outline --outline-depth 1 --sections-only docs/releasing.rst"
+    marker = f"```console\n$ {command}\n"
+    _before, found, remainder = readme.partition(marker)
+    assert found
+    documented, closing_fence, _after = remainder.partition("```\n")
+    assert closing_fence
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "check_rst",
+            "outline",
+            "--outline-depth",
+            "1",
+            "--sections-only",
+            "docs/releasing.rst",
+        ],
+        cwd=PROJECT_ROOT,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert documented == result.stdout
 
 
 @pytest.mark.unit
