@@ -30,9 +30,10 @@ change and explains the remedy.
 
 ## What `fix` changes—and never changes
 
-By default, `fix` changes title-adornment geometry and byte hygiene: BOMs,
-line endings, control whitespace, and trailing whitespace. It never changes
-prose words or meaningful prose spacing by default. The
+By default, `fix` changes title-adornment geometry, remaps the adornment
+hierarchy, and applies byte hygiene: BOMs, line endings, control whitespace,
+and trailing whitespace. It never changes prose words or meaningful prose
+spacing by default. The
 `--normalize-blank-lines`, `--collapse-title-spaces`, and
 `--single-space-prose` modes are explicit, parser-verified opt-ins.
 
@@ -108,6 +109,9 @@ git archive --prefix=check_rst/ --output=/tmp/check_rst-source.tar HEAD
 python3.14 -m pip install /tmp/check_rst-source.tar
 check_rst --help
 ```
+
+The `pyproject.toml` console entry point installs `check_rst` in the selected
+Python environment's scripts directory, which must be on `PATH`.
 
 The equivalent module invocation is:
 

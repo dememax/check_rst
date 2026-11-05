@@ -572,6 +572,12 @@ environment, then install only ``check_rst`` into it::
    ~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps \
        /tmp/check_rst-source.tar
 
+For a normal installation, upgrade from the clean archive created above.  For
+the Gentoo system-site model, retain its dependency boundary::
+
+   ~/opt/check_rst/bin/python -m pip install --no-build-isolation --no-deps \
+       --upgrade /tmp/check_rst-source.tar
+
 This matters in verified mode: a consuming project's ``conf.py`` may load an
 extension such as ``sphinxcontrib.plantuml``, which must be importable by the
 same interpreter that runs ``check_rst``.  Use ordinary dependency-resolving
@@ -589,9 +595,15 @@ Docutils 0.23 required by this project, pip selects Sphinx 9.2 or later::
 
 Ruff is not installed into this environment.  Use the system Ruff 0.17.3
 executable pinned by ``[tool.ruff].required-version`` in ``pyproject.toml``.
-Ordinary Python edits in an editable checkout take effect without
-reinstallation; reinstall after changing packaging metadata or console entry
-points.
+
+For development, install the checkout in editable mode::
+
+   cd /path/to/check_rst
+   python3.14 -m pip install --editable '.[dev]'
+
+Ordinary Python source edits then take effect without reinstalling.  Reinstall
+after changing packaging metadata or console entry points in
+``pyproject.toml``.
 
 Validation hosts can differ by locale as well as package versions.  An Ubuntu
 language locale such as ``fr_FR.UTF-8`` leaves Python's standard output on its
