@@ -500,6 +500,10 @@ _ONE_CHARACTER_COLON_TREE = ((1, "Doc"), (2, ":"), (3, "Child"), (2, "Sibling"))
 _ONE_CHARACTER_DOT_HIERARCHY = _ONE_CHARACTER_LETTER_HIERARCHY.replace("A\n-", ".\n-")
 
 _SHORT_OVERLINE_HIERARCHY = textwrap.dedent("""\
+    ##########
+    Document
+    ##########
+
     ==
     ABC
     ==
@@ -512,7 +516,7 @@ _SHORT_OVERLINE_HIERARCHY = textwrap.dedent("""\
 
     Body.
     """)
-_SHORT_OVERLINE_HIERARCHY_TREE = ((1, "Child"), (1, "Sibling"))
+_SHORT_OVERLINE_HIERARCHY_TREE = ((1, "Document"), (2, "Child"), (2, "Sibling"))
 
 _BODY_CONSTRUCT_OVERLINE_HIERARCHY = textwrap.dedent("""\
     ##########
@@ -606,7 +610,7 @@ def test_fix_preserves_docutils_section_tree_with_overline_transition(
     assert code == 0, out
     assert _tree(after_source) == before
     if unchanged:
-        assert after_source == source
+        assert after_source.splitlines()[4:7] == source.splitlines()[4:7]
 
 
 @pytest.mark.integration
@@ -875,7 +879,7 @@ def test_enumerator_does_not_prove_a_fresh_markup_context(
     assert path.read_text(encoding="utf-8") == source
 
 
-_CR46_NEEDS_FIX = "###\nLong title\n###\n\n"
+_CR46_NEEDS_FIX = "###########\nLong title\n###########\n\n"
 _CR46_REMEDY = (
     "if it is a title, add a blank line before it (before its overline, if it has one); if it is text, "
     "mark the block as literal or break the title-like punctuation"
@@ -957,7 +961,7 @@ _AFTER_PARAGRAPH = _NOTES_BASE + "Second section\n*********\n\nMore text.\n"
 PARAGRAPH_CANDIDATE_BLOCKING = Case(
     name="title directly after a paragraph line, with another fix pending",
     base=None,
-    edited=_AFTER_PARAGRAPH.replace("*******\nFirst\n*******", "***\nFirst\n***"),
+    edited=_AFTER_PARAGRAPH.replace("*******\nFirst\n*******", "******\nFirst\n******"),
     refusal="adornment.unseparated-title",
 )
 

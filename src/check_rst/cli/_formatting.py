@@ -94,6 +94,7 @@ _PROVEN_NON_TEXT_TRANSITIONS = (
     "explicit_markup",
     "anonymous",
 )
+_BODY_CONSTRUCTS_FOLLOWED_BY_TITLE = frozenset({"bullet", "line_block", "anonymous"})
 
 
 def _body_transition_match(name: str, line: str) -> re.Match[str] | None:
@@ -151,6 +152,51 @@ def _is_short_line_title_text(lines: list[str], index: int) -> bool:
     return _candidate_starts_body(lines, index) and _is_adornment(line) and len(line) < 4
 
 
+def _body_construct_transition(lines: list[str], index: int) -> str | None:
+    """Return the higher-priority Body transition owning ``lines[index]``.
+
+    Only a proven Body position has transition precedence.  Of the repeated
+    punctuation that can also look like a short overline, bullets, line blocks,
+    doctests and anonymous targets are consumed before Docutils' ``line``
+    transition.
+    """
+    if not _candidate_starts_body(lines, index):
+        return None
+    return next(
+        (name for name in _PROVEN_NON_TEXT_TRANSITIONS if _body_transition_match(name, lines[index]) is not None),
+        None,
+    )
+
+
+def _is_docutils_overline_title(lines: list[str], block: TitleBlock) -> bool:
+    """Whether Docutils reads *block* as an overlined title in this source.
+
+    At a proven Body position, a higher-priority construct owns the first line
+    before ``Line`` can see it.  Otherwise ``Line.text`` accepts an overline
+    shorter than four only when its rstripped underline matches exactly and its
+    rstripped, tab-expanded title is no wider than the overline.  Four or more
+    characters keep Docutils' diagnostic overline behavior, including the
+    existing mismatched-adornment finding.
+    """
+    overline_index = block.index - 1
+    if not _candidate_starts_body(lines, overline_index):
+        return True
+    if _body_construct_transition(lines, overline_index) is not None:
+        return False
+    overline = block.over.rstrip()
+    if len(overline) >= 4:
+        return True
+    if overline != block.under.rstrip():
+        return False
+    title_width = docutils.utils.column_width(block.title.rstrip().expandtabs(8))
+    return title_width <= len(overline)
+
+
+def _overline_title_blocks(lines: list[str]) -> list[TitleBlock]:
+    """Return apparent blocks that Docutils actually reads as titles."""
+    return [block for block in iter_title_blocks(lines) if _is_docutils_overline_title(lines, block)]
+
+
 def _underline_candidates(
     lines: list[str],
     doctree: docutils.nodes.document | None = None,
@@ -175,7 +221,7 @@ def _underline_candidates(
             if not isinstance(start, int) or "\n" not in paragraph.rawsource:
                 continue
             multiline_paragraph_lines.update(range(start - 1, start - 1 + len(paragraph.rawsource.splitlines())))
-    block_overlines = {block.index - 1 for block in iter_title_blocks(lines)}
+    block_overlines = {block.index - 1 for block in _overline_title_blocks(lines)}
     candidates: list[tuple[int, str]] = []
     for underline_index in range(1, len(lines)):
         underline = lines[underline_index]
@@ -187,7 +233,15 @@ def _underline_candidates(
             continue
         if _is_proven_non_title_construct(lines, title_index):
             continue
-        if underline_index >= 2 and _is_adornment(lines[underline_index - 2]):
+        preceding_construct = (
+            _body_construct_transition(lines, title_index - 1)
+            if title_index > 0 and _is_adornment(lines[title_index - 1])
+            else None
+        )
+        follows_body_construct = preceding_construct in _BODY_CONSTRUCTS_FOLLOWED_BY_TITLE
+        if preceding_construct is not None and not follows_body_construct:
+            continue
+        if underline_index >= 2 and _is_adornment(lines[underline_index - 2]) and not follows_body_construct:
             continue
         if title_index in multiline_paragraph_lines:
             continue
@@ -198,6 +252,7 @@ def _underline_candidates(
             and title_index > 0
             and lines[title_index - 1].strip()
             and _BULLET_ITEM_MARKER_RE.match(lines[title_index - 1]) is None
+            and not follows_body_construct
         ):
             candidates.append((title_index, "unproven"))
             continue
@@ -220,7 +275,9 @@ def _title_style_events(
     line stays with the block that uses it as an overline; the underline-only
     reading is reported as an ambiguity, never modeled.
     """
-    events: list[tuple[int, _TitleStyle]] = [(block.index, (block.over[0], True)) for block in iter_title_blocks(lines)]
+    events: list[tuple[int, _TitleStyle]] = [
+        (block.index, (block.over[0], True)) for block in _overline_title_blocks(lines)
+    ]
     events.extend(
         (title_index, (lines[title_index + 1][0], False))
         for title_index, status in _underline_candidates(lines, doctree)
@@ -483,7 +540,7 @@ def adornment_findings(
 
     # Validate overline + underline blocks (length, spaces, surrounding blanks)
     # against their canonical form — the same one the fixer applies.
-    for block in iter_title_blocks(lines):
+    for block in _overline_title_blocks(lines):
         i = block.index
         if not _in_scope(ranges, i - 1, i + 3):
             continue
@@ -554,7 +611,7 @@ def _compute_adornment_fixes(lines: list[str], ranges: list[tuple[int, int]] | N
     modeled_titles = dict(_title_style_events(lines))
     fixable: list[tuple[int, str]] = [
         (title_index + 1, "underline_only") for title_index, style in modeled_titles.items() if not style[1]
-    ] + [(block.index, "block") for block in iter_title_blocks(lines)]
+    ] + [(block.index, "block") for block in _overline_title_blocks(lines)]
 
     fixable.sort(key=lambda x: x[0], reverse=True)
 
@@ -968,7 +1025,7 @@ def _unseparated_title_findings(
             title_index for title_index, status in _underline_candidates(lines, doctree) if status == "title"
         }
     findings: list[Finding] = []
-    for block in iter_title_blocks(lines):
+    for block in _overline_title_blocks(lines):
         construct_index = block.index - 2
         if construct_index < 0 or not _is_proven_non_title_construct(lines, construct_index):
             continue
@@ -1173,7 +1230,7 @@ def _first_title_start(lines: list[str]) -> int | None:
     if not events:
         return None
     idx, _char = events[0]
-    block_starts = {block.index for block in iter_title_blocks(lines)}
+    block_starts = {block.index for block in _overline_title_blocks(lines)}
     return idx - 1 if idx in block_starts else idx
 
 
