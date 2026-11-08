@@ -144,6 +144,22 @@ The following capabilities are implemented and protected by tests:
   physical source line collapse again.  These classified location corrections
   are the sole exception to CR-50's byte-identical 0.23 output requirement.
   The CLI and JSON contract version remains 2.
+* 0.7.5 (2026-11-08): nested and expanded-width simple tables no longer crash
+  lexical reporting, and nested table geometry and ownership now follow the
+  table that Docutils actually identifies.  Verified Sphinx ``context`` reads
+  reuse one prepared application without changing output, backed by generated
+  performance corpora, recording tools, and a rendered history.
+
+  Existing directory operands require ``--recursive`` instead of succeeding
+  vacuously; Sphinx runs restore Docutils' canonical role registry; and title
+  recognition follows Docutils more closely for short punctuation, one-column,
+  short-overline, Body-state, indented, and dot-underlined cases.  Diagnostics
+  and summaries now state exact remedies and context limits for unseparated
+  titles, continued rubrics, uncovered files, structural include refusals,
+  unjudged includers, and physical source title spelling.  Reader help explains
+  output-only ``--no-toctree`` behavior and default recursive discovery.  The
+  CLI and JSON contract version remains 2 because the directory result was a
+  corrected false pass and no supported JSON member changed incompatibly.
 
 ==================
 Agreed next work
