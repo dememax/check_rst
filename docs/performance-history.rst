@@ -38,6 +38,16 @@ Host environments
      - 3.14.10
      - 0.23
      - 9.1.0
+   * - E2
+     - gl63
+     - Gentoo Linux
+     - 6.18.60-gentoo
+     - Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
+     - 12
+     - 46.91
+     - 3.14.10
+     - 0.23
+     - 9.1.0
 
 ************
 Test suite
@@ -122,6 +132,25 @@ Test suite
      - 12.278035
      - 12.278035
      - 126.70
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - project-test-suite
+     - 1
+     - 2788
+     - 0
+     - 0
+     - 0
+     - 0
+     - 0
+     - 148.289289
+     - 148.289289
+     - 132.474621
+     - 132.474621
+     - 13.952547
+     - 13.952547
+     - 131.05
 
 ************
 Benchmarks
@@ -2080,6 +2109,651 @@ Benchmarks
      - 47.92
      - \_nested\_inline\_reparse=64, \_parse\_rst=1, \_read\_source=1
      - not compared
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-large-context-heuristic-toctree
+     - 3
+     - 0.297791
+     - 0.296300
+     - 0.272044
+     - 0.267420
+     - 0.025043
+     - 0.024003
+     - 39.98
+     - \_parse\_rst=1, \_read\_source=4
+     - not compared
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-large-context-verified-cold-no-toctree
+     - 3
+     - 0.993778
+     - 0.986689
+     - 0.925531
+     - 0.913453
+     - 0.067965
+     - 0.057011
+     - 84.77
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-large-context-verified-cold-toctree
+     - 3
+     - 0.990149
+     - 0.987472
+     - 0.930774
+     - 0.921199
+     - 0.058985
+     - 0.052965
+     - 84.74
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-large-context-verified-warm-no-toctree
+     - 3
+     - 0.796788
+     - 0.794618
+     - 0.742352
+     - 0.736807
+     - 0.052024
+     - 0.049972
+     - 83.43
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-large-context-verified-warm-toctree
+     - 3
+     - 0.795986
+     - 0.793605
+     - 0.736332
+     - 0.734477
+     - 0.057049
+     - 0.057025
+     - 83.48
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-large-outline-heuristic-toctree
+     - 3
+     - 0.306445
+     - 0.301807
+     - 0.285024
+     - 0.283161
+     - 0.022009
+     - 0.015945
+     - 40.00
+     - \_parse\_rst=1, \_read\_source=4
+     - not compared
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-large-outline-verified-cold-no-toctree
+     - 3
+     - 1.681245
+     - 1.676448
+     - 1.578779
+     - 1.564596
+     - 0.108064
+     - 0.096983
+     - 84.94
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-large-outline-verified-cold-toctree
+     - 3
+     - 1.692335
+     - 1.684731
+     - 1.574983
+     - 1.569758
+     - 0.121915
+     - 0.109995
+     - 84.98
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-large-outline-verified-warm-no-toctree
+     - 3
+     - 1.494935
+     - 1.489299
+     - 1.391630
+     - 1.380656
+     - 0.110058
+     - 0.098029
+     - 83.20
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-large-outline-verified-warm-toctree
+     - 3
+     - 1.483823
+     - 1.482779
+     - 1.378269
+     - 1.363620
+     - 0.106098
+     - 0.099000
+     - 83.14
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-small-context-heuristic-toctree
+     - 3
+     - 0.261509
+     - 0.253010
+     - 0.239527
+     - 0.233710
+     - 0.019057
+     - 0.017007
+     - 39.97
+     - \_parse\_rst=1, \_read\_source=4
+     - not compared
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-small-context-verified-cold-no-toctree
+     - 3
+     - 0.931022
+     - 0.921587
+     - 0.873653
+     - 0.852959
+     - 0.061951
+     - 0.056977
+     - 84.24
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-small-context-verified-cold-toctree
+     - 3
+     - 0.918031
+     - 0.917607
+     - 0.855422
+     - 0.854946
+     - 0.061958
+     - 0.054985
+     - 84.18
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-small-context-verified-warm-no-toctree
+     - 3
+     - 0.707958
+     - 0.705014
+     - 0.659535
+     - 0.655342
+     - 0.048950
+     - 0.047966
+     - 83.11
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-small-context-verified-warm-toctree
+     - 3
+     - 0.710258
+     - 0.706142
+     - 0.656200
+     - 0.649630
+     - 0.053934
+     - 0.051993
+     - 82.98
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-small-outline-heuristic-toctree
+     - 3
+     - 0.255712
+     - 0.253285
+     - 0.228999
+     - 0.222290
+     - 0.023999
+     - 0.020984
+     - 39.88
+     - \_parse\_rst=1, \_read\_source=4
+     - not compared
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-small-outline-verified-cold-no-toctree
+     - 3
+     - 1.721135
+     - 1.687962
+     - 1.600859
+     - 1.587575
+     - 0.107953
+     - 0.101021
+     - 84.19
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-small-outline-verified-cold-toctree
+     - 3
+     - 1.797261
+     - 1.593159
+     - 1.671663
+     - 1.486418
+     - 0.112941
+     - 0.107026
+     - 84.08
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-small-outline-verified-warm-no-toctree
+     - 3
+     - 1.376335
+     - 1.372207
+     - 1.268586
+     - 1.267434
+     - 0.104955
+     - 0.102883
+     - 82.93
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-large-small-outline-verified-warm-toctree
+     - 3
+     - 1.397056
+     - 1.374306
+     - 1.282546
+     - 1.274201
+     - 0.115029
+     - 0.100014
+     - 82.82
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-large-context-heuristic-toctree
+     - 3
+     - 0.353417
+     - 0.301145
+     - 0.322110
+     - 0.279900
+     - 0.031010
+     - 0.020992
+     - 40.10
+     - \_parse\_rst=1, \_read\_source=4
+     - not compared
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-large-context-verified-cold-no-toctree
+     - 3
+     - 0.801417
+     - 0.776430
+     - 0.742002
+     - 0.715181
+     - 0.059000
+     - 0.052992
+     - 82.35
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-large-context-verified-cold-toctree
+     - 3
+     - 0.807659
+     - 0.807522
+     - 0.749017
+     - 0.741220
+     - 0.058001
+     - 0.057917
+     - 82.38
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-large-context-verified-warm-no-toctree
+     - 3
+     - 0.833967
+     - 0.741858
+     - 0.765950
+     - 0.680653
+     - 0.066995
+     - 0.060969
+     - 82.55
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-large-context-verified-warm-toctree
+     - 3
+     - 0.831328
+     - 0.831049
+     - 0.773311
+     - 0.768645
+     - 0.061971
+     - 0.056949
+     - 82.43
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-large-outline-heuristic-toctree
+     - 3
+     - 0.300094
+     - 0.299940
+     - 0.278995
+     - 0.275716
+     - 0.019928
+     - 0.019039
+     - 40.05
+     - \_parse\_rst=1, \_read\_source=4
+     - not compared
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-large-outline-verified-cold-no-toctree
+     - 3
+     - 1.723559
+     - 1.600219
+     - 1.606171
+     - 1.498777
+     - 0.117965
+     - 0.101850
+     - 82.43
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-large-outline-verified-cold-toctree
+     - 3
+     - 2.109306
+     - 1.862384
+     - 1.958543
+     - 1.713226
+     - 0.150977
+     - 0.149029
+     - 82.45
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-large-outline-verified-warm-no-toctree
+     - 3
+     - 1.486410
+     - 1.468209
+     - 1.378055
+     - 1.360750
+     - 0.108058
+     - 0.104016
+     - 82.50
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-large-outline-verified-warm-toctree
+     - 3
+     - 1.489033
+     - 1.465537
+     - 1.375977
+     - 1.357800
+     - 0.109967
+     - 0.107904
+     - 82.53
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-small-context-heuristic-toctree
+     - 3
+     - 0.258857
+     - 0.256671
+     - 0.235510
+     - 0.229983
+     - 0.020956
+     - 0.016025
+     - 39.91
+     - \_parse\_rst=1, \_read\_source=4
+     - not compared
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-small-context-verified-cold-no-toctree
+     - 3
+     - 0.746602
+     - 0.736928
+     - 0.688018
+     - 0.682694
+     - 0.054956
+     - 0.053975
+     - 81.60
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-small-context-verified-cold-toctree
+     - 3
+     - 0.857209
+     - 0.801595
+     - 0.791482
+     - 0.721113
+     - 0.064957
+     - 0.064901
+     - 82.03
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-small-context-verified-warm-no-toctree
+     - 3
+     - 0.660538
+     - 0.651243
+     - 0.610959
+     - 0.600887
+     - 0.049990
+     - 0.048996
+     - 81.17
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-small-context-verified-warm-toctree
+     - 3
+     - 0.693934
+     - 0.683466
+     - 0.637573
+     - 0.623151
+     - 0.057933
+     - 0.055962
+     - 81.12
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-small-outline-heuristic-toctree
+     - 3
+     - 0.266609
+     - 0.254265
+     - 0.246323
+     - 0.239024
+     - 0.020026
+     - 0.015001
+     - 39.85
+     - \_parse\_rst=1, \_read\_source=4
+     - not compared
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-small-outline-verified-cold-no-toctree
+     - 3
+     - 1.414480
+     - 1.397214
+     - 1.301743
+     - 1.284099
+     - 0.112920
+     - 0.102999
+     - 81.39
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-small-outline-verified-cold-toctree
+     - 3
+     - 1.354942
+     - 1.339643
+     - 1.247023
+     - 1.246196
+     - 0.108014
+     - 0.094088
+     - 81.53
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-small-outline-verified-warm-no-toctree
+     - 3
+     - 1.377607
+     - 1.360909
+     - 1.280537
+     - 1.252261
+     - 0.103039
+     - 0.096967
+     - 81.21
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - generated-small-small-outline-verified-warm-toctree
+     - 3
+     - 1.350534
+     - 1.331192
+     - 1.237149
+     - 1.231931
+     - 0.108900
+     - 0.099913
+     - 81.18
+     - \_build\_sphinx\_env=1, \_parse\_rst=1, \_read\_source=4, \_toctree\_anomalies=1, run\_sphinx=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - public-context-no-toctree-verified-cold
+     - 3
+     - 3.287216
+     - 3.284020
+     - 3.158984
+     - 3.149764
+     - 0.123960
+     - 0.119990
+     - 116.03
+     - \_build\_sphinx\_env=1, \_nested\_inline\_reparse=64, \_parse\_rst=1, \_read\_source=1, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - public-context-no-toctree-verified-warm
+     - 3
+     - 2.216698
+     - 2.216390
+     - 2.112080
+     - 2.086152
+     - 0.126004
+     - 0.097019
+     - 116.18
+     - \_build\_sphinx\_env=1, \_nested\_inline\_reparse=64, \_parse\_rst=1, \_read\_source=1, \_toctree\_anomalies=1
+     - yes
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - 0.7.4
+     - E2
+     - public-context-toctree-heuristic
+     - 3
+     - 0.682325
+     - 0.680519
+     - 0.649110
+     - 0.645649
+     - 0.031005
+     - 0.028999
+     - 48.09
+     - \_nested\_inline\_reparse=64, \_parse\_rst=1, \_read\_source=1
+     - not compared
 
 **************************
 Reader phase attribution
@@ -3224,3 +3898,562 @@ The unattributed remainder is the total median minus the sum of the phase median
      - 0.142413
      - 0.430487
      - 0.014277
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-large-context-heuristic-toctree
+     - heuristic
+     - 0.000188
+     - \—
+     - 0.025657
+     - \—
+     - 0.019631
+     - 0.026728
+     - 0.082784
+     - 0.010580
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-large-context-verified-cold-no-toctree
+     - verified-cold
+     - 0.000183
+     - 0.264934
+     - 0.026409
+     - 0.249001
+     - 0.071787
+     - 0.036755
+     - 0.666712
+     - 0.017643
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-large-context-verified-cold-toctree
+     - verified-cold
+     - 0.000178
+     - 0.264967
+     - 0.025821
+     - 0.248685
+     - 0.070704
+     - 0.035902
+     - 0.658808
+     - 0.012551
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-large-context-verified-warm-no-toctree
+     - verified-warm
+     - 0.000189
+     - 0.266730
+     - 0.027581
+     - 0.065504
+     - 0.069565
+     - 0.033746
+     - 0.476408
+     - 0.013092
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-large-context-verified-warm-toctree
+     - verified-warm
+     - 0.000177
+     - 0.264873
+     - 0.027685
+     - 0.065775
+     - 0.069075
+     - 0.033531
+     - 0.472950
+     - 0.011833
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-large-outline-heuristic-toctree
+     - heuristic
+     - 0.000211
+     - \—
+     - 0.026512
+     - \—
+     - 0.047062
+     - 0.002042
+     - 0.086268
+     - 0.010443
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-large-outline-verified-cold-no-toctree
+     - verified-cold
+     - 0.000184
+     - 0.261597
+     - 0.025705
+     - 0.949349
+     - 0.098854
+     - 0.001870
+     - 1.353209
+     - 0.015649
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-large-outline-verified-cold-toctree
+     - verified-cold
+     - 0.000180
+     - 0.262967
+     - 0.026580
+     - 0.949871
+     - 0.100830
+     - 0.001914
+     - 1.367397
+     - 0.025054
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-large-outline-verified-warm-no-toctree
+     - verified-warm
+     - 0.000183
+     - 0.264431
+     - 0.026220
+     - 0.763807
+     - 0.099604
+     - 0.001865
+     - 1.167180
+     - 0.011071
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-large-outline-verified-warm-toctree
+     - verified-warm
+     - 0.000186
+     - 0.261263
+     - 0.026395
+     - 0.764367
+     - 0.097808
+     - 0.001877
+     - 1.165511
+     - 0.013615
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-small-context-heuristic-toctree
+     - heuristic
+     - 0.000205
+     - \—
+     - 0.025722
+     - \—
+     - 0.001992
+     - 0.000724
+     - 0.038672
+     - 0.010029
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-small-context-verified-cold-no-toctree
+     - verified-cold
+     - 0.000184
+     - 0.271887
+     - 0.025930
+     - 0.254048
+     - 0.014476
+     - 0.010232
+     - 0.587545
+     - 0.010788
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-small-context-verified-cold-toctree
+     - verified-cold
+     - 0.000178
+     - 0.275381
+     - 0.025918
+     - 0.246746
+     - 0.014776
+     - 0.009948
+     - 0.586498
+     - 0.013550
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-small-context-verified-warm-no-toctree
+     - verified-warm
+     - 0.000182
+     - 0.271265
+     - 0.028748
+     - 0.050495
+     - 0.016659
+     - 0.007398
+     - 0.388462
+     - 0.013714
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-small-context-verified-warm-toctree
+     - verified-warm
+     - 0.000182
+     - 0.273218
+     - 0.028531
+     - 0.051775
+     - 0.016669
+     - 0.007484
+     - 0.390164
+     - 0.012305
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-small-outline-heuristic-toctree
+     - heuristic
+     - 0.000199
+     - \—
+     - 0.026864
+     - \—
+     - 0.002708
+     - 0.000045
+     - 0.040312
+     - 0.010495
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-small-outline-verified-cold-no-toctree
+     - verified-cold
+     - 0.000190
+     - 0.267509
+     - 0.026542
+     - 1.022072
+     - 0.017364
+     - 0.000046
+     - 1.353504
+     - 0.019780
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-small-outline-verified-cold-toctree
+     - verified-cold
+     - 0.000185
+     - 0.276711
+     - 0.027042
+     - 1.097140
+     - 0.016954
+     - 0.000049
+     - 1.451524
+     - 0.033444
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-small-outline-verified-warm-no-toctree
+     - verified-warm
+     - 0.000188
+     - 0.262345
+     - 0.025903
+     - 0.732672
+     - 0.018043
+     - 0.000046
+     - 1.052610
+     - 0.013412
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-large-small-outline-verified-warm-toctree
+     - verified-warm
+     - 0.000184
+     - 0.263467
+     - 0.025966
+     - 0.748081
+     - 0.018731
+     - 0.000047
+     - 1.069634
+     - 0.013158
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-large-context-heuristic-toctree
+     - heuristic
+     - 0.000212
+     - \—
+     - 0.024594
+     - \—
+     - 0.023415
+     - 0.027530
+     - 0.089664
+     - 0.013913
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-large-context-verified-cold-no-toctree
+     - verified-cold
+     - 0.000174
+     - 0.265561
+     - 0.019360
+     - 0.065676
+     - 0.067851
+     - 0.029948
+     - 0.462707
+     - 0.014137
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-large-context-verified-cold-toctree
+     - verified-cold
+     - 0.000183
+     - 0.273053
+     - 0.019180
+     - 0.066454
+     - 0.066106
+     - 0.035587
+     - 0.482847
+     - 0.022284
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-large-context-verified-warm-no-toctree
+     - verified-warm
+     - 0.000224
+     - 0.267373
+     - 0.019259
+     - 0.036016
+     - 0.062058
+     - 0.029194
+     - 0.426284
+     - 0.012160
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-large-context-verified-warm-toctree
+     - verified-warm
+     - 0.000243
+     - 0.323711
+     - 0.020900
+     - 0.039710
+     - 0.067426
+     - 0.029509
+     - 0.487283
+     - 0.005783
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-large-outline-heuristic-toctree
+     - heuristic
+     - 0.000203
+     - \—
+     - 0.018882
+     - \—
+     - 0.046532
+     - 0.001863
+     - 0.078026
+     - 0.010546
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-large-outline-verified-cold-no-toctree
+     - verified-cold
+     - 0.000190
+     - 0.303365
+     - 0.019739
+     - 0.814295
+     - 0.111387
+     - 0.002203
+     - 1.284171
+     - 0.032994
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-large-outline-verified-cold-toctree
+     - verified-cold
+     - 0.000237
+     - 0.425162
+     - 0.025346
+     - 0.871354
+     - 0.110656
+     - 0.001958
+     - 1.513221
+     - 0.078507
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-large-outline-verified-warm-no-toctree
+     - verified-warm
+     - 0.000191
+     - 0.270121
+     - 0.019654
+     - 0.765116
+     - 0.093957
+     - 0.001860
+     - 1.158040
+     - 0.007141
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-large-outline-verified-warm-toctree
+     - verified-warm
+     - 0.000193
+     - 0.274056
+     - 0.019127
+     - 0.745674
+     - 0.091444
+     - 0.001938
+     - 1.139842
+     - 0.007410
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-small-context-heuristic-toctree
+     - heuristic
+     - 0.000197
+     - \—
+     - 0.019261
+     - \—
+     - 0.001726
+     - 0.000737
+     - 0.034386
+     - 0.012465
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-small-context-verified-cold-no-toctree
+     - verified-cold
+     - 0.000184
+     - 0.279969
+     - 0.019741
+     - 0.064274
+     - 0.010570
+     - 0.003031
+     - 0.396786
+     - 0.019017
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-small-context-verified-cold-toctree
+     - verified-cold
+     - 0.000270
+     - 0.297645
+     - 0.021245
+     - 0.070788
+     - 0.011377
+     - 0.003094
+     - 0.441990
+     - 0.037571
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-small-context-verified-warm-no-toctree
+     - verified-warm
+     - 0.000189
+     - 0.261495
+     - 0.020174
+     - 0.020134
+     - 0.009659
+     - 0.002654
+     - 0.332599
+     - 0.018293
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-small-context-verified-warm-toctree
+     - verified-warm
+     - 0.000185
+     - 0.278709
+     - 0.020413
+     - 0.022264
+     - 0.011747
+     - 0.002834
+     - 0.350294
+     - 0.014143
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-small-outline-heuristic-toctree
+     - heuristic
+     - 0.000218
+     - \—
+     - 0.019614
+     - \—
+     - 0.002733
+     - 0.000049
+     - 0.035683
+     - 0.013068
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-small-outline-verified-cold-no-toctree
+     - verified-cold
+     - 0.000179
+     - 0.269536
+     - 0.019377
+     - 0.750742
+     - 0.011411
+     - 0.000046
+     - 1.066419
+     - 0.015127
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-small-outline-verified-cold-toctree
+     - verified-cold
+     - 0.000175
+     - 0.268072
+     - 0.019542
+     - 0.723232
+     - 0.011799
+     - 0.000054
+     - 1.032117
+     - 0.009244
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-small-outline-verified-warm-no-toctree
+     - verified-warm
+     - 0.000193
+     - 0.284770
+     - 0.021277
+     - 0.707149
+     - 0.013104
+     - 0.000046
+     - 1.038250
+     - 0.011710
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - generated-small-small-outline-verified-warm-toctree
+     - verified-warm
+     - 0.000188
+     - 0.267401
+     - 0.019940
+     - 0.712692
+     - 0.011352
+     - 0.000044
+     - 1.022786
+     - 0.011169
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - public-context-no-toctree-verified-cold
+     - verified-cold
+     - 0.000586
+     - 0.263473
+     - 0.074745
+     - 1.579926
+     - 0.627682
+     - 0.340955
+     - 2.897219
+     - 0.009851
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - public-context-no-toctree-verified-warm
+     - verified-warm
+     - 0.000591
+     - 0.270664
+     - 0.070645
+     - 0.496830
+     - 0.663241
+     - 0.239606
+     - 1.755823
+     - 0.014247
+   * - 2026-11-08T08:27:30Z
+     - a2ad59d0dda5
+     - E2
+     - public-context-toctree-heuristic
+     - heuristic
+     - 0.000575
+     - \—
+     - 0.072278
+     - \—
+     - 0.208354
+     - 0.164591
+     - 0.456668
+     - 0.010870
