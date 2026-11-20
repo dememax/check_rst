@@ -2135,6 +2135,93 @@ def test_changed_line_ranges_combine_staged_and_unstaged_edits(rst_repo: Path) -
 
 
 @pytest.mark.integration
+def test_changed_line_ranges_staged_new_file_has_hunks(rst_repo: Path) -> None:
+    document = rst_repo / "staged-new.rst"
+    document.write_text("First line.\nSecond line.\n", encoding="utf-8")
+    _git(rst_repo, "add", document.name)
+
+    assert _helpers._changed_line_ranges(document, rst_repo) == [(1, 2)]
+
+
+@pytest.mark.integration
+def test_changed_line_ranges_preserves_deleted_and_binary_deltas(rst_repo: Path) -> None:
+    deleted = rst_repo / "deleted.rst"
+    binary = rst_repo / "binary.rst"
+    deleted.write_text("Deleted input.\n", encoding="utf-8")
+    binary.write_bytes(b"baseline\x00content\n")
+    _git(rst_repo, "add", deleted.name, binary.name)
+    _git(rst_repo, "commit", "-m", "binary and deleted baseline")
+    deleted.unlink()
+    binary.write_bytes(b"changed\x00content\n")
+
+    assert _helpers._changed_line_ranges(deleted, rst_repo) == [(0, 1)]
+    assert _helpers._changed_line_ranges(binary, rst_repo) == []
+
+
+@pytest.mark.integration
+def test_changed_line_ranges_cache_yields_to_later_git_error(
+    rst_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = rst_repo / "first.rst"
+    second = rst_repo / "second.rst"
+    for path in (first, second):
+        path.write_text("Baseline.\n", encoding="utf-8")
+    _git(rst_repo, "add", first.name, second.name)
+    _git(rst_repo, "commit", "-m", "cache baseline")
+    for path in (first, second):
+        path.write_text("Changed.\n", encoding="utf-8")
+    raw_paths = [os.fsencode(path.relative_to(rst_repo)) for path in (first, second)]
+    diff_calls = 0
+    patch_calls = 0
+
+    class _DeltaFile:
+        def __init__(self, raw_path: bytes) -> None:
+            self.raw_path = raw_path
+
+    class _Delta:
+        def __init__(self, raw_path: bytes) -> None:
+            self.new_file = _DeltaFile(raw_path)
+
+    class _Hunk:
+        new_start = 1
+        new_lines = 1
+
+    class _Patch:
+        hunks = (_Hunk(),)
+
+    class _Diff:
+        @property
+        def deltas(self) -> Iterator[object]:
+            return iter(_Delta(raw_path) for raw_path in raw_paths)
+
+        def __getitem__(self, index: int) -> object:
+            nonlocal patch_calls
+            patch_calls += 1
+            if index == 1:
+                raise pygit2.GitError("later requested patch failed")
+            return _Patch()
+
+    def diff_with_later_failure(self: pygit2.Repository, *_args: object, **_kwargs: object) -> object:
+        nonlocal diff_calls
+        diff_calls += 1
+        return _Diff()
+
+    monkeypatch.setattr(pygit2.Repository, "diff", diff_with_later_failure)
+
+    with _helpers._changed_line_ranges_invocation():
+        assert _helpers._changed_line_ranges(first, rst_repo) == [(1, 1)]
+        assert _helpers._changed_line_ranges(first, rst_repo) == [(1, 1)]
+        with pytest.raises(RuntimeError, match="git diff failed: later requested patch failed"):
+            _helpers._changed_line_ranges(second, rst_repo)
+        with pytest.raises(RuntimeError, match="git diff failed: later requested patch failed"):
+            _helpers._changed_line_ranges(first, rst_repo)
+
+    assert diff_calls == 1
+    assert patch_calls == 2
+
+
+@pytest.mark.integration
 def test_changed_line_ranges_untracked_file_inside_worktree_is_whole_file(rst_repo: Path) -> None:
     """A file that resolves inside the worktree but was never staged is a
     distinct code path from "outside the repository entirely" below: both
@@ -2488,13 +2575,10 @@ def test_cli_git_scope_fix_fails_closed_when_diff_iteration_races(
     """A Git failure raised while *iterating* an already-created Diff must
     fail closed exactly like a failure at the repo.diff() call itself.
 
-    libgit2 computes each patch's hunks lazily during iteration, not when
-    repo.diff() returns its handle — a file changing underneath the diff
-    between the call and the loop reaching it (a TOCTOU race) raises
-    pygit2.GitError there, with libgit2's own diagnostic: "file changed
-    before we could read it".  The sibling test above only covers a
-    failure at the repo.diff() call; this covers the separate `for patch
-    in diff:` loop that consumes it.
+    The delta index is consumed after repo.diff() returns its handle, so a
+    worktree race can still raise pygit2.GitError while that metadata is
+    iterated.  The sibling test above only covers a failure at the repo.diff()
+    call; this covers the separate delta walk.
     """
     document = rst_repo / "document.rst"
     document.write_text(_BAD_BLOCK, encoding="utf-8")
@@ -2504,7 +2588,11 @@ def test_cli_git_scope_fix_fails_closed_when_diff_iteration_races(
     document.write_text(original, encoding="utf-8")
 
     class _RacingDiff:
-        """Stands in for a real Diff whose lazy iteration hits the race."""
+        """Stand in for a real Diff whose delta iteration hits the race."""
+
+        @property
+        def deltas(self) -> Iterator[object]:
+            return iter(self)
 
         def __iter__(self) -> Iterator[object]:
             raise pygit2.GitError("file changed before we could read it")
@@ -2555,12 +2643,21 @@ def test_changed_line_ranges_fails_closed_when_lazy_hunk_loading_races(
         def hunks(self) -> object:
             raise pygit2.GitError("file changed while loading hunks")
 
+    class _Diff:
+        @property
+        def deltas(self) -> Iterator[object]:
+            return iter([_Delta()])
+
+        def __getitem__(self, index: int) -> object:
+            assert index == 0
+            return _Patch()
+
     def diff_with_lazy_hunk_failure(
         self: pygit2.Repository,
         *_args: object,
         **_kwargs: object,
-    ) -> list[object]:
-        return [_Patch()]
+    ) -> object:
+        return _Diff()
 
     monkeypatch.setattr(pygit2.Repository, "diff", diff_with_lazy_hunk_failure)
 

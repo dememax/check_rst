@@ -405,7 +405,9 @@ class _ChangedLineRangesRoot:
     worktree_root: pathlib.Path | None
     unborn: bool
     index: pygit2.Index | None = None
-    ranges: dict[bytes, tuple[tuple[int, int], ...]] | None = None
+    diff: pygit2.Diff | None = None
+    delta_indices: dict[bytes, int] | None = None
+    ranges: dict[bytes, tuple[tuple[int, int], ...]] = dataclasses.field(default_factory=dict)
     diff_error: str | None = None
 
 
@@ -451,36 +453,50 @@ def _invalidate_changed_line_ranges() -> None:
         invocation.roots.clear()
 
 
-def _materialize_changed_line_ranges(state: _ChangedLineRangesRoot) -> dict[bytes, tuple[tuple[int, int], ...]]:
-    """Consume one whole-repository diff into raw-path line ranges."""
-    if state.ranges is not None:
-        return state.ranges
+def _changed_line_range_diff(state: _ChangedLineRangesRoot) -> tuple[pygit2.Diff, dict[bytes, int]]:
+    """Construct one diff and index only its content-free delta metadata."""
     if state.diff_error is not None:
         raise RuntimeError(f"git diff failed: {state.diff_error}")
+    if state.diff is not None and state.delta_indices is not None:
+        return state.diff, state.delta_indices
     assert state.repo is not None
-    by_path: dict[bytes, tuple[tuple[int, int], ...]] = {}
     try:
         diff = state.repo.diff("HEAD", None, context_lines=0, flags=_DIFF_SINCE_HEAD_FLAGS)
-        # Diff is lazy: repository.diff() itself is cheap, and libgit2 walks
-        # the worktree while patches and hunks are consumed.  Materializing
-        # every path here makes that one walk reusable without weakening a
-        # mid-iteration GitError into whole-file scope.
-        for patch in diff:
-            if patch is None:
-                continue
-            relative_raw = patch.delta.new_file.raw_path
-            if relative_raw in by_path:
-                continue
-            ranges: list[tuple[int, int]] = []
-            for hunk in patch.hunks:
-                start, count = hunk.new_start, hunk.new_lines
-                ranges.append((start, start + count - 1) if count > 0 else (start, start + 1))
-            by_path[relative_raw] = tuple(ranges)
+        # Diff construction walks the worktree.  Delta raw paths are metadata;
+        # unlike Patch creation or DiffDelta.is_binary, reading them does not
+        # open file content.  Preserve the first delta for each raw path.
+        delta_indices: dict[bytes, int] = {}
+        for delta_index, delta in enumerate(diff.deltas):
+            delta_indices.setdefault(delta.new_file.raw_path, delta_index)
     except pygit2.GitError as exc:
         state.diff_error = str(exc)
         raise RuntimeError(f"git diff failed: {exc}") from exc
-    state.ranges = by_path
-    return by_path
+    state.diff = diff
+    state.delta_indices = delta_indices
+    return diff, delta_indices
+
+
+def _changed_line_ranges_for_path(state: _ChangedLineRangesRoot, relative_raw: bytes) -> tuple[tuple[int, int], ...]:
+    """Build and cache hunks only for one requested raw path."""
+    if state.diff_error is not None:
+        raise RuntimeError(f"git diff failed: {state.diff_error}")
+    if relative_raw in state.ranges:
+        return state.ranges[relative_raw]
+    try:
+        diff, delta_indices = _changed_line_range_diff(state)
+        delta_index = delta_indices.get(relative_raw)
+        patch = None if delta_index is None else diff[delta_index]
+        ranges: list[tuple[int, int]] = []
+        if patch is not None:
+            for hunk in patch.hunks:
+                start, count = hunk.new_start, hunk.new_lines
+                ranges.append((start, start + count - 1) if count > 0 else (start, start + 1))
+    except pygit2.GitError as exc:
+        state.diff_error = str(exc)
+        raise RuntimeError(f"git diff failed: {exc}") from exc
+    materialized = tuple(ranges)
+    state.ranges[relative_raw] = materialized
+    return materialized
 
 
 def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None = None) -> list[tuple[int, int]] | None:
@@ -509,13 +525,13 @@ def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None =
             state.index = state.repo.index
         if relative_raw not in state.index:
             return None  # untracked → not diffable, check whole file
-        ranges = _materialize_changed_line_ranges(state)
+        ranges = _changed_line_ranges_for_path(state, relative_raw)
     except pygit2.GitError as exc:
         # All legitimate no-diff states were classified above.  A repository
         # failure here cannot safely mean "whole file": in fix mode that would
         # silently widen selective Git scope and authorize unrelated edits.
         raise RuntimeError(f"git diff failed: {exc}") from exc
-    return list(ranges.get(relative_raw, ()))
+    return list(ranges)
 
 
 def _collapse_include_repeats(located: Iterable[tuple[Finding, tuple[int, ...]]]) -> list[Finding]:
