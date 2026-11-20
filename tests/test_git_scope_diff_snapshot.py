@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 
 type DiffCall = tuple[tuple[object, ...], dict[str, object]]
+type CliOutcome = tuple[int | None, str, str | None]
 
 
 def _title(text: str, char: str = "#") -> str:
@@ -94,6 +95,19 @@ def _run(
         cli.main()
     assert isinstance(exc.value.code, int)
     return exc.value.code, capsys.readouterr().out
+
+
+def _run_capturing_oserror(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *args: str,
+) -> CliOutcome:
+    """Represent the unrelated-file regression as an assertion failure."""
+    try:
+        exit_code, output = _run(monkeypatch, capsys, *args)
+    except OSError as exc:
+        return None, capsys.readouterr().out, f"{type(exc).__name__}: {exc}"
+    return exit_code, output, None
 
 
 def _range_diff_calls(calls: list[DiffCall]) -> list[DiffCall]:
@@ -177,3 +191,53 @@ def test_full_fix_refreshes_ranges_after_all_writes(
     assert "WARNING: nested inline markup in bold span" in output
     expected = _heading("Primary") + _heading("Changed section", "*") + "Some **bold *inner* text** inside.\n"
     assert document.read_text(encoding="utf-8") == expected
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("row", "argv", "unreadable_name"),
+    [
+        ("after-bare-check", ("check",), "zz-unreadable.txt"),
+        ("after-git-scope-check", ("check", "--git-scope", "{file}"), "zz-unreadable.txt"),
+        ("after-bare-fix-fast", ("fix", "--fast"), "zz-unreadable.txt"),
+        ("before-bare-check", ("check",), "aa-unreadable.txt"),
+    ],
+    ids=["after-bare-check", "after-git-scope-check", "after-bare-fix-fast", "before-bare-check"],
+)
+def test_unrelated_unreadable_file_does_not_affect_git_scoped_run(
+    tmp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    row: str,
+    argv: tuple[str, ...],
+    unreadable_name: str,
+) -> None:
+    monkeypatch.chdir(tmp_git_repo)
+    selected = tmp_git_repo / "m.rst"
+    selected.write_text(_title("Page"), encoding="utf-8")
+    _git(tmp_git_repo, "add", selected.name)
+    _git(tmp_git_repo, "commit", "-m", "selected baseline")
+    malformed = _malformed_title("Expanded page")
+    selected.write_text(malformed, encoding="utf-8")
+    expanded_argv = tuple(selected.name if item == "{file}" else item for item in argv)
+
+    expected = _run_capturing_oserror(monkeypatch, capsys, *expanded_argv)
+    expected_bytes = selected.read_bytes()
+    selected.write_text(malformed, encoding="utf-8")
+    unreadable = tmp_git_repo / unreadable_name
+    unreadable.write_text("Invented unrelated input.\n", encoding="utf-8")
+    unreadable.chmod(0)
+    try:
+        try:
+            unreadable.read_bytes()
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("chmod 000 files remain readable by this process")
+
+        actual = _run_capturing_oserror(monkeypatch, capsys, *expanded_argv)
+    finally:
+        unreadable.chmod(0o600)
+
+    assert actual == expected, row
+    assert selected.read_bytes() == expected_bytes
