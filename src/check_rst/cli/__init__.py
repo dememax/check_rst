@@ -2334,7 +2334,7 @@ def _run_json_check() -> NoReturn:
     raise caught if caught is not None else SystemExit(exit_code)
 
 
-def main() -> None:
+def _main_with_output_policy() -> None:
     """Run the CLI, installing the whole-report sink when requested."""
     _helpers._require_docutils_version()
     _helpers._require_pygit2_version()
@@ -2370,6 +2370,12 @@ def main() -> None:
     sink.finish(exit_code)
     if caught is not None:
         raise caught
+
+
+def main() -> None:
+    """Run one CLI invocation with worktree snapshots bounded to its lifetime."""
+    with _helpers._changed_line_ranges_invocation():
+        _main_with_output_policy()
 
 
 if __name__ == "__main__":

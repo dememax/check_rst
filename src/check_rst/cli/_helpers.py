@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import collections
 import contextlib
+import contextvars
+import dataclasses
 import os
 import pathlib
 import re
@@ -127,6 +129,7 @@ def _atomic_write_bytes(path: pathlib.Path, data: bytes) -> None:
         if current.st_nlink != 1:
             raise OSError(f"{destination} has {current.st_nlink} hard links; refusing atomic replacement")
         os.replace(temporary, destination)
+        _invalidate_changed_line_ranges()
     except BaseException:
         if descriptor_open:
             os.close(fd)
@@ -394,6 +397,92 @@ _DIFF_SINCE_HEAD_FLAGS = (
 )
 
 
+@dataclasses.dataclass(slots=True)
+class _ChangedLineRangesRoot:
+    """One root's Git state, materialized lazily for one worktree version."""
+
+    repo: pygit2.Repository | None
+    worktree_root: pathlib.Path | None
+    unborn: bool
+    index: pygit2.Index | None = None
+    ranges: dict[bytes, tuple[tuple[int, int], ...]] | None = None
+    diff_error: str | None = None
+
+
+@dataclasses.dataclass(slots=True)
+class _ChangedLineRangesInvocation:
+    """Changed-line snapshots owned by one in-process CLI invocation."""
+
+    roots: dict[pathlib.Path, _ChangedLineRangesRoot] = dataclasses.field(default_factory=dict)
+
+    def for_root(self, root: pathlib.Path) -> _ChangedLineRangesRoot:
+        """Return the state discovered from *root*, preserving root ownership."""
+        key = root.resolve()
+        if key not in self.roots:
+            repo = _discover_repo(root)
+            worktree_root = None if repo is None or repo.workdir is None else pathlib.Path(repo.workdir).resolve()
+            self.roots[key] = _ChangedLineRangesRoot(
+                repo=repo,
+                worktree_root=worktree_root,
+                unborn=repo.head_is_unborn if repo is not None and worktree_root is not None else False,
+            )
+        return self.roots[key]
+
+
+_ACTIVE_CHANGED_LINE_RANGES: contextvars.ContextVar[_ChangedLineRangesInvocation | None] = contextvars.ContextVar(
+    "_ACTIVE_CHANGED_LINE_RANGES", default=None
+)
+
+
+@contextlib.contextmanager
+def _changed_line_ranges_invocation() -> Iterator[None]:
+    """Give one CLI invocation snapshots that cannot leak into the next."""
+    token = _ACTIVE_CHANGED_LINE_RANGES.set(_ChangedLineRangesInvocation())
+    try:
+        yield
+    finally:
+        _ACTIVE_CHANGED_LINE_RANGES.reset(token)
+
+
+def _invalidate_changed_line_ranges() -> None:
+    """End every active snapshot after a successful source write."""
+    invocation = _ACTIVE_CHANGED_LINE_RANGES.get()
+    if invocation is not None:
+        invocation.roots.clear()
+
+
+def _materialize_changed_line_ranges(state: _ChangedLineRangesRoot) -> dict[bytes, tuple[tuple[int, int], ...]]:
+    """Consume one whole-repository diff into raw-path line ranges."""
+    if state.ranges is not None:
+        return state.ranges
+    if state.diff_error is not None:
+        raise RuntimeError(f"git diff failed: {state.diff_error}")
+    assert state.repo is not None
+    by_path: dict[bytes, tuple[tuple[int, int], ...]] = {}
+    try:
+        diff = state.repo.diff("HEAD", None, context_lines=0, flags=_DIFF_SINCE_HEAD_FLAGS)
+        # Diff is lazy: repository.diff() itself is cheap, and libgit2 walks
+        # the worktree while patches and hunks are consumed.  Materializing
+        # every path here makes that one walk reusable without weakening a
+        # mid-iteration GitError into whole-file scope.
+        for patch in diff:
+            if patch is None:
+                continue
+            relative_raw = patch.delta.new_file.raw_path
+            if relative_raw in by_path:
+                continue
+            ranges: list[tuple[int, int]] = []
+            for hunk in patch.hunks:
+                start, count = hunk.new_start, hunk.new_lines
+                ranges.append((start, start + count - 1) if count > 0 else (start, start + 1))
+            by_path[relative_raw] = tuple(ranges)
+    except pygit2.GitError as exc:
+        state.diff_error = str(exc)
+        raise RuntimeError(f"git diff failed: {exc}") from exc
+    state.ranges = by_path
+    return by_path
+
+
 def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None = None) -> list[tuple[int, int]] | None:
     """Return 1-based (start, end) line ranges changed since HEAD, or None.
 
@@ -401,42 +490,32 @@ def _changed_line_ranges(path: pathlib.Path, project_root: pathlib.Path | None =
     unavailable.  An empty list means the file is tracked but unchanged.
     """
     root = PROJECT_ROOT if project_root is None else project_root
-    repo = _discover_repo(root)
-    if repo is None or repo.workdir is None:
+    invocation = _ACTIVE_CHANGED_LINE_RANGES.get()
+    state = (invocation or _ChangedLineRangesInvocation()).for_root(root)
+    if state.repo is None or state.worktree_root is None:
         return None  # tolerated: no diffable state → check the whole file
-    if repo.head_is_unborn:
+    if state.unborn:
         return None  # no HEAD tree exists yet → check the whole file
-    worktree_root = pathlib.Path(repo.workdir).resolve()
     try:
-        relative = path.resolve().relative_to(worktree_root)
+        relative = path.resolve().relative_to(state.worktree_root)
     except ValueError:
         return None  # outside the repository → not diffable, check whole file
     # Git paths are bytes.  os.fsencode reverses Python's surrogateescape
     # representation on Unix, while pygit2's text path APIs reject those
     # surrogates and DiffFile.path tries strict UTF-8 decoding.
     relative_raw = os.fsencode(relative)
-    ranges: list[tuple[int, int]] = []
     try:
-        if relative_raw not in repo.index:
+        if state.index is None:
+            state.index = state.repo.index
+        if relative_raw not in state.index:
             return None  # untracked → not diffable, check whole file
-        diff = repo.diff("HEAD", None, context_lines=0, flags=_DIFF_SINCE_HEAD_FLAGS)
-        # Diff is lazy: repo.diff() itself is cheap, and libgit2 only walks
-        # the worktree once patches are actually consumed below.  A file
-        # changing mid-iteration (TOCTOU) therefore raises GitError from
-        # this loop, not from the call above — both must fail the same way.
-        for patch in diff:
-            if patch is None or patch.delta.new_file.raw_path != relative_raw:
-                continue
-            for hunk in patch.hunks:
-                start, count = hunk.new_start, hunk.new_lines
-                ranges.append((start, start + count - 1) if count > 0 else (start, start + 1))
-            break
+        ranges = _materialize_changed_line_ranges(state)
     except pygit2.GitError as exc:
         # All legitimate no-diff states were classified above.  A repository
         # failure here cannot safely mean "whole file": in fix mode that would
         # silently widen selective Git scope and authorize unrelated edits.
         raise RuntimeError(f"git diff failed: {exc}") from exc
-    return ranges
+    return list(ranges.get(relative_raw, ()))
 
 
 def _collapse_include_repeats(located: Iterable[tuple[Finding, tuple[int, ...]]]) -> list[Finding]:

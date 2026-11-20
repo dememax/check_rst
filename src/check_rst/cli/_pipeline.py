@@ -73,6 +73,7 @@ from ._types import (
     Finding,
     FindingCode,
     FixPlan,
+    FixResult,
     LocalEntry,
     MergedEntry,
     OutlineEntry,
@@ -141,6 +142,8 @@ class _PipelineState:
     stale_retentions: list[Retention] = dataclasses.field(default_factory=list)
     sphinx_findings_json: list[dict[str, Any]] | None = None
     fix_plans: dict[pathlib.Path, FixPlan] = dataclasses.field(default_factory=dict)
+    fix_results: dict[pathlib.Path, FixResult] = dataclasses.field(default_factory=dict)
+    fix_errors: dict[pathlib.Path, str] = dataclasses.field(default_factory=dict)
 
 
 def _outline_in_include_context(
@@ -339,6 +342,15 @@ def _plan_normal_fixes(
         raise SystemExit(1)
 
 
+def _apply_normal_fixes(files: list[pathlib.Path], state: _PipelineState) -> None:
+    """Write every full-pipeline plan before any post-write range read."""
+    for path in files:
+        try:
+            state.fix_results[path] = _apply_fix_plan(state.fix_plans[path])
+        except (OSError, RuntimeError) as exc:
+            state.fix_errors[path] = str(exc)
+
+
 def _apply_retentions(
     state: _PipelineState,
     path: pathlib.Path,
@@ -526,9 +538,9 @@ def _run_phase1(
         # whole-file (a line-ending policy can't be diff-scoped), independent
         # of --no-adornments, and every finding is --fix-able, so
         # --skip-fixable suppresses them all.  In fix mode the complete
-        # selection was already planned without writes; this original-state
-        # Document supplies the hygiene progress category before the composed
-        # candidate is installed atomically below.
+        # selection was already planned and written as one batch.  The plan's
+        # counts supply the original-state hygiene progress category while the
+        # fresh Document below observes the post-write range snapshot.
         # Phase 0 is also where a non-UTF-8 file surfaces: a clean per-file
         # ERROR, never a UnicodeDecodeError traceback (found by probe,
         # 2026-07-18 — same traceback-instead-of-diagnostic class as the
@@ -542,7 +554,7 @@ def _run_phase1(
                 "findings": [],
             }
         try:
-            hygiene_v = document.hygiene
+            hygiene_v = [] if args.fix else document.hygiene
         except UnicodeDecodeError as exc:
             # Detection is deterministic (UTF-8 validity is a hard fact);
             # repair is not — the source encoding is knowledge only the
@@ -567,17 +579,26 @@ def _run_phase1(
         if args.fix:
             plan = state.fix_plans[path]
             include_refusals = [refusal for refusal in plan.refusals if refusal.code in _INCLUDE_REFUSAL_CODES]
-            try:
-                _apply_fix_plan(plan)
-            except (OSError, RuntimeError) as exc:
-                _emit_report_line(f"check_rst: {path}: ERROR: cannot write fix: {exc}", "ERROR")
+            if path in state.fix_errors:
+                _emit_report_line(f"check_rst: {path}: ERROR: cannot write fix: {state.fix_errors[path]}", "ERROR")
                 state.total_errors += 1
                 continue
-            if plan.changed:
+            result = state.fix_results[path]
+            if result.changed:
                 state.fixed_files.add(pstr)
             if plan.include_refusal_kind is not None:
                 state.include_refusal_kinds[plan.include_refusal_kind] += 1
-            if not args.quiet and hygiene_v:
+            hygiene_fixed = any(
+                (
+                    plan.counts.bom,
+                    plan.counts.crlf,
+                    plan.counts.lone_cr,
+                    plan.counts.line_separators,
+                    plan.counts.control_whitespace,
+                    plan.counts.trailing_whitespace,
+                )
+            )
+            if not args.quiet and hygiene_fixed:
                 print(f"✓ {pstr}: hygiene fix applied (line endings / BOM / trailing whitespace)")
             if not args.quiet and plan.text_space_counts.total:
                 print(f"✓ {pstr}: {plan.text_space_counts.describe()}")
@@ -1536,6 +1557,7 @@ def _run_check_pipeline(
 
     if args.fix:
         _plan_normal_fixes(args, files, whole_file, project_root, state)
+        _apply_normal_fixes(files, state)
 
     _run_phase1(args, files, whole_file, project_root, word_samples, suppress_findings, state)
     with _sphinx._sphinx_build_lock(args.build_dir if args.sphinx_src is not None else None):
